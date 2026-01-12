@@ -1,7 +1,6 @@
-# ComfyUI-ImageOps (v2)
 
 # ComfyUI-Majoor-ImageOps
-Essential Nodes Pack  for Images Processingfor ComfyUI, with a **live embedded preview** inside the node (**no queue**) for supported chains.
+Essential Nodes Pack  for Images Processing for ComfyUI, with a **live embedded preview** inside the node (**no queue**) for supported chains.
 
 ## Nodes (category: `image/imageops`)
 - **ImageOps Load Image** – uses the same upload UI as core Load Image
