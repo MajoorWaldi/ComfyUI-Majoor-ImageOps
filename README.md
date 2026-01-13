@@ -1,4 +1,4 @@
-
+IN DEVELOPPEMENT  !!! 
 # ComfyUI-Majoor-ImageOps
 Essential Nodes Pack  for Images Processing for ComfyUI, with a **live embedded preview** inside the node (**no queue**) for supported chains.
 
