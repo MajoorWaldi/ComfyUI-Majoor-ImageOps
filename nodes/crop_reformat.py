@@ -1,6 +1,4 @@
 from ._helpers import _apply_crop_reformat, _apply_mask_to_image, _select_media_tensor
-from ._preview import save_temp_images, save_temp_animated
-
 
 class ImageOpsCropReformat:
     CATEGORY = "image/imageops"
@@ -21,8 +19,6 @@ class ImageOpsCropReformat:
                 "out_w": ("INT", {"default": 0, "min": 0, "max": 16384, "step": 1, "tooltip": "0 = keep crop size"}),
                 "out_h": ("INT", {"default": 0, "min": 0, "max": 16384, "step": 1, "tooltip": "0 = keep crop size"}),
                 "mode": (["fit", "fill", "stretch"], {"default": "fit"}),
-                "preview": ("BOOLEAN", {"default": False}),
-                "preview_mode": (["images", "animated_webp", "animated_gif"], {"default": "images"}),
             },
             "optional": {
                 "video": ("IMAGE", {"tooltip": "Video frames (alias for image input)", "forceInput": True}),
@@ -30,21 +26,8 @@ class ImageOpsCropReformat:
             }
         }
 
-    def apply(self, image=None, x=0, y=0, crop_w=512, crop_h=512, padding=0, pad_mode="reflect",
-              out_w=0, out_h=0, mode="fit",
-              preview=False, preview_mode="images", video=None, mask=None):
+    def apply(self, image=None, x=0, y=0, crop_w=512, crop_h=512, padding=0, pad_mode="reflect", out_w=0, out_h=0, mode="fit", video=None, mask=None):
         src = _select_media_tensor(image, video)
         out = _apply_crop_reformat(src, x, y, crop_w, crop_h, padding, pad_mode, out_w, out_h, mode)
         out = _apply_mask_to_image(src, out, mask)
-
-        if preview:
-            if preview_mode == "animated_webp":
-                item = save_temp_animated(out, prefix="imageops_crop", ext="webp")
-                ui = {"images": [item]} if item else {"images": save_temp_images(out, prefix="imageops_crop")}
-            elif preview_mode == "animated_gif":
-                item = save_temp_animated(out, prefix="imageops_crop", ext="gif")
-                ui = {"images": [item]} if item else {"images": save_temp_images(out, prefix="imageops_crop")}
-            else:
-                ui = {"images": save_temp_images(out, prefix="imageops_crop")}
-            return {"ui": ui, "result": (out,)}
         return (out,)

@@ -1,66 +1,118 @@
 """
-ComfyUI-ImageOps
-MVP “Nuke-ish” image ops pack with live (frontend) embedded preview.
+ComfyUI custom node entrypoint.
 
-v2 fix:
-- ImageOpsLoadImage no longer uses folder_paths.get_filename_list("input") (KeyError).
-- ImageOpsLoadImage uses image_upload widget like core Load Image.
-- Live preview can start from ImageOpsLoadImage OR core LoadImage.
+ComfyUI loads custom nodes via `importlib.util.spec_from_file_location()` with a synthetic module name
+that is not a Python package, so relative imports like `from .nodes.foo import ...` can fail.
+
+To stay ComfyUI-proof, we create an internal package namespace and load node modules under it.
 """
 
-from .nodes import (
-    ImageOpsLoadImage,
-    ImageOpsColorCorrect,
-    ImageOpsBlur,
-    ImageOpsTransform,
-    ImageOpsRotoMask,
+from __future__ import annotations
 
-    ImageOpsGradeLevels,
-    ImageOpsHueSat,
-    ImageOpsInvert,
-    ImageOpsClamp,
-    ImageOpsSharpen,
-    ImageOpsEdgeDetect,
-    ImageOpsMerge,
-    ImageOpsDilateErode,
-    ImageOpsGlow,
-    ImageOpsCropReformat,
-    ImageOpsLumaKey,
-    ImageOpsPreview,
-)
+import importlib.util
+import sys
+import types
+from pathlib import Path
 
-WEB_DIRECTORY = "./js"
+BASE_DIR = Path(__file__).resolve().parent
 
-# NODE_CONFIG style (as requested)
-NODE_CONFIG = [
-    (ImageOpsLoadImage, "ImageOps Load Image"),
-    (ImageOpsColorCorrect, "ImageOps ColorCorrect (Live)"),
-    (ImageOpsBlur, "ImageOps Blur (Live)"),
-    (ImageOpsTransform, "ImageOps Transform (Live)"),
-    (ImageOpsRotoMask, "ImageOps Roto Mask (Live)"),
+# Stable, collision-resistant package prefix for our internal imports.
+_PKG = "majoor_imageops"
 
-    (ImageOpsGradeLevels, "ImageOps Grade / Levels (Live)"),
-    (ImageOpsHueSat, "ImageOps Hue / Sat (Live)"),
-    (ImageOpsInvert, "ImageOps Invert (Live)"),
-    (ImageOpsClamp, "ImageOps Clamp (Live)"),
-    (ImageOpsSharpen, "ImageOps Sharpen (Live)"),
-    (ImageOpsEdgeDetect, "ImageOps Edge Detect (Live)"),
-    (ImageOpsMerge, "ImageOps Merge (Live-ish)"),
-    (ImageOpsDilateErode, "ImageOps Dilate / Erode (Mask)"),
-    (ImageOpsGlow, "ImageOps Glow (Live)"),
-    (ImageOpsCropReformat, "ImageOps Crop / Reformat (Live)"),
-    (ImageOpsLumaKey, "ImageOps LumaKey"),
-    (ImageOpsPreview, "ImageOps Preview (Output)"),
+
+def _ensure_pkg(name: str, path: Path, file_hint: Path | None = None) -> types.ModuleType:
+    mod = sys.modules.get(name)
+    if mod is None:
+        mod = types.ModuleType(name)
+        sys.modules[name] = mod
+    mod.__path__ = [str(path)]
+    if file_hint is not None:
+        mod.__file__ = str(file_hint)
+    return mod
+
+
+def _load_module(mod_name: str, file_path: Path) -> types.ModuleType:
+    existing = sys.modules.get(mod_name)
+    if existing is not None:
+        return existing
+    spec = importlib.util.spec_from_file_location(mod_name, str(file_path))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load module spec for {mod_name} from {file_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+# Create internal package + nodes package so node files' relative imports work.
+_ensure_pkg(_PKG, BASE_DIR, BASE_DIR / "__init__.py")
+_ensure_pkg(f"{_PKG}.nodes", BASE_DIR / "nodes", BASE_DIR / "nodes" / "__init__.py")
+
+_nodes_dir = BASE_DIR / "nodes"
+
+ImageOpsBlur = _load_module(f"{_PKG}.nodes.blur", _nodes_dir / "blur.py").ImageOpsBlur
+ImageOpsColorCorrect = _load_module(f"{_PKG}.nodes.color_correct", _nodes_dir / "color_correct.py").ImageOpsColorCorrect
+ImageOpsLoadImage = _load_module(f"{_PKG}.nodes.load_image", _nodes_dir / "load_image.py").ImageOpsLoadImage
+ImageOpsTransform = _load_module(f"{_PKG}.nodes.transform", _nodes_dir / "transform.py").ImageOpsTransform
+ImageOpsRotoMask = _load_module(f"{_PKG}.nodes.roto_mask", _nodes_dir / "roto_mask.py").ImageOpsRotoMask
+ImageOpsGradeLevels = _load_module(f"{_PKG}.nodes.grade_levels", _nodes_dir / "grade_levels.py").ImageOpsGradeLevels
+ImageOpsHueSat = _load_module(f"{_PKG}.nodes.hue_sat", _nodes_dir / "hue_sat.py").ImageOpsHueSat
+ImageOpsInvert = _load_module(f"{_PKG}.nodes.invert", _nodes_dir / "invert.py").ImageOpsInvert
+ImageOpsClamp = _load_module(f"{_PKG}.nodes.clamp", _nodes_dir / "clamp.py").ImageOpsClamp
+ImageOpsSharpen = _load_module(f"{_PKG}.nodes.sharpen", _nodes_dir / "sharpen.py").ImageOpsSharpen
+ImageOpsEdgeDetect = _load_module(f"{_PKG}.nodes.edge_detect", _nodes_dir / "edge_detect.py").ImageOpsEdgeDetect
+ImageOpsMerge = _load_module(f"{_PKG}.nodes.merge", _nodes_dir / "merge.py").ImageOpsMerge
+ImageOpsDilateErode = _load_module(f"{_PKG}.nodes.dilate_erode", _nodes_dir / "dilate_erode.py").ImageOpsDilateErode
+ImageOpsGlow = _load_module(f"{_PKG}.nodes.glow", _nodes_dir / "glow.py").ImageOpsGlow
+ImageOpsCropReformat = _load_module(f"{_PKG}.nodes.crop_reformat", _nodes_dir / "crop_reformat.py").ImageOpsCropReformat
+ImageOpsLumaKey = _load_module(f"{_PKG}.nodes.luma_key", _nodes_dir / "luma_key.py").ImageOpsLumaKey
+ImageOpsPreview = _load_module(f"{_PKG}.nodes.preview", _nodes_dir / "preview.py").ImageOpsPreview
+
+NODE_CLASS_MAPPINGS = {
+    "ImageOpsLoadImage": ImageOpsLoadImage,
+    "ImageOpsColorCorrect": ImageOpsColorCorrect,
+    "ImageOpsBlur": ImageOpsBlur,
+    "ImageOpsTransform": ImageOpsTransform,
+    "ImageOpsGradeLevels": ImageOpsGradeLevels,
+    "ImageOpsHueSat": ImageOpsHueSat,
+    "ImageOpsInvert": ImageOpsInvert,
+    "ImageOpsClamp": ImageOpsClamp,
+    "ImageOpsSharpen": ImageOpsSharpen,
+    "ImageOpsEdgeDetect": ImageOpsEdgeDetect,
+    "ImageOpsMerge": ImageOpsMerge,
+    "ImageOpsDilateErode": ImageOpsDilateErode,
+    "ImageOpsGlow": ImageOpsGlow,
+    "ImageOpsCropReformat": ImageOpsCropReformat,
+    "ImageOpsLumaKey": ImageOpsLumaKey,
+    "ImageOpsRotoMask": ImageOpsRotoMask,
+    "ImageOpsPreview": ImageOpsPreview,
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "ImageOpsLoadImage": "ImageOps LoadImage",
+    "ImageOpsColorCorrect": "ImageOps ColorCorrect",
+    "ImageOpsBlur": "ImageOps Blur",
+    "ImageOpsTransform": "ImageOps Transform",
+    "ImageOpsGradeLevels": "ImageOps Grade/Levels",
+    "ImageOpsHueSat": "ImageOps HueSat",
+    "ImageOpsInvert": "ImageOps Invert",
+    "ImageOpsClamp": "ImageOps Clamp",
+    "ImageOpsSharpen": "ImageOps Sharpen",
+    "ImageOpsEdgeDetect": "ImageOps EdgeDetect",
+    "ImageOpsMerge": "ImageOps Merge",
+    "ImageOpsDilateErode": "ImageOps Dilate/Erode",
+    "ImageOpsGlow": "ImageOps Glow",
+    "ImageOpsCropReformat": "ImageOps Crop/Reformat",
+    "ImageOpsLumaKey": "ImageOps LumaKey",
+    "ImageOpsRotoMask": "ImageOps RotoMask",
+    "ImageOpsPreview": "ImageOps Preview",
+}
+
+__all__ = [
+    "NODE_CLASS_MAPPINGS",
+    "NODE_DISPLAY_NAME_MAPPINGS",
+    "WEB_DIRECTORY",
 ]
 
-def generate_node_mappings(config):
-    node_class_mappings = {}
-    node_display_name_mappings = {}
-    for cls, display_name in config:
-        node_class_mappings[cls.__name__] = cls
-        node_display_name_mappings[cls.__name__] = display_name
-    return node_class_mappings, node_display_name_mappings
-
-NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS = generate_node_mappings(NODE_CONFIG)
-
-__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
+# ComfyUI web extension folder
+WEB_DIRECTORY = "./js"

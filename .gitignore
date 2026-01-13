@@ -1,0 +1,28 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Documentation
+docs/
+*.md.backup
+
+# Tests
+tests/
+test_*.py
+*_test.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+tmpclaude-4d1d-cwd
+tmpclaude-855c-cwd
+tmpclaude-2284-cwd
+AGENTS.md

@@ -57,8 +57,8 @@ class ImageOpsRotoMask:
                 "image": ("IMAGE",),
                 "roto_data": ("STRING", {"default": "{\"version\":1,\"mode\":\"paint\"}", "multiline": True, "tooltip": "Auto data for Roto Mask (edited by the canvas UI)"}),
                 "invert": ("BOOLEAN", {"default": False}),
-                "feather": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 256.0, "step": 0.5}),
-                "opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "feather": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 256.0, "step": 0.5, "display": "slider", "round": 0.001}),
+                "opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001}),
             },
             "optional": {
                 "video": ("IMAGE", {"tooltip": "Video frames (alias for image input)", "forceInput": True}),

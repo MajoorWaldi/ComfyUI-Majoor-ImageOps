@@ -1,17 +1,26 @@
 import math
 import logging
+import os
 
 import numpy as np
 import torch
 from PIL import Image
+
+from ._ops_constants import EPSILON, GAMMA_MAX, GAMMA_SAFE_MIN, LUMA_WEIGHTS
 
 # Constants shared across ImageOps nodes
 logger = logging.getLogger(__name__)
 
 MAX_IMAGE_DIMENSION = 16384
 MAX_SCALE_DIMENSION = 8192
-GAMMA_MAX = 5.0
-GAMMA_SAFE_MIN = 0.2
+
+def _get_int_env(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return int(default)
+
+LARGE_IMAGE_WARN_MB = _get_int_env("IMAGEOPS_LARGE_IMAGE_WARN_MB", 2048)
 
 ALLOWED_EXTENSIONS = {
     '.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tif', '.tiff'
@@ -50,7 +59,8 @@ def _apply_color_correct(image, brightness, contrast, gamma, saturation):
     x = torch.clamp(x, 0, 1) ** (1.0 / gamma)
 
     rgb = x[..., :3]
-    luma = (0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]).unsqueeze(-1)
+    lr, lg, lb = LUMA_WEIGHTS
+    luma = (lr * rgb[..., 0] + lg * rgb[..., 1] + lb * rgb[..., 2]).unsqueeze(-1)
     rgb = luma + (rgb - luma) * saturation
     if x.shape[-1] == 4:
         x = torch.cat([rgb, x[..., 3:4]], dim=-1)
@@ -64,7 +74,7 @@ def _gaussian_kernel1d(radius, sigma):
     radius = int(max(0, radius))
     if radius == 0:
         return torch.tensor([1.0], dtype=torch.float32)
-    sigma = float(max(1e-6, sigma))
+    sigma = float(max(EPSILON, sigma))
     xs = torch.arange(-radius, radius + 1, dtype=torch.float32)
     k = torch.exp(-(xs * xs) / (2.0 * sigma * sigma))
     return k / torch.sum(k)
@@ -114,7 +124,8 @@ def _prepare_mask_tensor(mask, batch, height, width, device, dtype):
     if not torch.is_tensor(m):
         try:
             m = torch.tensor(m, dtype=torch.float32, device=device)
-        except Exception:
+        except (RuntimeError, TypeError, ValueError) as e:
+            logger.warning("Mask tensor conversion failed: %s", e)
             return None
     else:
         m = m.to(device=device)
@@ -170,7 +181,7 @@ def _apply_levels(image: torch.Tensor, in_min: float, in_max: float, gamma: floa
     x = image.float()
     in_min = float(in_min); in_max = float(in_max)
     out_min = float(out_min); out_max = float(out_max)
-    denom = max(1e-6, (in_max - in_min))
+    denom = max(EPSILON, (in_max - in_min))
     y = (x - in_min) / denom
     y = y.clamp(0.0, 1.0)
     g = float(max(GAMMA_SAFE_MIN, min(GAMMA_MAX, gamma)))
@@ -185,15 +196,15 @@ def _rgb_to_hsv(rgb: torch.Tensor):
     minc = torch.min(rgb, dim=-1).values
     v = maxc
     delta = maxc - minc
-    s = torch.where(maxc > 1e-6, delta / (maxc + 1e-6), torch.zeros_like(maxc))
+    s = torch.where(maxc > EPSILON, delta / (maxc + EPSILON), torch.zeros_like(maxc))
     # hue
-    rc = (maxc - r) / (delta + 1e-6)
-    gc = (maxc - g) / (delta + 1e-6)
-    bc = (maxc - b) / (delta + 1e-6)
+    rc = (maxc - r) / (delta + EPSILON)
+    gc = (maxc - g) / (delta + EPSILON)
+    bc = (maxc - b) / (delta + EPSILON)
     h = torch.zeros_like(maxc)
-    h = torch.where((maxc == r) & (delta > 1e-6), (bc - gc), h)
-    h = torch.where((maxc == g) & (delta > 1e-6), (2.0 + rc - bc), h)
-    h = torch.where((maxc == b) & (delta > 1e-6), (4.0 + gc - rc), h)
+    h = torch.where((maxc == r) & (delta > EPSILON), (bc - gc), h)
+    h = torch.where((maxc == g) & (delta > EPSILON), (2.0 + rc - bc), h)
+    h = torch.where((maxc == b) & (delta > EPSILON), (4.0 + gc - rc), h)
     h = (h / 6.0) % 1.0
     return torch.stack([h, s, v], dim=-1)
 
@@ -240,7 +251,7 @@ def _apply_sharpen(image: torch.Tensor, amount: float, radius: int, sigma: float
     x = image.float().clamp(0,1)
     if float(amount) == 0.0 or int(radius) <= 0:
         return x
-    blurred = _apply_blur(x, int(radius), float(max(1e-6, sigma)))
+    blurred = _apply_blur(x, int(radius), float(max(EPSILON, sigma)))
     diff = x - blurred
     if float(threshold) > 0:
         m = diff.abs().mean(dim=-1, keepdim=True)
@@ -252,7 +263,8 @@ def _apply_edge_detect(image: torch.Tensor, strength: float):
     """Sobel edge magnitude on luma. Output is grayscale RGB (alpha passthrough)."""
     x = image.float().clamp(0, 1)
     rgb = x[..., :3]
-    l = (0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]).clamp(0, 1)  # [B,H,W]
+    lr, lg, lb = LUMA_WEIGHTS
+    l = (lr * rgb[..., 0] + lg * rgb[..., 1] + lb * rgb[..., 2]).clamp(0, 1)  # [B,H,W]
     l = l.unsqueeze(1)  # [B,1,H,W]
 
     kx = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32, device=x.device).view(1, 1, 3, 3)
@@ -336,11 +348,12 @@ def _dilate_erode_mask(mask: torch.Tensor, radius: int, op: str):
 def _apply_glow(image: torch.Tensor, threshold: float, radius: int, sigma: float, intensity: float):
     x = image.float().clamp(0,1)
     rgb = x[..., :3]
-    luma = (0.2126*rgb[...,0] + 0.7152*rgb[...,1] + 0.0722*rgb[...,2]).unsqueeze(-1)
+    lr, lg, lb = LUMA_WEIGHTS
+    luma = (lr*rgb[...,0] + lg*rgb[...,1] + lb*rgb[...,2]).unsqueeze(-1)
     mask = (luma - float(threshold)).clamp(0,1)
     glow = rgb * mask
     glow4 = torch.cat([glow, torch.ones_like(mask)], dim=-1) if x.shape[-1]==4 else glow
-    glow_blur = _apply_blur(glow4, int(radius), float(max(1e-6, sigma)))
+    glow_blur = _apply_blur(glow4, int(radius), float(max(EPSILON, sigma)))
     g_rgb = glow_blur[..., :3]
     out_rgb = (rgb + g_rgb * float(intensity)).clamp(0,1)
     if x.shape[-1]==4:
@@ -413,7 +426,8 @@ def _apply_crop_reformat(image: torch.Tensor, x: int, y: int, crop_w: int, crop_
 def _apply_lumakey(image: torch.Tensor, low: float, high: float, softness: float):
     x = image.float().clamp(0,1)
     rgb = x[..., :3]
-    luma = (0.2126*rgb[...,0] + 0.7152*rgb[...,1] + 0.0722*rgb[...,2]).clamp(0,1)
+    lr, lg, lb = LUMA_WEIGHTS
+    luma = (lr*rgb[...,0] + lg*rgb[...,1] + lb*rgb[...,2]).clamp(0,1)
     low = float(low); high=float(high); soft=float(max(0.0, softness))
     # smoothstep on low/high with softness
     if soft > 0:
@@ -425,7 +439,7 @@ def _apply_lumakey(image: torch.Tensor, low: float, high: float, softness: float
         low1=low2=low
         high1=high2=high
     def smoothstep(a,b,t):
-        t = ((t-a)/(b-a+1e-6)).clamp(0,1)
+        t = ((t-a)/(b-a+EPSILON)).clamp(0,1)
         return t*t*(3-2*t)
     m_low = smoothstep(low1, low2, luma)
     m_high = 1.0 - smoothstep(high1, high2, luma)

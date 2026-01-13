@@ -5,6 +5,8 @@ from ._helpers import (
     _pil_to_tensor,
     _select_media_tensor,
     _tensor_to_pil,
+    EPSILON,
+    LARGE_IMAGE_WARN_MB,
     MAX_SCALE_DIMENSION,
     logger,
 )
@@ -22,8 +24,8 @@ class ImageOpsTransform:
                 "image": ("IMAGE",),
                 "translate_x": ("INT", {"default": 0, "min": -4096, "max": 4096, "step": 1}),
                 "translate_y": ("INT", {"default": 0, "min": -4096, "max": 4096, "step": 1}),
-                "rotate_deg": ("FLOAT", {"default": 0.0, "min": -180.0, "max": 180.0, "step": 0.1}),
-                "scale": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 8.0, "step": 0.01}),
+                "rotate_deg": ("FLOAT", {"default": 0.0, "min": -180.0, "max": 180.0, "step": 0.1, "display": "slider", "round": 0.001}),
+                "scale": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 8.0, "step": 0.01, "display": "slider", "round": 0.001}),
                 "filter": (["nearest", "bilinear", "bicubic"],),
                 "expand": ("BOOLEAN", {"default": False}),
             },
@@ -43,7 +45,7 @@ class ImageOpsTransform:
             "bicubic": Image.BICUBIC,
         }.get(filter, Image.BILINEAR)
 
-        if abs(scale - 1.0) > 1e-6:
+        if abs(scale - 1.0) > EPSILON:
             w, h = pil.size
             nw, nh = max(1, int(round(w * scale))), max(1, int(round(h * scale)))
             if nw > MAX_SCALE_DIMENSION or nh > MAX_SCALE_DIMENSION:
@@ -55,12 +57,12 @@ class ImageOpsTransform:
                 )
 
             estimated_mb = (nw * nh * 4) / (1024 * 1024)
-            if estimated_mb > 2048:
-                logger.warning(f"Large image allocation: {nw}x{nh} (~{estimated_mb:.1f} MB)")
+            if estimated_mb > float(LARGE_IMAGE_WARN_MB):
+                logger.warning(f"Large image allocation: {nw}x{nh} (~{estimated_mb:.1f} MB) > {LARGE_IMAGE_WARN_MB} MB")
 
             pil = pil.resize((nw, nh), resample=resample)
 
-        if abs(rotate_deg) > 1e-6:
+        if abs(rotate_deg) > EPSILON:
             pil = pil.rotate(rotate_deg, resample=resample, expand=bool(expand))
             if expand:
                 w, h = pil.size

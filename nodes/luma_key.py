@@ -11,9 +11,9 @@ class ImageOpsLumaKey:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "low": ("FLOAT", {"default": 0.1, "min": 0.0, "max": 1.0, "step": 0.005}),
-                "high": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.005}),
-                "softness": ("FLOAT", {"default": 0.05, "min": 0.0, "max": 0.5, "step": 0.005}),
+                "low": ("FLOAT", {"default": 0.1, "min": 0.0, "max": 1.0, "step": 0.005, "display": "slider", "round": 0.001}),
+                "high": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.005, "display": "slider", "round": 0.001}),
+                "softness": ("FLOAT", {"default": 0.05, "min": 0.0, "max": 0.5, "step": 0.005, "display": "slider", "round": 0.001}),
             },
             "optional": {
                 "video": ("IMAGE", {"tooltip": "Video frames (alias for image input)", "forceInput": True}),

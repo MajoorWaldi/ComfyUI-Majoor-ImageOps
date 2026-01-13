@@ -1,47 +1,42 @@
-IN DEVELOPPEMENT  !!! 
-# ComfyUI-Majoor-ImageOps
-Essential Nodes Pack  for Images Processing for ComfyUI, with a **live embedded preview** inside the node (**no queue**) for supported chains.
+# 🧩 ComfyUI-ImageOps — *Nuke-ish Image Processing for ComfyUI*  
+> Live preview on-node (no queue), batch-safe ops, and interop adapters.  
 
-## Nodes (category: `image/imageops`)
-- **ImageOps Load Image** – uses the same upload UI as core Load Image
-- **ImageOps ColorCorrect (Live)**
-- **ImageOps Blur (Live)**
-- **ImageOps Transform (Live)**
-- **ImageOps Roto Mask (Live)** – draw a mask (paint or bezier) and use it as an effect/merge mask
+## ✨ Features
+- 🎛️ **KayTool-like sliders** (`display: slider`)
+- 🖼️ **Live Preview** on ImageOps nodes (central module)
+- 🎞️ **Video-friendly** (treat frames as IMAGE batches)
+- 🧠 **Interop mode** (Core + WAS + heuristics) — no forks
+- 📶 **Progress bar** on nodes during queued execution
+- 🧩 PrimeIcon-prefixed display names (`pi pi-...`)
 
-## Live preview
-- Backend nodes only compute when you **queue/execute**.
-- Live preview is done in the **frontend** with a canvas.
-- Chain preview works when the chain starts from **ImageOps Load Image** OR core **Load Image**.
+## 🚀 Install
+1. Drop folder into: `ComfyUI/custom_nodes/ComfyUI-ImageOps`
+2. Restart ComfyUI
+3. Hard refresh browser: **Ctrl+F5**
 
-## Install
-Unzip into `ComfyUI/custom_nodes/` then restart ComfyUI.
+## 🧰 Nodes
+All nodes are in `image/imageops` category:
+- `ImageOps ColorCorrect`
+- `ImageOps Grade/Levels`
+- `ImageOps HueSat`
+- `ImageOps Merge`
+- `ImageOps Preview (Output)`
+…and more.
 
-## v4 note
-- Live preview now supports **video sources** (e.g. VideoHelperSuite / VHS loaders) and other custom loaders (best-effort).
-- Loader nodes are NOT visually modified; only ImageOps nodes show a preview canvas.
+## 🧩 Live Preview Architecture
+- `js/preview/host.js` → inject widget + loop for video
+- `js/preview/renderer.js` → recursive render + caching
+- `js/preview/registry.js` → adapters (core/WAS/generic/ImageOps)
+- `js/preview/ops.js` → single source of truth for preview ops
 
+## ⚠️ Notes
+- Some packs use custom video types; best results when upstream provides frames as `IMAGE` batches.
+- If ComfyUI logs `[DEPRECATION WARNING]`, an extension is using old frontend APIs.
+- Config:
+  - Preview canvas size: set `localStorage["imageops.preview.canvasSize"]` (int, default `512`).
+  - Large allocation warning (Transform): set env `IMAGEOPS_LARGE_IMAGE_WARN_MB` (int, default `2048`).
 
-## Added nodes (v5)
-
-- Grade / Levels
-- Hue / Sat
-- Invert
-- Clamp
-- Sharpen
-- Edge Detect
-- Merge (basic blend modes)
-- Dilate / Erode (Mask)
-- Glow
-- Crop / Reformat (fit/fill/stretch)
-- LumaKey (outputs MASK)
-- Preview (Output) — images / animated webp / animated gif
-
-### Progress bar
-
-During queue execution, ImageOps nodes display a lightweight progress bar (based on ComfyUI websocket events).
-
-## v5.1
-- Fixed live preview + added interop (core + WAS best-effort).
-- ImageOps Preview node now also has embedded live preview.
-- External nodes are never visually modified.
+## 📄 Docs
+- `AGENTS.md` (rules & sources)
+- `docs/CHANGES_AUDIT.md`
+- `docs/CODEX_TASKLIST.md`

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "epsilon": 1e-6,
+  "luma_weights": [0.2126, 0.7152, 0.0722],
+  "gamma_safe_min": 0.2,
+  "gamma_max": 5.0,
+  "preview_gamma_epsilon": 1e-3
+}
+

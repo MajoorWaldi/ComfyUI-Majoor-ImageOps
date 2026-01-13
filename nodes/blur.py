@@ -12,7 +12,7 @@ class ImageOpsBlur:
             "required": {
                 "image": ("IMAGE",),
                 "radius": ("INT", {"default": 3, "min": 0, "max": 128, "step": 1}),
-                "sigma": ("FLOAT", {"default": 1.5, "min": 0.01, "max": 64.0, "step": 0.01}),
+                "sigma": ("FLOAT", {"default": 1.5, "min": 0.01, "max": 64.0, "step": 0.01, "display": "slider", "round": 0.001}),
             },
             "optional": {
                 "video": ("IMAGE", {"tooltip": "Video frames (alias for image input)", "forceInput": True}),
