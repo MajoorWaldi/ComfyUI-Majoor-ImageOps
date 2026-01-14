@@ -11,6 +11,7 @@ class ImageOpsMerge:
             "required": {
                 "A": ("IMAGE", {"tooltip": "Background"}),
                 "B": ("IMAGE", {"tooltip": "Foreground"}),
+                "bypass": ("BOOLEAN", {"default": False}),
                 "mode": (["over", "add", "subtract", "multiply", "screen", "difference", "max", "min"], {"default": "over"}),
                 "mix": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001}),
             },
@@ -19,7 +20,9 @@ class ImageOpsMerge:
             }
         }
 
-    def apply(self, A, B, mode="over", mix=1.0, mask=None):
+    def apply(self, A, B, bypass=False, mode="over", mix=1.0, mask=None):
+        if bool(bypass):
+            return (A,)
         out = _apply_merge(A, B, mode, mix)
         out = _apply_mask_to_image(A, out, mask)
         return (out,)

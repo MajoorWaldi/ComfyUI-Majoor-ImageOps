@@ -347,6 +347,19 @@ function blend(ctx, W, H, topCanvas, mode, mix) {
 }
 
 export const ops = {
+  colorAjust(ctx, W, node) {
+    applyColorCorrect(ctx,W,W,
+      num(node,"brightness",0),
+      num(node,"contrast",1),
+      num(node,"gamma",1),
+      num(node,"saturation",1),
+    );
+    applyHueSat(ctx,W,W,
+      num(node,"hue_deg",0),
+      num(node,"hs_saturation",1),
+      num(node,"hs_value",1),
+    );
+  },
   colorCorrect(ctx, W, node) {
     applyColorCorrect(ctx,W,W,
       num(node,"brightness",0),

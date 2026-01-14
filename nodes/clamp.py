@@ -10,6 +10,7 @@ class ImageOpsClamp:
         return {
             "required": {
                 "image": ("IMAGE",),
+                "bypass": ("BOOLEAN", {"default": False}),
                 "min_v": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001}),
                 "max_v": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.01, "display": "slider", "round": 0.001}),
             },
@@ -19,8 +20,10 @@ class ImageOpsClamp:
             }
         }
 
-    def apply(self, image=None, min_v=0.0, max_v=1.0, video=None, mask=None):
+    def apply(self, image=None, bypass=False, min_v=0.0, max_v=1.0, video=None, mask=None):
         src = _select_media_tensor(image, video)
+        if bool(bypass):
+            return (src,)
         out = _apply_clamp(src, min_v, max_v)
         out = _apply_mask_to_image(src, out, mask)
         return (out,)

@@ -10,6 +10,7 @@ class ImageOpsInvert:
         return {
             "required": {
                 "image": ("IMAGE",),
+                "bypass": ("BOOLEAN", {"default": False}),
                 "invert_alpha": ("BOOLEAN", {"default": False}),
             },
             "optional": {
@@ -18,8 +19,10 @@ class ImageOpsInvert:
             }
         }
 
-    def apply(self, image=None, invert_alpha=False, video=None, mask=None):
+    def apply(self, image=None, bypass=False, invert_alpha=False, video=None, mask=None):
         src = _select_media_tensor(image, video)
+        if bool(bypass):
+            return (src,)
         out = _apply_invert(src, invert_alpha=bool(invert_alpha))
         out = _apply_mask_to_image(src, out, mask)
         return (out,)

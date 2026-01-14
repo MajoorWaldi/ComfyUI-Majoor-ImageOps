@@ -51,60 +51,30 @@ _ensure_pkg(f"{_PKG}.nodes", BASE_DIR / "nodes", BASE_DIR / "nodes" / "__init__.
 _nodes_dir = BASE_DIR / "nodes"
 
 ImageOpsBlur = _load_module(f"{_PKG}.nodes.blur", _nodes_dir / "blur.py").ImageOpsBlur
-ImageOpsColorCorrect = _load_module(f"{_PKG}.nodes.color_correct", _nodes_dir / "color_correct.py").ImageOpsColorCorrect
-ImageOpsLoadImage = _load_module(f"{_PKG}.nodes.load_image", _nodes_dir / "load_image.py").ImageOpsLoadImage
 ImageOpsTransform = _load_module(f"{_PKG}.nodes.transform", _nodes_dir / "transform.py").ImageOpsTransform
-ImageOpsRotoMask = _load_module(f"{_PKG}.nodes.roto_mask", _nodes_dir / "roto_mask.py").ImageOpsRotoMask
-ImageOpsGradeLevels = _load_module(f"{_PKG}.nodes.grade_levels", _nodes_dir / "grade_levels.py").ImageOpsGradeLevels
-ImageOpsHueSat = _load_module(f"{_PKG}.nodes.hue_sat", _nodes_dir / "hue_sat.py").ImageOpsHueSat
+ImageOpsColorAjust = _load_module(f"{_PKG}.nodes.color_ajust", _nodes_dir / "color_ajust.py").ImageOpsColorAjust
 ImageOpsInvert = _load_module(f"{_PKG}.nodes.invert", _nodes_dir / "invert.py").ImageOpsInvert
 ImageOpsClamp = _load_module(f"{_PKG}.nodes.clamp", _nodes_dir / "clamp.py").ImageOpsClamp
-ImageOpsSharpen = _load_module(f"{_PKG}.nodes.sharpen", _nodes_dir / "sharpen.py").ImageOpsSharpen
-ImageOpsEdgeDetect = _load_module(f"{_PKG}.nodes.edge_detect", _nodes_dir / "edge_detect.py").ImageOpsEdgeDetect
 ImageOpsMerge = _load_module(f"{_PKG}.nodes.merge", _nodes_dir / "merge.py").ImageOpsMerge
-ImageOpsDilateErode = _load_module(f"{_PKG}.nodes.dilate_erode", _nodes_dir / "dilate_erode.py").ImageOpsDilateErode
-ImageOpsGlow = _load_module(f"{_PKG}.nodes.glow", _nodes_dir / "glow.py").ImageOpsGlow
-ImageOpsCropReformat = _load_module(f"{_PKG}.nodes.crop_reformat", _nodes_dir / "crop_reformat.py").ImageOpsCropReformat
-ImageOpsLumaKey = _load_module(f"{_PKG}.nodes.luma_key", _nodes_dir / "luma_key.py").ImageOpsLumaKey
 ImageOpsPreview = _load_module(f"{_PKG}.nodes.preview", _nodes_dir / "preview.py").ImageOpsPreview
 
 NODE_CLASS_MAPPINGS = {
-    "ImageOpsLoadImage": ImageOpsLoadImage,
-    "ImageOpsColorCorrect": ImageOpsColorCorrect,
     "ImageOpsBlur": ImageOpsBlur,
     "ImageOpsTransform": ImageOpsTransform,
-    "ImageOpsGradeLevels": ImageOpsGradeLevels,
-    "ImageOpsHueSat": ImageOpsHueSat,
+    "ImageOpsColorAjust": ImageOpsColorAjust,
     "ImageOpsInvert": ImageOpsInvert,
     "ImageOpsClamp": ImageOpsClamp,
-    "ImageOpsSharpen": ImageOpsSharpen,
-    "ImageOpsEdgeDetect": ImageOpsEdgeDetect,
     "ImageOpsMerge": ImageOpsMerge,
-    "ImageOpsDilateErode": ImageOpsDilateErode,
-    "ImageOpsGlow": ImageOpsGlow,
-    "ImageOpsCropReformat": ImageOpsCropReformat,
-    "ImageOpsLumaKey": ImageOpsLumaKey,
-    "ImageOpsRotoMask": ImageOpsRotoMask,
     "ImageOpsPreview": ImageOpsPreview,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "ImageOpsLoadImage": "ImageOps LoadImage",
-    "ImageOpsColorCorrect": "ImageOps ColorCorrect",
     "ImageOpsBlur": "ImageOps Blur",
     "ImageOpsTransform": "ImageOps Transform",
-    "ImageOpsGradeLevels": "ImageOps Grade/Levels",
-    "ImageOpsHueSat": "ImageOps HueSat",
+    "ImageOpsColorAjust": "ImageOps ColorAjust",
     "ImageOpsInvert": "ImageOps Invert",
     "ImageOpsClamp": "ImageOps Clamp",
-    "ImageOpsSharpen": "ImageOps Sharpen",
-    "ImageOpsEdgeDetect": "ImageOps EdgeDetect",
     "ImageOpsMerge": "ImageOps Merge",
-    "ImageOpsDilateErode": "ImageOps Dilate/Erode",
-    "ImageOpsGlow": "ImageOps Glow",
-    "ImageOpsCropReformat": "ImageOps Crop/Reformat",
-    "ImageOpsLumaKey": "ImageOps LumaKey",
-    "ImageOpsRotoMask": "ImageOps RotoMask",
     "ImageOpsPreview": "ImageOps Preview",
 }
 

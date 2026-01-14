@@ -22,6 +22,7 @@ class ImageOpsTransform:
         return {
             "required": {
                 "image": ("IMAGE",),
+                "bypass": ("BOOLEAN", {"default": False}),
                 "translate_x": ("INT", {"default": 0, "min": -4096, "max": 4096, "step": 1}),
                 "translate_y": ("INT", {"default": 0, "min": -4096, "max": 4096, "step": 1}),
                 "rotate_deg": ("FLOAT", {"default": 0.0, "min": -180.0, "max": 180.0, "step": 0.1, "display": "slider", "round": 0.001}),
@@ -35,8 +36,10 @@ class ImageOpsTransform:
             }
         }
 
-    def apply(self, image, translate_x, translate_y, rotate_deg, scale, filter, expand, video=None, mask=None):
+    def apply(self, image, bypass, translate_x, translate_y, rotate_deg, scale, filter, expand, video=None, mask=None):
         source = _select_media_tensor(image, video)
+        if bool(bypass):
+            return (source,)
         pil = _tensor_to_pil(source)
 
         resample = {

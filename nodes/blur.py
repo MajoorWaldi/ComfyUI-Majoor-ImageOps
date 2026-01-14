@@ -11,6 +11,7 @@ class ImageOpsBlur:
         return {
             "required": {
                 "image": ("IMAGE",),
+                "bypass": ("BOOLEAN", {"default": False}),
                 "radius": ("INT", {"default": 3, "min": 0, "max": 128, "step": 1}),
                 "sigma": ("FLOAT", {"default": 1.5, "min": 0.01, "max": 64.0, "step": 0.01, "display": "slider", "round": 0.001}),
             },
@@ -20,7 +21,9 @@ class ImageOpsBlur:
             }
         }
 
-    def apply(self, image, radius, sigma, video=None, mask=None):
+    def apply(self, image, bypass, radius, sigma, video=None, mask=None):
         source = _select_media_tensor(image, video)
+        if bool(bypass):
+            return (source,)
         processed = _apply_blur(source, radius, sigma)
         return (_apply_mask_to_image(source, processed, mask),)

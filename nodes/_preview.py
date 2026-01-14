@@ -81,3 +81,49 @@ def save_temp_animated(images, prefix="imageops_anim", ext="webp", fps=12, quali
         return None
 
     return {"filename": name, "subfolder": "", "type": "temp"}
+
+
+def save_temp_strip(images, prefix="imageops_strip", ext="png", max_frames=16, tile_height=256, quality=95):
+    """
+    Save IMAGE batch as a single horizontal strip image for quick UI inspection.
+    """
+    temp_dir = _ensure_dir(folder_paths.get_temp_directory())
+    pil_list = _tensor_batch_to_pil_list(images)
+    if not pil_list:
+        return None
+
+    frames = pil_list[: int(max(1, max_frames))]
+    resized = []
+    for im in frames:
+        try:
+            w, h = im.size
+            if h <= 0:
+                continue
+            s = float(tile_height) / float(h)
+            nw = max(1, int(round(w * s)))
+            resized.append(im.resize((nw, int(tile_height)), resample=Image.BILINEAR))
+        except Exception:
+            continue
+    if not resized:
+        return None
+
+    total_w = sum(im.size[0] for im in resized)
+    out_h = resized[0].size[1]
+    strip = Image.new("RGB", (total_w, out_h), (0, 0, 0))
+    x = 0
+    for im in resized:
+        strip.paste(im.convert("RGB"), (x, 0))
+        x += im.size[0]
+
+    name = f"{prefix}_{uuid.uuid4().hex[:10]}.{ext}"
+    out_path = os.path.join(temp_dir, name)
+    try:
+        if ext.lower() in ("jpg", "jpeg"):
+            strip.save(out_path, quality=int(quality), optimize=True)
+        else:
+            strip.save(out_path)
+    except Exception as e:
+        logger.error(f"Failed to save strip preview '{out_path}': {e}")
+        return None
+
+    return {"filename": name, "subfolder": "", "type": "temp"}

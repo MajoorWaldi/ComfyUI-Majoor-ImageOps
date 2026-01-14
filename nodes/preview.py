@@ -1,4 +1,4 @@
-from ._preview import save_temp_images, save_temp_animated
+from ._preview import save_temp_images, save_temp_animated, save_temp_strip
 
 
 class ImageOpsPreview:
@@ -17,12 +17,15 @@ class ImageOpsPreview:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "mode": (["images", "animated_webp", "animated_gif"], {"default": "images"}),
+                "mode": (["images", "strip", "animated_webp", "animated_gif"], {"default": "images"}),
             }
         }
 
     def preview(self, image, mode="images"):
-        if mode == "animated_webp":
+        if mode == "strip":
+            item = save_temp_strip(image, prefix="imageops_preview", ext="png")
+            ui = {"images": [item]} if item else {"images": save_temp_images(image, prefix="imageops_preview")}
+        elif mode == "animated_webp":
             item = save_temp_animated(image, prefix="imageops_preview", ext="webp")
             ui = {"images": [item]} if item else {"images": save_temp_images(image, prefix="imageops_preview")}
         elif mode == "animated_gif":
