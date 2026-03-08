@@ -1,3 +1,5 @@
+WORK IN PROGRESS
+
 # ComfyUI‑Majoor‑ImageOps
 Image processing nodes for ComfyUI with a centralized live preview module (no queue), batch-first behavior, and interop adapters.
 
