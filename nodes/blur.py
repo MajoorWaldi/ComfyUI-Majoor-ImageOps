@@ -1,29 +1,45 @@
-from ._helpers import _apply_blur, _apply_mask_to_image, _select_media_tensor
+from ._helpers import (
+    _apply_blur,
+    _apply_blur_with_mask_pair,
+    _blur_mask,
+    MEDIA_INPUT_TYPE,
+    _prepare_effect_mask,
+    _resolve_mask_output_source,
+    _select_media_tensor,
+)
+from ._preview import build_node_preview_result
 
 
 class ImageOpsBlur:
     CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE",)
+    RETURN_TYPES = ("IMAGE", "MASK")
+    RETURN_NAMES = ("image", "mask")
     FUNCTION = "apply"
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),
                 "bypass": ("BOOLEAN", {"default": False}),
                 "radius": ("INT", {"default": 3, "min": 0, "max": 128, "step": 1}),
                 "sigma": ("FLOAT", {"default": 1.5, "min": 0.01, "max": 64.0, "step": 0.01, "display": "slider", "round": 0.001}),
+                "invert_mask": ("BOOLEAN", {"default": False}),
             },
             "optional": {
-                "video": ("IMAGE", {"tooltip": "Video frames (alias for image input)", "forceInput": True}),
+                "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input. Accepts IMAGE batches and VIDEO frame sources.", "forceInput": True, "display_name": "Images/Video"}),
                 "mask": ("MASK",),
             }
         }
 
-    def apply(self, image, bypass, radius, sigma, video=None, mask=None):
+    def apply(self, image=None, bypass=False, radius=3, sigma=1.5, invert_mask=False, video=None, mask=None):
         source = _select_media_tensor(image, video)
+        input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
+        output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         if bool(bypass):
-            return (source,)
-        processed = _apply_blur(source, radius, sigma)
-        return (_apply_mask_to_image(source, processed, mask),)
+            return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_blur")
+        if input_mask is not None:
+            result, output_mask = _apply_blur_with_mask_pair(source, input_mask, radius, sigma)
+        else:
+            result = _apply_blur(source, radius, sigma)
+            output_mask = _blur_mask(output_mask_source, radius, sigma)
+        return build_node_preview_result(result, (result, output_mask), prefix="imageops_blur")

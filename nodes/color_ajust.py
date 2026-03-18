@@ -1,53 +1,54 @@
 from ._helpers import (
-    _apply_color_correct,
-    _apply_huesat,
-    _apply_mask_to_image,
+    MEDIA_INPUT_TYPE,
+    _apply_color_correct_reference,
+    _resolve_mask_output_source,
     _select_media_tensor,
 )
+from ._preview import build_node_preview_result
 
 
 class ImageOpsColorAjust:
     CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE",)
+    RETURN_TYPES = ("IMAGE", "MASK")
+    RETURN_NAMES = ("image", "mask")
     FUNCTION = "apply"
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE",),
                 "bypass": ("BOOLEAN", {"default": False}),
-                "brightness": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001}),
-                "contrast": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.01, "display": "slider", "round": 0.001}),
-                "gamma": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.01, "display": "slider", "round": 0.001}),
-                "saturation": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.01, "display": "slider", "round": 0.001}),
-                "hue_deg": ("FLOAT", {"default": 0.0, "min": -180.0, "max": 180.0, "step": 0.1, "display": "slider", "round": 0.001}),
-                "hs_saturation": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 4.0, "step": 0.01, "display": "slider", "round": 0.001}),
-                "hs_value": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 4.0, "step": 0.01, "display": "slider", "round": 0.001}),
+                "temperature": ("FLOAT", {"default": 0.0, "min": -100.0, "max": 100.0, "step": 5.0, "display": "slider", "round": 0.001}),
+                "hue": ("FLOAT", {"default": 0.0, "min": -90.0, "max": 90.0, "step": 5.0, "display": "slider", "round": 0.001}),
+                "brightness": ("FLOAT", {"default": 0.0, "min": -100.0, "max": 100.0, "step": 5.0, "display": "slider", "round": 0.001}),
+                "contrast": ("FLOAT", {"default": 0.0, "min": -100.0, "max": 100.0, "step": 5.0, "display": "slider", "round": 0.001}),
+                "saturation": ("FLOAT", {"default": 0.0, "min": -100.0, "max": 100.0, "step": 5.0, "display": "slider", "round": 0.001}),
+                "gamma": ("FLOAT", {"default": 1.0, "min": 0.2, "max": 2.2, "step": 0.1, "display": "slider", "round": 0.001}),
+                "invert_mask": ("BOOLEAN", {"default": False}),
             },
             "optional": {
-                "video": ("IMAGE", {"tooltip": "Video frames (alias for image input)", "forceInput": True}),
+                "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input. Accepts IMAGE batches and VIDEO frame sources.", "forceInput": True, "display_name": "Images/Video"}),
                 "mask": ("MASK",),
             },
         }
 
     def apply(
         self,
-        image,
-        bypass,
-        brightness,
-        contrast,
-        gamma,
-        saturation,
-        hue_deg,
-        hs_saturation,
-        hs_value,
+        image=None,
+        bypass=False,
+        temperature=0.0,
+        hue=0.0,
+        brightness=0.0,
+        contrast=0.0,
+        saturation=0.0,
+        gamma=1.0,
+        invert_mask=False,
         video=None,
         mask=None,
     ):
         source = _select_media_tensor(image, video)
+        output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         if bool(bypass):
-            return (source,)
-        x = _apply_color_correct(source, brightness, contrast, gamma, saturation)
-        x = _apply_huesat(x, hue_deg, hs_saturation, hs_value)
-        return (_apply_mask_to_image(source, x, mask),)
+            return build_node_preview_result(source, (source, output_mask), prefix="imageops_color_ajust")
+        result = _apply_color_correct_reference(source, temperature, hue, brightness, contrast, saturation, gamma)
+        return build_node_preview_result(result, (result, output_mask), prefix="imageops_color_ajust")

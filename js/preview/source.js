@@ -21,10 +21,20 @@ function makeViewUrl(api, rawFilename) {
   const qs = new URLSearchParams({ filename, type, subfolder });
   return api.apiURL(`/view?${qs.toString()}`);
 }
-async function ensureBitmap(node, url) {
+function fitWithinMaxSize(width, height, maxSize) {
+  const safeWidth = Math.max(1, Math.round(width || 1));
+  const safeHeight = Math.max(1, Math.round(height || 1));
+  const safeMax = Math.max(1, Math.round(maxSize || 1));
+  const scale = Math.min(1, safeMax / Math.max(safeWidth, safeHeight));
+  return {
+    width: Math.max(1, Math.round(safeWidth * scale)),
+    height: Math.max(1, Math.round(safeHeight * scale))
+  };
+}
+async function ensureImageElement(node, url) {
   node.__imageops_media ?? (node.__imageops_media = {});
   const st = node.__imageops_media;
-  if (st.lastBitmapURL === url && st.lastBitmap) return st.lastBitmap;
+  if (st.lastImageURL === url && st.imageEl) return st.imageEl;
   const img = new Image();
   img.src = url;
   try {
@@ -32,6 +42,20 @@ async function ensureBitmap(node, url) {
   } catch {
     return null;
   }
+  st.lastImageURL = url;
+  st.imageEl = img;
+  if (st.lastBitmapURL !== url) {
+    st.lastBitmapURL = void 0;
+    st.lastBitmap = void 0;
+  }
+  return img;
+}
+async function ensureBitmap(node, url) {
+  node.__imageops_media ?? (node.__imageops_media = {});
+  const st = node.__imageops_media;
+  if (st.lastBitmapURL === url && st.lastBitmap) return st.lastBitmap;
+  const img = await ensureImageElement(node, url);
+  if (!img) return null;
   const bmp = await createImageBitmap(img);
   st.lastBitmapURL = url;
   st.lastBitmap = bmp;
@@ -55,25 +79,21 @@ async function ensureVideoFrameCanvas(node, url, size) {
     st.lastVideoURL = url;
   }
   const v = st.videoEl;
+  const { width, height } = fitWithinMaxSize(v.videoWidth || size, v.videoHeight || size, size);
   const c = document.createElement("canvas");
-  c.width = size;
-  c.height = size;
+  c.width = width;
+  c.height = height;
   const ctx = c.getContext("2d");
   if (v.readyState < 2) return c;
-  ctx.clearRect(0, 0, size, size);
-  const iw = v.videoWidth || 1;
-  const ih = v.videoHeight || 1;
-  const s = Math.min(size / iw, size / ih);
-  const dw = Math.max(1, Math.floor(iw * s));
-  const dh = Math.max(1, Math.floor(ih * s));
-  const dx = Math.floor((size - dw) / 2);
-  const dy = Math.floor((size - dh) / 2);
-  ctx.drawImage(v, dx, dy, dw, dh);
+  ctx.clearRect(0, 0, width, height);
+  ctx.drawImage(v, 0, 0, width, height);
   return c;
 }
 export {
   ensureBitmap,
+  ensureImageElement,
   ensureVideoFrameCanvas,
+  fitWithinMaxSize,
   makeViewUrl,
   parseAnnotated
 };

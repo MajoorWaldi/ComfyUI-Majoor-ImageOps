@@ -1,10 +1,22 @@
 import { build, context } from "esbuild";
-import { glob } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 
-const entryPoints = [];
-for await (const f of glob("src/**/*.ts")) {
-  if (!f.endsWith(".d.ts") && !f.endsWith("types.ts")) entryPoints.push(f);
+async function findTS(dir) {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files = [];
+  for (const e of entries) {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) {
+      files.push(...await findTS(full));
+    } else if (e.name.endsWith(".ts") && !e.name.endsWith(".d.ts") && e.name !== "types.ts") {
+      files.push(full);
+    }
+  }
+  return files;
 }
+
+const entryPoints = await findTS("src");
 
 const opts = {
   entryPoints,

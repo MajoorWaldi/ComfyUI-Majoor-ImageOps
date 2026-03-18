@@ -51,6 +51,10 @@ _ensure_pkg(f"{_PKG}.nodes", BASE_DIR / "nodes", BASE_DIR / "nodes" / "__init__.
 _nodes_dir = BASE_DIR / "nodes"
 
 ImageOpsBlur = _load_module(f"{_PKG}.nodes.blur", _nodes_dir / "blur.py").ImageOpsBlur
+ImageOpsChannel = _load_module(f"{_PKG}.nodes.channel", _nodes_dir / "channel.py").ImageOpsChannel
+ImageOpsComp = _load_module(f"{_PKG}.nodes.comp", _nodes_dir / "comp.py").ImageOpsComp
+ImageOpsCrop = _load_module(f"{_PKG}.nodes.crop", _nodes_dir / "crop.py").ImageOpsCrop
+ImageOpsDraw = _load_module(f"{_PKG}.nodes.draw", _nodes_dir / "draw.py").ImageOpsDraw
 ImageOpsTransform = _load_module(f"{_PKG}.nodes.transform", _nodes_dir / "transform.py").ImageOpsTransform
 ImageOpsColorAjust = _load_module(f"{_PKG}.nodes.color_ajust", _nodes_dir / "color_ajust.py").ImageOpsColorAjust
 ImageOpsInvert = _load_module(f"{_PKG}.nodes.invert", _nodes_dir / "invert.py").ImageOpsInvert
@@ -60,6 +64,10 @@ ImageOpsPreview = _load_module(f"{_PKG}.nodes.preview", _nodes_dir / "preview.py
 
 NODE_CLASS_MAPPINGS = {
     "ImageOpsBlur": ImageOpsBlur,
+    "ImageOpsChannel": ImageOpsChannel,
+    "ImageOpsComp": ImageOpsComp,
+    "ImageOpsCrop": ImageOpsCrop,
+    "ImageOpsDraw": ImageOpsDraw,
     "ImageOpsTransform": ImageOpsTransform,
     "ImageOpsColorAjust": ImageOpsColorAjust,
     "ImageOpsInvert": ImageOpsInvert,
@@ -70,8 +78,14 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageOpsBlur": "ImageOps Blur",
+    "ImageOpsChannel": "ImageOps Channels",
+    "ImageOpsComp": "ImageOps Comp",
+    "ImageOpsCrop": "ImageOps Resize/Crop",
+    "ImageOpsDraw": "ImageOps Draw",
     "ImageOpsTransform": "ImageOps Transform",
-    "ImageOpsColorAjust": "ImageOps ColorAjust",
+    # Keep the legacy class key for workflow compatibility, but expose the
+    # corrected node name in the UI.
+    "ImageOpsColorAjust": "ImageOps Color Correct",
     "ImageOpsInvert": "ImageOps Invert",
     "ImageOpsClamp": "ImageOps Clamp",
     "ImageOpsMerge": "ImageOps Merge",

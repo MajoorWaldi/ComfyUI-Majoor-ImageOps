@@ -127,3 +127,35 @@ def save_temp_strip(images, prefix="imageops_strip", ext="png", max_frames=16, t
         return None
 
     return {"filename": name, "subfolder": "", "type": "temp"}
+
+
+def build_node_preview_ui(images, prefix="imageops_preview", fps=12):
+    """
+    Build a ComfyUI-native preview payload for intermediate nodes.
+
+    For batches we prefer a single animated WEBP so both legacy frontend and
+    Node 2.0 can expose one preview source through ``node.imgs``.
+    """
+    batch = 0
+    try:
+        batch = int(images.shape[0])
+    except Exception:
+        batch = 0
+
+    if batch > 1:
+        animated = save_temp_animated(images, prefix=prefix, ext="webp", fps=fps)
+        if animated:
+            return {"images": [animated], "animated": (True,)}
+
+        strip = save_temp_strip(images, prefix=prefix, ext="png")
+        if strip:
+            return {"images": [strip]}
+
+    return {"images": save_temp_images(images, prefix=prefix)}
+
+
+def build_node_preview_result(images, result, prefix="imageops_preview", fps=12):
+    return {
+        "ui": build_node_preview_ui(images, prefix=prefix, fps=fps),
+        "result": result,
+    }

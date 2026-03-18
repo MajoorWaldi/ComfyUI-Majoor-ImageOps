@@ -1,28 +1,40 @@
-from ._helpers import _apply_merge, _apply_mask_to_image
+from ._helpers import MEDIA_INPUT_TYPE, _alpha_mask_from_image, _apply_merge, _apply_mask_to_image, _coerce_media_to_tensor, _prepare_effect_mask
+from ._preview import build_node_preview_result
 
 class ImageOpsMerge:
     CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE",)
+    RETURN_TYPES = ("IMAGE", "MASK")
+    RETURN_NAMES = ("image", "mask")
     FUNCTION = "apply"
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "A": ("IMAGE", {"tooltip": "Background"}),
-                "B": ("IMAGE", {"tooltip": "Foreground"}),
+                "A": (MEDIA_INPUT_TYPE, {"tooltip": "Background IMAGE or VIDEO frames"}),
+                "B": (MEDIA_INPUT_TYPE, {"tooltip": "Foreground IMAGE or VIDEO frames"}),
                 "bypass": ("BOOLEAN", {"default": False}),
                 "mode": (["over", "add", "subtract", "multiply", "screen", "difference", "max", "min"], {"default": "over"}),
                 "mix": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001}),
+                "invert_mask": ("BOOLEAN", {"default": False}),
             },
             "optional": {
                 "mask": ("MASK", {"tooltip": "Optional mask applied to merge result"}),
             }
         }
 
-    def apply(self, A, B, bypass=False, mode="over", mix=1.0, mask=None):
+    def apply(self, A, B, bypass=False, mode="over", mix=1.0, invert_mask=False, mask=None):
+        A = _coerce_media_to_tensor(A, "A")
+        B = _coerce_media_to_tensor(B, "B")
+        effect_mask = _prepare_effect_mask(mask, A, invert_mask=invert_mask)
         if bool(bypass):
-            return (A,)
+            output_mask = effect_mask if effect_mask is not None else _alpha_mask_from_image(A)
+            if effect_mask is None and bool(invert_mask):
+                output_mask = (1.0 - output_mask).clamp(0.0, 1.0)
+            return build_node_preview_result(A, (A, output_mask), prefix="imageops_merge")
         out = _apply_merge(A, B, mode, mix)
-        out = _apply_mask_to_image(A, out, mask)
-        return (out,)
+        out = _apply_mask_to_image(A, out, effect_mask)
+        output_mask = effect_mask if effect_mask is not None else _alpha_mask_from_image(out)
+        if effect_mask is None and bool(invert_mask):
+            output_mask = (1.0 - output_mask).clamp(0.0, 1.0)
+        return build_node_preview_result(out, (out, output_mask), prefix="imageops_merge")

@@ -1,10 +1,18 @@
 const MAX_RECURSION = 64;
+const DEFAULT_INPUT_SCAN = 4;
+const IMAGE_EXTS = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"]);
+const VIDEO_EXTS = /* @__PURE__ */ new Set(["mp4", "mov", "webm", "mkv", "avi", "m4v", "flv", "wmv", "mpg", "mpeg"]);
+const MAYBE_ANIMATED_IMAGE_EXTS = /* @__PURE__ */ new Set(["gif"]);
 function getInputLink(node, inputIndex = 0) {
   try {
     return node?.getInputLink?.(inputIndex) ?? null;
   } catch {
     return null;
   }
+}
+function getInputCount(node, fallback = DEFAULT_INPUT_SCAN) {
+  const count = Array.isArray(node?.inputs) ? node.inputs.length : 0;
+  return count > 0 ? count : fallback;
 }
 function getUpstreamNode(node, inputIndex = 0) {
   const link = getInputLink(node, inputIndex);
@@ -13,13 +21,19 @@ function getUpstreamNode(node, inputIndex = 0) {
   if (originId == null) return null;
   return node?.graph?.getNodeById?.(originId) ?? null;
 }
+function getUpstreamNodes(node) {
+  const out = [];
+  for (let i = 0; i < getInputCount(node); i++) {
+    const upstream = getUpstreamNode(node, i);
+    if (upstream) out.push(upstream);
+  }
+  return out;
+}
 function isGraphTooLarge(graph, maxNodes = 140) {
   const nodes = graph?._nodes ?? [];
   return nodes.length > maxNodes;
 }
 function detectSource(node) {
-  const IMAGE_EXTS = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"]);
-  const VIDEO_EXTS = /* @__PURE__ */ new Set(["mp4", "mov", "webm", "mkv", "avi", "gif", "webp"]);
   function getFileExtLower(s) {
     const m = String(s ?? "").toLowerCase().match(/\.([a-z0-9]+)(\s*\[[^\]]+\]\s*)?$/i);
     return m ? m[1] : "";
@@ -45,16 +59,25 @@ function detectSource(node) {
   if (!w) return null;
   const ext = getFileExtLower(w.value);
   const kind = VIDEO_EXTS.has(ext) ? "video" : "image";
-  return { kind, value: w.value };
+  return { kind, value: w.value, animated: kind === "image" && MAYBE_ANIMATED_IMAGE_EXTS.has(ext) };
 }
 function detectSourceUpstream(node, maxHops = MAX_RECURSION) {
-  let cur = node;
-  for (let i = 0; i < maxHops && cur; i++) {
-    const s = detectSource(cur);
-    if (s) return s;
-    cur = getUpstreamNode(cur, 0);
+  const queue = [node];
+  const seen = /* @__PURE__ */ new Set();
+  let best = null;
+  let steps = 0;
+  while (queue.length && steps < maxHops) {
+    const cur = queue.shift();
+    if (!cur || seen.has(cur.id)) continue;
+    seen.add(cur.id);
+    steps++;
+    const source = detectSource(cur);
+    if (source?.kind === "video") return source;
+    if (source?.animated) best = source;
+    else if (!best && source) best = source;
+    queue.push(...getUpstreamNodes(cur));
   }
-  return null;
+  return best;
 }
 function findDependents(changedNode, predicate) {
   const g = changedNode?.graph;
@@ -76,7 +99,7 @@ function isUpstreamOf(candidate, node, max = MAX_RECURSION) {
     seen.add(cur.id);
     steps++;
     if (cur.id === candidate.id) return true;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < getInputCount(cur); i++) {
       const up = getUpstreamNode(cur, i);
       if (up) stack.push(up);
     }
@@ -87,7 +110,9 @@ export {
   detectSource,
   detectSourceUpstream,
   findDependents,
+  getInputCount,
   getInputLink,
   getUpstreamNode,
+  getUpstreamNodes,
   isGraphTooLarge
 };

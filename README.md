@@ -16,8 +16,10 @@ Image processing nodes for ComfyUI with a centralized live preview module (no qu
 3. Hard refresh the browser: `Ctrl+F5`
 
 ## Nodes (`image/imageops`)
-- `ImageOpsColorAjust` — combined ColorCorrect + Hue/Sat/Value
+- `ImageOps Color Correct` — legacy id `ImageOpsColorAjust`, behavior aligned to Color Correct
 - `ImageOpsBlur`
+- `ImageOps Channels`
+- `ImageOps Resize/Crop`
 - `ImageOpsTransform`
 - `ImageOpsInvert`
 - `ImageOpsClamp`

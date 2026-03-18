@@ -23,33 +23,66 @@ export interface ComfyAPI {
 
 export interface ComfyWidget {
   name: string;
+  type?: string;
+  origType?: string;
   value: string | number | boolean | null;
+  element?: HTMLElement | null;
   callback?: (...args: any[]) => any;
+  computeSize?: () => [number, number];
+  origComputeSize?: () => [number, number];
+  linkedWidgets?: ComfyWidget[];
+  serializeValue?: () => unknown;
+}
+
+export interface ComfyInputSlot {
+  name?: string;
+  type?: string;
+  link?: number | null;
+  widget?: { name?: string } | null;
+}
+
+export interface ComfyOutputSlot {
+  name?: string;
+  type?: string;
+  links?: Array<number | string> | number | string | null;
+  link?: number | string | null;
 }
 
 export interface ComfyLink {
   origin_id?: number;
   originId?: number;
+  origin_slot?: number;
+  originSlot?: number;
 }
 
 export interface LGraph {
   _nodes: ComfyNode[];
   getNodeById(id: number): ComfyNode | null;
+  links?: unknown;
+  _links?: unknown;
 }
 
 export interface ComfyNode {
   id: number;
   comfyClass: string;
   widgets?: ComfyWidget[];
+  inputs?: ComfyInputSlot[];
+  outputs?: ComfyOutputSlot[];
+  imgs?: Array<HTMLImageElement | HTMLVideoElement | HTMLCanvasElement>;
+  imageIndex?: number | null;
   graph?: LGraph;
   size?: [number, number];
   resizable?: boolean;
+  previewMediaType?: string;
   getInputLink?(index: number): ComfyLink | null;
   onConnectionsChange?(...args: any[]): any;
   onConfigure?(...args: any[]): any;
+  onExecuted?(...args: any[]): any;
   onNodeCreated?(...args: any[]): any;
   setSize?(size: [number, number]): void;
   addDOMWidget(name: string, type: string, el: HTMLElement, opts: any): void;
+  addInput?(name: string, type?: string, extra_info?: any): void;
+  removeInput?(slot: number): void;
   __imageops_state?: NodeState;
   __imageops_media?: MediaState;
 }
@@ -60,7 +93,8 @@ export interface Adapter {
   name?: string;
   match(node: ComfyNode): boolean;
   inputs: number | ((node: ComfyNode) => number);
-  apply(ctx: AdapterApplyContext): Promise<void> | void;
+  inputIndexes?: number[] | ((node: ComfyNode) => number[]);
+  apply(ctx: AdapterApplyContext): Promise<HTMLCanvasElement | void> | HTMLCanvasElement | void;
 }
 
 export interface AdapterApplyContext {
@@ -109,6 +143,118 @@ export interface NodeState {
   debounceTimer: ReturnType<typeof setTimeout> | null;
   lastKey: string | null;
   isPreview: boolean;
+  nativeAnimated: boolean;
+  nativeDirty: boolean;
+  cropAspectRatio: number | null;
+  cropGeometry: CropPreviewGeometry | null;
+  cropDrag: CropDragState | null;
+  cropResetButton: HTMLButtonElement | null;
+  cropInteractiveHooked: boolean;
+  drawAspectRatio: number | null;
+  drawGeometry: DrawPreviewGeometry | null;
+  drawStroke: DrawStrokeState | null;
+  drawCanvas: HTMLCanvasElement | null;
+  drawBaseCanvas: HTMLCanvasElement | null;
+  drawOverlayKey: string | null;
+  drawBrushButton: HTMLButtonElement | null;
+  drawEraserButton: HTMLButtonElement | null;
+  drawClearButton: HTMLButtonElement | null;
+  drawColorInput: HTMLInputElement | null;
+  drawOpacityInput: HTMLInputElement | null;
+  drawOpacityLabel: HTMLDivElement | null;
+  drawSizeInput: HTMLInputElement | null;
+  drawSizeLabel: HTMLDivElement | null;
+  drawWidthInput: HTMLInputElement | null;
+  drawHeightInput: HTMLInputElement | null;
+  drawLinkButton: HTMLButtonElement | null;
+  drawBgColorInput: HTMLInputElement | null;
+  drawInteractiveHooked: boolean;
+  compLayers: CompLayerPreviewGeometry[];
+  compOutputWidth: number;
+  compOutputHeight: number;
+  compSelectedSlot: string | null;
+  compDrag: CompDragState | null;
+  compAddButton: HTMLButtonElement | null;
+  compResetButton: HTMLButtonElement | null;
+  compModeSelect: HTMLSelectElement | null;
+  compOpacityInput: HTMLInputElement | null;
+  compLayerLabel: HTMLDivElement | null;
+  compInteractiveHooked: boolean;
+}
+
+export interface CropPreviewGeometry {
+  sourceWidth: number;
+  sourceHeight: number;
+  fitDx: number;
+  fitDy: number;
+  fitDrawWidth: number;
+  fitDrawHeight: number;
+  cropX: number;
+  cropY: number;
+  cropWidth: number;
+  cropHeight: number;
+}
+
+export type CropDragMode = "move" | "nw" | "ne" | "sw" | "se";
+
+export interface CropDragState {
+  pointerId: number;
+  mode: CropDragMode;
+  startCanvasX: number;
+  startCanvasY: number;
+  startCenterX: number;
+  startCenterY: number;
+  startScale: number;
+  startCropX: number;
+  startCropY: number;
+  startCropWidth: number;
+  startCropHeight: number;
+}
+
+export interface DrawPreviewGeometry {
+  sourceWidth: number;
+  sourceHeight: number;
+  fitDx: number;
+  fitDy: number;
+  fitDrawWidth: number;
+  fitDrawHeight: number;
+}
+
+export interface DrawStrokeState {
+  pointerId: number;
+  lastX: number;
+  lastY: number;
+}
+
+export interface CompLayerPreviewGeometry {
+  slot: string;
+  layerNumber: number;
+  inputIndex: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export type CompDragMode = "move" | "nw" | "ne" | "sw" | "se";
+
+export interface CompDragState {
+  pointerId: number;
+  slot: string;
+  mode: CompDragMode;
+  startCanvasX: number;
+  startCanvasY: number;
+  startCenterX: number;
+  startCenterY: number;
+  startScale: number;
+  startLeft: number;
+  startTop: number;
+  startWidth: number;
+  startHeight: number;
+  sourceWidth: number;
+  sourceHeight: number;
 }
 
 export interface ScopesElements {
@@ -118,6 +264,8 @@ export interface ScopesElements {
 }
 
 export interface MediaState {
+  lastImageURL?: string;
+  imageEl?: HTMLImageElement;
   lastBitmapURL?: string;
   lastBitmap?: ImageBitmap;
   videoEl?: HTMLVideoElement;
@@ -129,6 +277,7 @@ export interface MediaState {
 export interface MediaSource {
   kind: "image" | "video";
   value: string;
+  animated?: boolean;
 }
 
 export interface AnnotatedFilename {

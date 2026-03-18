@@ -1,7 +1,68 @@
 import { getUpstreamNode, detectSource } from "./graph.js";
-import { makeViewUrl, ensureBitmap, ensureVideoFrameCanvas } from "./source.js";
+import { makeViewUrl, ensureBitmap, ensureImageElement, ensureVideoFrameCanvas, fitWithinMaxSize } from "./source.js";
 function buildRenderer({ api, registry, canvasSize }) {
   const MAX_RECURSION = 64;
+  function hashString(value) {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index++) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16);
+  }
+  function getNativePreviewElement(node) {
+    const imgs = node?.imgs;
+    if (!Array.isArray(imgs) || imgs.length === 0) return null;
+    const index = typeof node.imageIndex === "number" ? node.imageIndex : imgs.length - 1;
+    return imgs[Math.max(0, Math.min(imgs.length - 1, index))] ?? imgs[imgs.length - 1] ?? null;
+  }
+  async function renderFromNativePreview(node) {
+    if (String(node?.comfyClass ?? "").startsWith("ImageOps")) return null;
+    const media = getNativePreviewElement(node);
+    if (!media) return null;
+    if (media instanceof HTMLVideoElement) {
+      if (media.readyState < 2) {
+        try {
+          await media.play();
+        } catch {
+        }
+        if (media.readyState < 2) return null;
+      }
+      const dims = fitWithinMaxSize(media.videoWidth || 1, media.videoHeight || 1, canvasSize);
+      const canvas = document.createElement("canvas");
+      canvas.width = dims.width;
+      canvas.height = dims.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(media, 0, 0, dims.width, dims.height);
+      return canvas;
+    }
+    if (media instanceof HTMLImageElement) {
+      if (!media.complete) {
+        try {
+          await media.decode?.();
+        } catch {
+        }
+        if (!media.complete) return null;
+      }
+      const dims = fitWithinMaxSize(media.naturalWidth || media.width || 1, media.naturalHeight || media.height || 1, canvasSize);
+      const canvas = document.createElement("canvas");
+      canvas.width = dims.width;
+      canvas.height = dims.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(media, 0, 0, dims.width, dims.height);
+      return canvas;
+    }
+    if (media instanceof HTMLCanvasElement) {
+      const dims = fitWithinMaxSize(media.width || 1, media.height || 1, canvasSize);
+      const canvas = document.createElement("canvas");
+      canvas.width = dims.width;
+      canvas.height = dims.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(media, 0, 0, dims.width, dims.height);
+      return canvas;
+    }
+    return null;
+  }
   async function render(node, tick = 0) {
     const ctx = { api, canvasSize, tick, cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() };
     const canvas = await renderNode(node, ctx);
@@ -24,54 +85,109 @@ function buildRenderer({ api, registry, canvasSize }) {
         ctx.visited.delete(node.id);
         return null;
       }
-      const c = document.createElement("canvas");
-      c.width = ctx.canvasSize;
-      c.height = ctx.canvasSize;
-      const cctx = c.getContext("2d");
-      if (src.kind === "image") {
+      let c = null;
+      if (src.kind === "image" && src.animated) {
+        const img = await ensureImageElement(node, url);
+        if (!img) {
+          ctx.visited.delete(node.id);
+          return null;
+        }
+        const dims = fitWithinMaxSize(img.naturalWidth || img.width || 1, img.naturalHeight || img.height || 1, ctx.canvasSize);
+        c = document.createElement("canvas");
+        c.width = dims.width;
+        c.height = dims.height;
+        const cctx = c.getContext("2d");
+        cctx.drawImage(img, 0, 0, dims.width, dims.height);
+      } else if (src.kind === "image") {
         const bmp = await ensureBitmap(node, url);
         if (!bmp) {
           ctx.visited.delete(node.id);
           return null;
         }
-        drawFitBitmap(cctx, ctx.canvasSize, ctx.canvasSize, bmp);
+        const dims = fitWithinMaxSize(bmp.width || 1, bmp.height || 1, ctx.canvasSize);
+        c = document.createElement("canvas");
+        c.width = dims.width;
+        c.height = dims.height;
+        const cctx = c.getContext("2d");
+        cctx.drawImage(bmp, 0, 0, dims.width, dims.height);
       } else {
-        const frame = await ensureVideoFrameCanvas(node, url, ctx.canvasSize);
-        if (frame) cctx.drawImage(frame, 0, 0);
+        c = await ensureVideoFrameCanvas(node, url, ctx.canvasSize);
+      }
+      if (!c) {
+        ctx.visited.delete(node.id);
+        return null;
       }
       ctx.cache.set(sig, c);
       ctx.visited.delete(node.id);
       return c;
     }
+    const nativePreview = await renderFromNativePreview(node);
+    if (nativePreview) {
+      ctx.cache.set(sig, nativePreview);
+      ctx.visited.delete(node.id);
+      return nativePreview;
+    }
     const adapter = registry.pick(node);
+    const adapterInputIndexes = adapter ? typeof adapter.inputIndexes === "function" ? adapter.inputIndexes(node) : adapter.inputIndexes ?? [] : [];
+    const resolvedIndexes = adapterInputIndexes.length > 0 ? adapterInputIndexes : [...Array(adapter ? typeof adapter.inputs === "function" ? adapter.inputs(node) : adapter.inputs ?? 1 : 1).keys()];
     if (!adapter) {
+      const primaryInputIndex2 = resolvedIndexes[0] ?? 0;
+      const primary2 = await renderNode(getUpstreamNode(node, primaryInputIndex2), ctx);
+      ctx.visited.delete(node.id);
+      return primary2;
+    }
+    if (resolvedIndexes.length === 0) {
+      const out2 = document.createElement("canvas");
+      out2.width = 1;
+      out2.height = 1;
+      const octx2 = out2.getContext("2d");
+      const adapted2 = await adapter.apply({ node, ctx: octx2, canvasSize: ctx.canvasSize, inputs: [] });
+      const result2 = adapted2 instanceof HTMLCanvasElement ? adapted2 : out2;
+      ctx.cache.set(sig, result2);
+      ctx.visited.delete(node.id);
+      return result2;
+    }
+    const primaryInputIndex = resolvedIndexes[0] ?? 0;
+    const primary = await renderNode(getUpstreamNode(node, primaryInputIndex), ctx);
+    if (!primary) {
       ctx.visited.delete(node.id);
       return null;
     }
     const inputs = [];
-    const inCount = typeof adapter.inputs === "function" ? adapter.inputs(node) : adapter.inputs ?? 1;
-    for (let i = 0; i < inCount; i++) {
-      const up = getUpstreamNode(node, i);
+    for (let i = 0; i < resolvedIndexes.length; i++) {
+      const inputIndex = resolvedIndexes[i];
+      const up = getUpstreamNode(node, inputIndex);
+      if (i === 0 && !up) {
+        ctx.visited.delete(node.id);
+        return primary;
+      }
+      if (i === 0 && inputIndex === primaryInputIndex && primary) {
+        inputs.push(primary);
+        continue;
+      }
       const c = await renderNode(up, ctx);
       if (!c) {
+        ctx.cache.set(sig, primary);
         ctx.visited.delete(node.id);
-        return null;
+        return primary;
       }
       inputs.push(c);
     }
-    if (!inputs[0]) {
+    if (inputs.length === 0) {
+      ctx.cache.set(sig, primary);
       ctx.visited.delete(node.id);
-      return null;
+      return primary;
     }
     const out = document.createElement("canvas");
-    out.width = ctx.canvasSize;
-    out.height = ctx.canvasSize;
+    out.width = primary.width;
+    out.height = primary.height;
     const octx = out.getContext("2d");
     octx.drawImage(inputs[0], 0, 0);
-    await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs });
-    ctx.cache.set(sig, out);
+    const adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs });
+    const result = adapted instanceof HTMLCanvasElement ? adapted : out;
+    ctx.cache.set(sig, result);
     ctx.visited.delete(node.id);
-    return out;
+    return result;
   }
   function signature(node, tick) {
     const parts = [node.id, String(node.comfyClass ?? ""), tick];
@@ -79,21 +195,14 @@ function buildRenderer({ api, registry, canvasSize }) {
       const v = w?.value;
       if (v == null) continue;
       if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
-        parts.push(`${w.name}:${v}`);
+        if (typeof v === "string" && v.length > 120) {
+          parts.push(`${w.name}:str:${v.length}:${hashString(v)}`);
+        } else {
+          parts.push(`${w.name}:${v}`);
+        }
       }
     }
     return parts.join("|");
-  }
-  function drawFitBitmap(ctx, W, H, bmp) {
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, W, H);
-    const s = Math.min(W / bmp.width, H / bmp.height);
-    const dw = Math.max(1, Math.floor(bmp.width * s));
-    const dh = Math.max(1, Math.floor(bmp.height * s));
-    const dx = Math.floor((W - dw) / 2);
-    const dy = Math.floor((H - dh) / 2);
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(bmp, dx, dy, dw, dh);
   }
   return { render };
 }
