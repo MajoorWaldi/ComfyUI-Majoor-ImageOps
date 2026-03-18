@@ -1,35 +1,36 @@
 // Shared ops implementation for live preview (v6)
 // IMPORTANT: this module is the single place implementing preview ops. Nodes must not duplicate preview code.
+import type { ComfyNode, ComfyWidget } from "../types.js";
 import { getOpsConstants, initOpsConstants } from "./constants.js";
 
 initOpsConstants();
 
-function w(node, name) {
-  return node?.widgets?.find(x => x?.name === name) ?? null;
+function w(node: ComfyNode, name: string): ComfyWidget | null {
+  return node?.widgets?.find((x: ComfyWidget) => x?.name === name) ?? null;
 }
-function num(node, name, fallback=0) {
-  const v = w(node,name)?.value;
-  const n = parseFloat(v);
+function num(node: ComfyNode, name: string, fallback: number = 0): number {
+  const v = w(node, name)?.value;
+  const n = parseFloat(v as string);
   return Number.isFinite(n) ? n : fallback;
 }
-function str(node, name, fallback="") {
-  const v = w(node,name)?.value;
+function str(node: ComfyNode, name: string, fallback: string = ""): string {
+  const v = w(node, name)?.value;
   return typeof v === "string" ? v : fallback;
 }
-function bool(node, name, fallback=false) {
-  const v = w(node,name)?.value;
+function bool(node: ComfyNode, name: string, fallback: boolean = false): boolean {
+  const v = w(node, name)?.value;
   if (typeof v === "boolean") return v;
   if (typeof v === "number") return !!v;
   if (typeof v === "string") return v.toLowerCase() === "true";
   return fallback;
 }
-function clamp01(x){ return Math.max(0, Math.min(1, x)); }
-function luma01(r, g, b, lw) { return lw[0]*r + lw[1]*g + lw[2]*b; }
+function clamp01(x: number): number { return Math.max(0, Math.min(1, x)); }
+function luma01(r: number, g: number, b: number, lw: number[]): number { return lw[0]*r + lw[1]*g + lw[2]*b; }
 
-function getImageData(ctx, W, H) { return ctx.getImageData(0,0,W,H); }
-function putImageData(ctx, img) { ctx.putImageData(img,0,0); }
+function getImageData(ctx: CanvasRenderingContext2D, W: number, H: number): ImageData { return ctx.getImageData(0,0,W,H); }
+function putImageData(ctx: CanvasRenderingContext2D, img: ImageData): void { ctx.putImageData(img,0,0); }
 
-function applyLevels(ctx, W, H, inMin, inMax, gamma, outMin, outMax) {
+function applyLevels(ctx: CanvasRenderingContext2D, W: number, H: number, inMin: number, inMax: number, gamma: number, outMin: number, outMax: number): void {
   const { epsilon: EPS, preview_gamma_epsilon: GE } = getOpsConstants();
   const img = getImageData(ctx,W,H);
   const d = img.data;
@@ -47,7 +48,7 @@ function applyLevels(ctx, W, H, inMin, inMax, gamma, outMin, outMax) {
   putImageData(ctx,img);
 }
 
-function applyHueSat(ctx, W, H, hueDeg, sat, val) {
+function applyHueSat(ctx: CanvasRenderingContext2D, W: number, H: number, hueDeg: number, sat: number, val: number): void {
   const { epsilon: EPS } = getOpsConstants();
   const img = getImageData(ctx,W,H);
   const d = img.data;
@@ -91,7 +92,7 @@ function applyHueSat(ctx, W, H, hueDeg, sat, val) {
   putImageData(ctx,img);
 }
 
-function applyInvert(ctx, W, H, invertAlpha=false) {
+function applyInvert(ctx: CanvasRenderingContext2D, W: number, H: number, invertAlpha: boolean = false): void {
   const img=getImageData(ctx,W,H);
   const d=img.data;
   for (let i=0;i<d.length;i+=4){
@@ -103,7 +104,7 @@ function applyInvert(ctx, W, H, invertAlpha=false) {
   putImageData(ctx,img);
 }
 
-function applyClamp(ctx, W, H, minV, maxV) {
+function applyClamp(ctx: CanvasRenderingContext2D, W: number, H: number, minV: number, maxV: number): void {
   const mn=Math.round(clamp01(minV)*255);
   const mx=Math.round(clamp01(maxV)*255);
   const img=getImageData(ctx,W,H);
@@ -116,7 +117,7 @@ function applyClamp(ctx, W, H, minV, maxV) {
   putImageData(ctx,img);
 }
 
-function applyColorCorrect(ctx, W, H, brightness, contrast, gamma, saturation) {
+function applyColorCorrect(ctx: CanvasRenderingContext2D, W: number, H: number, brightness: number, contrast: number, gamma: number, saturation: number): void {
   const { luma_weights: LW, gamma_safe_min: GMIN, gamma_max: GMAX, preview_gamma_epsilon: GE } = getOpsConstants();
   const img=getImageData(ctx,W,H);
   const d=img.data;
@@ -124,32 +125,32 @@ function applyColorCorrect(ctx, W, H, brightness, contrast, gamma, saturation) {
   const invGamma=1/Math.max(GE,g);
 
   for (let i=0;i<d.length;i+=4){
-    let r=d[i]/255,g=d[i+1]/255,b=d[i+2]/255;
-    r += brightness; g += brightness; b += brightness;
+    let r=d[i]/255,gr=d[i+1]/255,b=d[i+2]/255;
+    r += brightness; gr += brightness; b += brightness;
     r = (r-0.5)*contrast+0.5;
-    g = (g-0.5)*contrast+0.5;
+    gr = (gr-0.5)*contrast+0.5;
     b = (b-0.5)*contrast+0.5;
-    r=clamp01(r); g=clamp01(g); b=clamp01(b);
+    r=clamp01(r); gr=clamp01(gr); b=clamp01(b);
     r=Math.pow(r,invGamma);
-    g=Math.pow(g,invGamma);
+    gr=Math.pow(gr,invGamma);
     b=Math.pow(b,invGamma);
 
-    const l=luma01(r,g,b,LW);
+    const l=luma01(r,gr,b,LW);
     r = l + (r-l)*saturation;
-    g = l + (g-l)*saturation;
+    gr = l + (gr-l)*saturation;
     b = l + (b-l)*saturation;
 
     d[i]=Math.round(clamp01(r)*255);
-    d[i+1]=Math.round(clamp01(g)*255);
+    d[i+1]=Math.round(clamp01(gr)*255);
     d[i+2]=Math.round(clamp01(b)*255);
   }
   putImageData(ctx,img);
 }
 
-function applyUnsharp(ctx, W, H, amount=1.0) {
+function applyUnsharp(ctx: CanvasRenderingContext2D, W: number, H: number, amount: number = 1.0): void {
   const tmp=document.createElement("canvas");
   tmp.width=W; tmp.height=H;
-  const tctx=tmp.getContext("2d");
+  const tctx=tmp.getContext("2d")!;
   tctx.filter="blur(2px)";
   tctx.drawImage(ctx.canvas,0,0);
   tctx.filter="none";
@@ -165,26 +166,26 @@ function applyUnsharp(ctx, W, H, amount=1.0) {
   putImageData(ctx,o);
 }
 
-function applyEdgeDetect(ctx, W, H, strength=1.0) {
+function applyEdgeDetect(ctx: CanvasRenderingContext2D, W: number, H: number, strength: number = 1.0): void {
   const { luma_weights: LW } = getOpsConstants();
   const img=getImageData(ctx,W,H);
   const d=img.data;
-  const g=new Float32Array(W*H);
+  const gr=new Float32Array(W*H);
   for (let y=0;y<H;y++){
     for (let x=0;x<W;x++){
       const i=(y*W+x)*4;
-      g[y*W+x]=luma01(d[i]/255, d[i+1]/255, d[i+2]/255, LW);
+      gr[y*W+x]=luma01(d[i]/255, d[i+1]/255, d[i+2]/255, LW);
     }
   }
   const out=new Uint8ClampedArray(d.length);
   const k=strength;
   for (let y=1;y<H-1;y++){
     for (let x=1;x<W-1;x++){
-      const gx = -1*g[(y-1)*W+(x-1)] + 1*g[(y-1)*W+(x+1)] +
-                 -2*g[(y)*W+(x-1)]   + 2*g[(y)*W+(x+1)]   +
-                 -1*g[(y+1)*W+(x-1)] + 1*g[(y+1)*W+(x+1)];
-      const gy = -1*g[(y-1)*W+(x-1)] + -2*g[(y-1)*W+(x)] + -1*g[(y-1)*W+(x+1)] +
-                  1*g[(y+1)*W+(x-1)] +  2*g[(y+1)*W+(x)] +  1*g[(y+1)*W+(x+1)];
+      const gx = -1*gr[(y-1)*W+(x-1)] + 1*gr[(y-1)*W+(x+1)] +
+                 -2*gr[(y)*W+(x-1)]   + 2*gr[(y)*W+(x+1)]   +
+                 -1*gr[(y+1)*W+(x-1)] + 1*gr[(y+1)*W+(x+1)];
+      const gy = -1*gr[(y-1)*W+(x-1)] + -2*gr[(y-1)*W+(x)] + -1*gr[(y-1)*W+(x+1)] +
+                  1*gr[(y+1)*W+(x-1)] +  2*gr[(y+1)*W+(x)] +  1*gr[(y+1)*W+(x+1)];
       const mag = clamp01(Math.sqrt(gx*gx+gy*gy)*k);
       const v=Math.round(mag*255);
       const i=(y*W+x)*4;
@@ -195,12 +196,12 @@ function applyEdgeDetect(ctx, W, H, strength=1.0) {
   putImageData(ctx,img);
 }
 
-function applyBlur(ctx, W, H, radiusPx) {
+function applyBlur(ctx: CanvasRenderingContext2D, W: number, H: number, radiusPx: number): void {
   const r=Math.max(0,Math.round(radiusPx));
   if (r<=0) return;
   const tmp=document.createElement("canvas");
   tmp.width=W; tmp.height=H;
-  const tctx=tmp.getContext("2d");
+  const tctx=tmp.getContext("2d")!;
   tctx.filter=`blur(${r}px)`;
   tctx.drawImage(ctx.canvas,0,0);
   tctx.filter="none";
@@ -208,10 +209,10 @@ function applyBlur(ctx, W, H, radiusPx) {
   ctx.drawImage(tmp,0,0);
 }
 
-function applyTransform(ctx, W, H, tx, ty, rotDeg, scale) {
+function applyTransform(ctx: CanvasRenderingContext2D, W: number, H: number, tx: number, ty: number, rotDeg: number, scale: number): void {
   const tmp=document.createElement("canvas");
   tmp.width=W; tmp.height=H;
-  const tctx=tmp.getContext("2d");
+  const tctx=tmp.getContext("2d")!;
   const cx=W/2, cy=H/2;
   const rad=rotDeg*Math.PI/180;
   const sc=scale;
@@ -226,7 +227,7 @@ function applyTransform(ctx, W, H, tx, ty, rotDeg, scale) {
   ctx.drawImage(tmp,0,0);
 }
 
-function applyGlow(ctx, W, H, threshold, intensity, blurPx) {
+function applyGlow(ctx: CanvasRenderingContext2D, W: number, H: number, threshold: number, intensity: number, blurPx: number): void {
   const { luma_weights: LW } = getOpsConstants();
   const base=getImageData(ctx,W,H);
   const d=base.data;
@@ -239,12 +240,12 @@ function applyGlow(ctx, W, H, threshold, intensity, blurPx) {
   }
   const tmp=document.createElement("canvas");
   tmp.width=W; tmp.height=H;
-  const tctx=tmp.getContext("2d");
+  const tctx=tmp.getContext("2d")!;
   tctx.putImageData(new ImageData(hi,W,H),0,0);
 
   const blur=document.createElement("canvas");
   blur.width=W; blur.height=H;
-  const bctx=blur.getContext("2d");
+  const bctx=blur.getContext("2d")!;
   bctx.filter=`blur(${Math.max(0,blurPx)}px)`;
   bctx.drawImage(tmp,0,0);
   bctx.filter="none";
@@ -256,7 +257,7 @@ function applyGlow(ctx, W, H, threshold, intensity, blurPx) {
   ctx.restore();
 }
 
-function applyCropReformat(ctx, W, H, x, y, cw, ch, padding, outW, outH, mode) {
+function applyCropReformat(ctx: CanvasRenderingContext2D, W: number, H: number, x: number, y: number, cw: number, ch: number, padding: number, outW: number, outH: number, mode: string): void {
   const cropW=Math.max(1,Math.round(cw));
   const cropH=Math.max(1,Math.round(ch));
   const pad=Math.max(0,Math.round(padding));
@@ -264,7 +265,7 @@ function applyCropReformat(ctx, W, H, x, y, cw, ch, padding, outW, outH, mode) {
   const tmp=document.createElement("canvas");
   tmp.width=cropW+pad*2;
   tmp.height=cropH+pad*2;
-  const tctx=tmp.getContext("2d");
+  const tctx=tmp.getContext("2d")!;
   tctx.clearRect(0,0,tmp.width,tmp.height);
   tctx.drawImage(ctx.canvas, -Math.round(x)+pad, -Math.round(y)+pad);
 
@@ -274,7 +275,7 @@ function applyCropReformat(ctx, W, H, x, y, cw, ch, padding, outW, outH, mode) {
   const dst=document.createElement("canvas");
   dst.width=finalW;
   dst.height=finalH;
-  const dctx=dst.getContext("2d");
+  const dctx=dst.getContext("2d")!;
   dctx.clearRect(0,0,finalW,finalH);
 
   if (mode==="stretch"){
@@ -292,7 +293,7 @@ function applyCropReformat(ctx, W, H, x, y, cw, ch, padding, outW, outH, mode) {
   ctx.drawImage(dst,0,0,W,H);
 }
 
-function applyLumaKey(ctx, W, H, low, high, softness) {
+function applyLumaKey(ctx: CanvasRenderingContext2D, W: number, H: number, low: number, high: number, softness: number): void {
   const { epsilon: EPS, luma_weights: LW } = getOpsConstants();
   const img=getImageData(ctx,W,H);
   const d=img.data;
@@ -311,11 +312,11 @@ function applyLumaKey(ctx, W, H, low, high, softness) {
   putImageData(ctx,img);
 }
 
-function blend(ctx, W, H, topCanvas, mode, mix) {
+function blend(ctx: CanvasRenderingContext2D, W: number, H: number, topCanvas: HTMLCanvasElement, mode: string, mix: number): void {
   const m=Math.max(0,Math.min(1,mix));
   if (m<=0) return;
 
-  const goMap={ over:"source-over", add:"lighter", screen:"screen", multiply:"multiply", difference:"difference" };
+  const goMap: Record<string, GlobalCompositeOperation> = { over:"source-over", add:"lighter", screen:"screen", multiply:"multiply", difference:"difference" };
   ctx.save();
   ctx.globalAlpha=m;
   ctx.globalCompositeOperation=goMap[mode] ?? "source-over";
@@ -327,7 +328,7 @@ function blend(ctx, W, H, topCanvas, mode, mix) {
     const b=base.data;
     const tmp=document.createElement("canvas");
     tmp.width=W; tmp.height=H;
-    const tctx=tmp.getContext("2d");
+    const tctx=tmp.getContext("2d")!;
     tctx.drawImage(topCanvas,0,0);
     const top=tctx.getImageData(0,0,W,H).data;
 
@@ -347,7 +348,7 @@ function blend(ctx, W, H, topCanvas, mode, mix) {
 }
 
 export const ops = {
-  colorAjust(ctx, W, node) {
+  colorAjust(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode): void {
     applyColorCorrect(ctx,W,W,
       num(node,"brightness",0),
       num(node,"contrast",1),
@@ -360,7 +361,7 @@ export const ops = {
       num(node,"hs_value",1),
     );
   },
-  colorCorrect(ctx, W, node) {
+  colorCorrect(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode): void {
     applyColorCorrect(ctx,W,W,
       num(node,"brightness",0),
       num(node,"contrast",1),
@@ -368,8 +369,8 @@ export const ops = {
       num(node,"saturation",1),
     );
   },
-  blur(ctx, W, node) { applyBlur(ctx,W,W, num(node,"radius",0)); },
-  transform(ctx, W, node) {
+  blur(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode): void { applyBlur(ctx,W,W, num(node,"radius",0)); },
+  transform(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode): void {
     applyTransform(ctx,W,W,
       num(node,"translate_x",0),
       num(node,"translate_y",0),
@@ -377,7 +378,7 @@ export const ops = {
       num(node,"scale",1),
     );
   },
-  levels(ctx, W, node) {
+  levels(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, _opts?: any): void {
     applyLevels(ctx,W,W,
       num(node,"in_min", num(node,"min",0)),
       num(node,"in_max", num(node,"max",1)),
@@ -386,19 +387,19 @@ export const ops = {
       num(node,"out_max",1),
     );
   },
-  hueSat(ctx, W, node) {
+  hueSat(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, _opts?: any): void {
     applyHueSat(ctx,W,W,
       num(node,"hue_deg", num(node,"hue",0)),
       num(node,"saturation", num(node,"sat",1)),
       num(node,"value", num(node,"val",1)),
     );
   },
-  invert(ctx, W, node) { applyInvert(ctx,W,W, bool(node,"invert_alpha",false)); },
-  clamp(ctx, W, node) { applyClamp(ctx,W,W, num(node,"min_v",0), num(node,"max_v",1)); },
-  sharpen(ctx, W, node) { applyUnsharp(ctx,W,W, num(node,"amount",1)); },
-  edgeDetect(ctx, W, node) { applyEdgeDetect(ctx,W,W, num(node,"strength",1)); },
-  glow(ctx, W, node) { applyGlow(ctx,W,W, num(node,"threshold",0.8), num(node,"intensity",0.75), Math.round(num(node,"blur_px",6))); },
-  cropReformat(ctx, W, node) {
+  invert(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, _opts?: any): void { applyInvert(ctx,W,W, bool(node,"invert_alpha",false)); },
+  clamp(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode): void { applyClamp(ctx,W,W, num(node,"min_v",0), num(node,"max_v",1)); },
+  sharpen(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode): void { applyUnsharp(ctx,W,W, num(node,"amount",1)); },
+  edgeDetect(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode): void { applyEdgeDetect(ctx,W,W, num(node,"strength",1)); },
+  glow(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode): void { applyGlow(ctx,W,W, num(node,"threshold",0.8), num(node,"intensity",0.75), Math.round(num(node,"blur_px",6))); },
+  cropReformat(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode): void {
     applyCropReformat(ctx,W,W,
       num(node,"x",0), num(node,"y",0),
       num(node,"crop_w",W), num(node,"crop_h",W),
@@ -407,6 +408,6 @@ export const ops = {
       str(node,"mode","fit")
     );
   },
-  lumaKey(ctx, W, node) { applyLumaKey(ctx,W,W, num(node,"low",0.1), num(node,"high",0.9), num(node,"softness",0.05)); },
-  merge(ctx, W, node, topCanvas) { blend(ctx,W,W, topCanvas, str(node,"mode","over"), num(node,"mix",1)); },
+  lumaKey(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode): void { applyLumaKey(ctx,W,W, num(node,"low",0.1), num(node,"high",0.9), num(node,"softness",0.05)); },
+  merge(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, topCanvas: HTMLCanvasElement, _opts?: any): void { blend(ctx,W,W, topCanvas, str(node,"mode","over"), num(node,"mix",1)); },
 };

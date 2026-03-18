@@ -1,21 +1,18 @@
-// ImageOps adapters (exact match) (v6)
-import type { Adapter, AdapterApplyContext, ComfyNode } from "../../types.js";
 import { ops } from "../ops.js";
-
-export function imageOpsAdapter(): Adapter {
+function imageOpsAdapter() {
   return {
-    match(node: ComfyNode): boolean {
+    match(node) {
       return String(node?.comfyClass ?? "").startsWith("ImageOps");
     },
-    inputs: (node: ComfyNode): number => {
+    inputs: (node) => {
       const cls = String(node?.comfyClass ?? "");
-      const bypass = !!(node?.widgets ?? []).find(w => w?.name === "bypass")?.value;
+      const bypass = !!(node?.widgets ?? []).find((w) => w?.name === "bypass")?.value;
       if (cls === "ImageOpsMerge") return bypass ? 1 : 2;
       return 1;
     },
-    async apply({ node, ctx, canvasSize, inputs }: AdapterApplyContext): Promise<void> {
+    async apply({ node, ctx, canvasSize, inputs }) {
       const cls = String(node?.comfyClass ?? "");
-      const bypass = !!(node?.widgets ?? []).find(w => w?.name === "bypass")?.value;
+      const bypass = !!(node?.widgets ?? []).find((w) => w?.name === "bypass")?.value;
       if (bypass) return;
       if (cls === "ImageOpsColorAjust") {
         ops.colorAjust(ctx, canvasSize, node);
@@ -30,8 +27,10 @@ export function imageOpsAdapter(): Adapter {
       } else if (cls === "ImageOpsMerge") {
         ops.merge(ctx, canvasSize, node, inputs[1]);
       } else {
-        // Preview / Load pass-through
       }
     }
   };
 }
+export {
+  imageOpsAdapter
+};

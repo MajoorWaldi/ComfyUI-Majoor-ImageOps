@@ -1,0 +1,26 @@
+{
+  "name": "comfyui-majoor-imageops",
+  "version": "1.0.0",
+  "description": "WORK IN PROGRESS",
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "check": "tsc --noEmit",
+    "dev": "node esbuild.mjs --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MajoorWaldi/ComfyUI-Majoor-ImageOps.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/MajoorWaldi/ComfyUI-Majoor-ImageOps/issues"
+  },
+  "homepage": "https://github.com/MajoorWaldi/ComfyUI-Majoor-ImageOps#readme",
+  "devDependencies": {
+    "esbuild": "^0.27.4",
+    "typescript": "^5.9.3"
+  }
+}

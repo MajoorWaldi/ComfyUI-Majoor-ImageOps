@@ -1,12 +1,13 @@
 // Graph traversal helpers for ImageOps Live Preview (v6)
+import type { ComfyNode, ComfyLink, ComfyWidget, LGraph, MediaSource } from "../types.js";
 
 const MAX_RECURSION = 64;
 
-export function getInputLink(node, inputIndex = 0) {
+export function getInputLink(node: ComfyNode, inputIndex: number = 0): ComfyLink | null {
   try { return node?.getInputLink?.(inputIndex) ?? null; } catch { return null; }
 }
 
-export function getUpstreamNode(node, inputIndex = 0) {
+export function getUpstreamNode(node: ComfyNode, inputIndex: number = 0): ComfyNode | null {
   const link = getInputLink(node, inputIndex);
   if (!link) return null;
   const originId = link.origin_id ?? link.originId;
@@ -14,29 +15,29 @@ export function getUpstreamNode(node, inputIndex = 0) {
   return node?.graph?.getNodeById?.(originId) ?? null;
 }
 
-export function isGraphTooLarge(graph, maxNodes = 140) {
+export function isGraphTooLarge(graph: LGraph | undefined, maxNodes: number = 140): boolean {
   const nodes = graph?._nodes ?? [];
   return nodes.length > maxNodes;
 }
 
-export function detectSource(node) {
+export function detectSource(node: ComfyNode): MediaSource | null {
   const IMAGE_EXTS = new Set(["png","jpg","jpeg","webp","bmp","gif","tif","tiff"]);
   const VIDEO_EXTS = new Set(["mp4","mov","webm","mkv","avi","gif","webp"]);
 
-  function getFileExtLower(s) {
+  function getFileExtLower(s: unknown): string {
     const m = String(s ?? "").toLowerCase().match(/\.([a-z0-9]+)(\s*\[[^\]]+\]\s*)?$/i);
     return m ? m[1] : "";
   }
-  function looksLikeMediaValue(v) {
+  function looksLikeMediaValue(v: unknown): boolean {
     if (v == null) return false;
     if (typeof v !== "string") return false;
     const ext = getFileExtLower(v);
     return IMAGE_EXTS.has(ext) || VIDEO_EXTS.has(ext);
   }
-  function pickMediaWidget(n) {
+  function pickMediaWidget(n: ComfyNode): ComfyWidget | null {
     const preferred = ["image","video","path","filepath","file","filename","input_video","input_image"];
     for (const name of preferred) {
-      const w = n?.widgets?.find(x => x?.name === name);
+      const w = n?.widgets?.find((x: ComfyWidget) => x?.name === name);
       if (w && looksLikeMediaValue(w.value)) return w;
     }
     for (const w of (n?.widgets ?? [])) {
@@ -49,12 +50,12 @@ export function detectSource(node) {
   if (!w) return null;
 
   const ext = getFileExtLower(w.value);
-  const kind = VIDEO_EXTS.has(ext) ? "video" : "image";
-  return { kind, value: w.value };
+  const kind: "image" | "video" = VIDEO_EXTS.has(ext) ? "video" : "image";
+  return { kind, value: w.value as string };
 }
 
-export function detectSourceUpstream(node, maxHops = MAX_RECURSION) {
-  let cur = node;
+export function detectSourceUpstream(node: ComfyNode, maxHops: number = MAX_RECURSION): MediaSource | null {
+  let cur: ComfyNode | null = node;
   for (let i = 0; i < maxHops && cur; i++) {
     const s = detectSource(cur);
     if (s) return s;
@@ -63,10 +64,10 @@ export function detectSourceUpstream(node, maxHops = MAX_RECURSION) {
   return null;
 }
 
-export function findDependents(changedNode, predicate) {
+export function findDependents(changedNode: ComfyNode, predicate: (n: ComfyNode) => boolean): ComfyNode[] {
   const g = changedNode?.graph;
   const nodes = g?._nodes ?? [];
-  const out = [];
+  const out: ComfyNode[] = [];
   for (const n of nodes) {
     if (!n || !predicate(n)) continue;
     if (isUpstreamOf(changedNode, n)) out.push(n);
@@ -74,12 +75,12 @@ export function findDependents(changedNode, predicate) {
   return out;
 }
 
-function isUpstreamOf(candidate, node, max=MAX_RECURSION) {
-  const seen = new Set();
-  const stack = [node];
+function isUpstreamOf(candidate: ComfyNode, node: ComfyNode, max: number = MAX_RECURSION): boolean {
+  const seen = new Set<number>();
+  const stack: ComfyNode[] = [node];
   let steps = 0;
   while (stack.length && steps < max) {
-    const cur = stack.pop();
+    const cur = stack.pop()!;
     if (!cur || seen.has(cur.id)) continue;
     seen.add(cur.id);
     steps++;

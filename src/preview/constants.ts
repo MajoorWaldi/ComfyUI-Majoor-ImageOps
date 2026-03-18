@@ -1,25 +1,26 @@
 // Shared numeric constants loader (v1)
 // Source-of-truth: ../shared/ops_constants.json (also consumed by Python).
+import type { OpsConstants } from "../types.js";
 
-const DEFAULTS = Object.freeze({
+const DEFAULTS: OpsConstants = {
   version: 1,
   epsilon: 1e-6,
   luma_weights: [0.2126, 0.7152, 0.0722],
   gamma_safe_min: 0.2,
   gamma_max: 5.0,
   preview_gamma_epsilon: 1e-3,
-});
+};
 
-let cached = { ...DEFAULTS };
-let initPromise = null;
+let cached: OpsConstants = { ...DEFAULTS };
+let initPromise: Promise<void> | null = null;
 
-function toNum(v, fallback) {
-  const n = typeof v === "number" ? v : parseFloat(v);
+function toNum(v: unknown, fallback: number): number {
+  const n = typeof v === "number" ? v : parseFloat(v as string);
   return Number.isFinite(n) ? n : fallback;
 }
 
-function normalize(raw) {
-  const obj = raw && typeof raw === "object" ? raw : {};
+function normalize(raw: unknown): OpsConstants {
+  const obj = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
   const lw = Array.isArray(obj.luma_weights) ? obj.luma_weights : DEFAULTS.luma_weights;
   return {
     version: 1,
@@ -35,11 +36,11 @@ function normalize(raw) {
   };
 }
 
-export function getOpsConstants() {
+export function getOpsConstants(): OpsConstants {
   return cached;
 }
 
-export function initOpsConstants() {
+export function initOpsConstants(): Promise<void> {
   initPromise ??= (async () => {
     try {
       const url = new URL("../shared/ops_constants.json", import.meta.url);
@@ -50,4 +51,3 @@ export function initOpsConstants() {
   })();
   return initPromise;
 }
-
