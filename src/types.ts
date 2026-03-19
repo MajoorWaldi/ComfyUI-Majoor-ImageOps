@@ -102,6 +102,8 @@ export interface AdapterApplyContext {
   ctx: CanvasRenderingContext2D;
   canvasSize: number;
   inputs: HTMLCanvasElement[];
+  inputInfos?: RenderInputInfo[];
+  outputSlot?: number | null;
 }
 
 export interface AdapterRegistry {
@@ -120,6 +122,13 @@ export interface RenderContext {
 
 export interface RenderResult {
   canvas: HTMLCanvasElement | null;
+}
+
+export interface RenderInputInfo {
+  canvas: HTMLCanvasElement;
+  inputIndex: number;
+  originSlot: number | null;
+  upstreamNode?: ComfyNode | null;
 }
 
 // ── Node state ──
@@ -178,6 +187,7 @@ export interface NodeState {
   compResetButton: HTMLButtonElement | null;
   compModeSelect: HTMLSelectElement | null;
   compOpacityInput: HTMLInputElement | null;
+  compOpacityLabel: HTMLDivElement | null;
   compLayerLabel: HTMLDivElement | null;
   compInteractiveHooked: boolean;
 }

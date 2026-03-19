@@ -21,7 +21,7 @@ class ImageOpsBlur:
         return {
             "required": {
                 "bypass": ("BOOLEAN", {"default": False}),
-                "radius": ("INT", {"default": 3, "min": 0, "max": 128, "step": 1}),
+                "radius": ("INT", {"default": 3, "min": 0, "max": 128, "step": 1, "display": "slider"}),
                 "sigma": ("FLOAT", {"default": 1.5, "min": 0.01, "max": 64.0, "step": 0.01, "display": "slider", "round": 0.001}),
                 "invert_mask": ("BOOLEAN", {"default": False}),
             },

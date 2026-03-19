@@ -40,7 +40,7 @@ function wasAdapters() {
       },
       inputs: 1,
       async apply({ ctx, canvasSize, node }) {
-        ops.invert(ctx, canvasSize, node, { wasCompat: true });
+        ops.invert(ctx, canvasSize, node);
       }
     },
     {

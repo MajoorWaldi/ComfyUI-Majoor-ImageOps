@@ -1,0 +1,48 @@
+name: Nightly Build
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - nightly
+    paths-ignore:
+      - "**.md"
+      - ".github/workflows/**"
+      - "tests/**"
+
+permissions: {}
+
+jobs:
+  build-nightly:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create Archive
+        run: |
+          echo "nightly" > .mjr_channel
+          zip -r ComfyUI-Majoor-ImageOps_nightly.zip . \
+          -x "*.git/*" \
+          -x ".github/*" \
+          -x ".claude/*" \
+          -x "*/__pycache__/*" \
+          -x "node_modules/*" \
+          -x "*/.pytest_cache/*" \
+          -x "tests/*" \
+          -x ".vscode/*" \
+          -x "*.zip"
+
+      - name: Update Nightly Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: nightly
+          name: "Nightly Build (Development)"
+          prerelease: true
+          overwrite_files: true
+          files: |
+            ./ComfyUI-Majoor-ImageOps_nightly.zip

@@ -11,15 +11,15 @@ class ImageOpsMerge:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "A": (MEDIA_INPUT_TYPE, {"tooltip": "Background IMAGE or VIDEO frames"}),
-                "B": (MEDIA_INPUT_TYPE, {"tooltip": "Foreground IMAGE or VIDEO frames"}),
+                "A": (MEDIA_INPUT_TYPE, {"tooltip": "Background Images/Video input.", "display_name": "Background"}),
+                "B": (MEDIA_INPUT_TYPE, {"tooltip": "Foreground Images/Video input.", "display_name": "Foreground"}),
                 "bypass": ("BOOLEAN", {"default": False}),
                 "mode": (["over", "add", "subtract", "multiply", "screen", "difference", "max", "min"], {"default": "over"}),
                 "mix": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001}),
                 "invert_mask": ("BOOLEAN", {"default": False}),
             },
             "optional": {
-                "mask": ("MASK", {"tooltip": "Optional mask applied to merge result"}),
+                "mask": ("MASK", {"tooltip": "Optional mask applied to the merged result", "display_name": "Mask"}),
             }
         }
 

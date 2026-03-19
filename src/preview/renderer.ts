@@ -1,6 +1,6 @@
 // Renderer (recursive, supports interop) (v6)
-import type { ComfyNode, ComfyAPI, AdapterRegistry, RenderContext, RenderResult } from "../types.js";
-import { getUpstreamNode, detectSource } from "./graph.js";
+import type { ComfyNode, ComfyAPI, AdapterRegistry, RenderContext, RenderInputInfo, RenderResult } from "../types.js";
+import { getInputLink, getUpstreamNode, detectSource } from "./graph.js";
 import { makeViewUrl, ensureBitmap, ensureImageElement, ensureVideoFrameCanvas, fitWithinMaxSize } from "./source.js";
 
 interface RendererConfig {
@@ -10,7 +10,7 @@ interface RendererConfig {
 }
 
 interface Renderer {
-  render(node: ComfyNode, tick?: number): Promise<RenderResult>;
+  render(node: ComfyNode, tick?: number, outputSlot?: number | null): Promise<RenderResult>;
 }
 
 export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Renderer {
@@ -79,19 +79,26 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
     return null;
   }
 
-  async function render(node: ComfyNode, tick: number = 0): Promise<RenderResult> {
+  function makePlaceholderCanvas(): HTMLCanvasElement {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    return canvas;
+  }
+
+  async function render(node: ComfyNode, tick: number = 0, outputSlot: number | null = null): Promise<RenderResult> {
     const ctx: RenderContext = { api, canvasSize, tick, cache: new Map(), visited: new Set() };
-    const canvas = await renderNode(node, ctx);
+    const canvas = await renderNode(node, ctx, outputSlot);
     return { canvas };
   }
 
-  async function renderNode(node: ComfyNode | null, ctx: RenderContext): Promise<HTMLCanvasElement | null> {
+  async function renderNode(node: ComfyNode | null, ctx: RenderContext, outputSlot: number | null): Promise<HTMLCanvasElement | null> {
     if (!node) return null;
     if (ctx.visited.has(node.id)) return null;
     if (ctx.visited.size > MAX_RECURSION) return null;
     ctx.visited.add(node.id);
 
-    const sig = signature(node, ctx.tick);
+    const sig = signature(node, ctx.tick, outputSlot);
     if (ctx.cache.has(sig)) {
       ctx.visited.delete(node.id);
       return ctx.cache.get(sig)!;
@@ -150,7 +157,8 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
       : [...Array(adapter ? ((typeof adapter.inputs === "function") ? adapter.inputs(node) : (adapter.inputs ?? 1)) : 1).keys()];
     if (!adapter) {
       const primaryInputIndex = resolvedIndexes[0] ?? 0;
-      const primary = await renderNode(getUpstreamNode(node, primaryInputIndex), ctx);
+      const link = getInputLink(node, primaryInputIndex);
+      const primary = await renderNode(getUpstreamNode(node, primaryInputIndex), ctx, link?.origin_slot ?? link?.originSlot ?? null);
       ctx.visited.delete(node.id);
       return primary;
     }
@@ -168,30 +176,42 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
     }
 
     const primaryInputIndex = resolvedIndexes[0] ?? 0;
-    const primary = await renderNode(getUpstreamNode(node, primaryInputIndex), ctx);
+    const primaryLink = getInputLink(node, primaryInputIndex);
+    const primary = await renderNode(getUpstreamNode(node, primaryInputIndex), ctx, primaryLink?.origin_slot ?? primaryLink?.originSlot ?? null);
 
     // gather inputs
     if (!primary) { ctx.visited.delete(node.id); return null; }
 
     const inputs: HTMLCanvasElement[] = [];
+    const inputInfos: RenderInputInfo[] = [];
     for (let i = 0; i < resolvedIndexes.length; i++) {
       const inputIndex = resolvedIndexes[i];
       const up = getUpstreamNode(node, inputIndex);
+      const link = getInputLink(node, inputIndex);
+      const originSlot = link?.origin_slot ?? link?.originSlot ?? null;
       if (i === 0 && !up) {
         ctx.visited.delete(node.id);
         return primary;
       }
       if (i === 0 && inputIndex === primaryInputIndex && primary) {
         inputs.push(primary);
+        inputInfos.push({ canvas: primary, inputIndex, originSlot, upstreamNode: up });
         continue;
       }
-      const c = await renderNode(up, ctx);
+      const c = await renderNode(up, ctx, originSlot);
       if (!c) {
+        if (up) {
+          const placeholder = makePlaceholderCanvas();
+          inputs.push(placeholder);
+          inputInfos.push({ canvas: placeholder, inputIndex, originSlot, upstreamNode: up });
+          continue;
+        }
         ctx.cache.set(sig, primary);
         ctx.visited.delete(node.id);
         return primary;
       }
       inputs.push(c);
+      inputInfos.push({ canvas: c, inputIndex, originSlot, upstreamNode: up });
     }
 
     // work canvas is copy of first input
@@ -206,7 +226,7 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
     const octx = out.getContext("2d")!;
     octx.drawImage(inputs[0], 0, 0);
 
-    const adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs });
+    const adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs, inputInfos, outputSlot });
     const result = adapted instanceof HTMLCanvasElement ? adapted : out;
 
     ctx.cache.set(sig, result);
@@ -214,8 +234,8 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
     return result;
   }
 
-  function signature(node: ComfyNode, tick: number): string {
-    const parts: (string | number)[] = [node.id, String(node.comfyClass ?? ""), tick];
+  function signature(node: ComfyNode, tick: number, outputSlot: number | null): string {
+    const parts: (string | number)[] = [node.id, String(node.comfyClass ?? ""), tick, outputSlot ?? -1];
     for (const w of (node.widgets ?? [])) {
       const v = w?.value;
       if (v == null) continue;

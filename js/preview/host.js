@@ -2,7 +2,7 @@ import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { buildRenderer } from "./renderer.js";
 import { buildAdapterRegistry } from "./registry.js";
-import { detectSourceUpstream, getUpstreamNode, isGraphTooLarge, findDependents } from "./graph.js";
+import { detectSourceUpstream, getInputLink, getUpstreamNode, isGraphTooLarge, findDependents } from "./graph.js";
 import { resolveNodeStreamPreview } from "./nodestream.js";
 import { attachProgressBus } from "./progress.js";
 import { getPreviewConfig } from "./config.js";
@@ -84,6 +84,7 @@ function ensureState(node) {
     compResetButton: null,
     compModeSelect: null,
     compOpacityInput: null,
+    compOpacityLabel: null,
     compLayerLabel: null,
     compInteractiveHooked: false
   });
@@ -102,6 +103,8 @@ function styleSoftButton(button, active = false) {
   button.style.borderRadius = "6px";
   button.style.padding = "4px 8px";
   button.style.cursor = "pointer";
+  button.style.fontSize = "11px";
+  button.style.lineHeight = "1.2";
 }
 function styleSoftField(field) {
   field.style.borderRadius = "6px";
@@ -110,6 +113,29 @@ function styleSoftField(field) {
   field.style.color = "rgba(255,255,255,0.95)";
   field.style.padding = "4px 6px";
   field.style.boxSizing = "border-box";
+  field.style.fontSize = "11px";
+}
+function styleSoftRange(field) {
+  field.style.width = "100%";
+  field.style.margin = "0";
+  field.style.boxSizing = "border-box";
+  field.style.cursor = "pointer";
+}
+function styleInlineAction(button) {
+  button.style.border = "none";
+  button.style.background = "transparent";
+  button.style.color = "rgba(255,255,255,0.85)";
+  button.style.fontSize = "11px";
+  button.style.cursor = "pointer";
+  button.style.padding = "0";
+}
+function setControlDisabled(control, disabled) {
+  if (!control) return;
+  control.disabled = disabled;
+  control.style.opacity = disabled ? "0.55" : "1";
+  if ("style" in control && control instanceof HTMLButtonElement) {
+    control.style.cursor = disabled ? "default" : "pointer";
+  }
 }
 function ensurePreviewWidget(node, progress, canvasSize) {
   if (!IMAGEOPS_CLASSES.has(node.comfyClass)) return null;
@@ -148,18 +174,14 @@ function ensurePreviewWidget(node, progress, canvasSize) {
     cropResetButton = document.createElement("button");
     cropResetButton.type = "button";
     cropResetButton.textContent = "Reset";
-    cropResetButton.style.border = "none";
-    cropResetButton.style.background = "transparent";
-    cropResetButton.style.color = "rgba(255,255,255,0.85)";
-    cropResetButton.style.fontSize = "11px";
-    cropResetButton.style.cursor = "pointer";
-    cropResetButton.style.padding = "0";
+    styleInlineAction(cropResetButton);
     cropResetButton.style.opacity = "0.85";
   }
   let compAddButton = null;
   let compResetButton = null;
   let compModeSelect = null;
   let compOpacityInput = null;
+  let compOpacityLabel = null;
   let compLayerLabel = null;
   let compControls = null;
   if (compNode) {
@@ -172,21 +194,11 @@ function ensurePreviewWidget(node, progress, canvasSize) {
     compAddButton = document.createElement("button");
     compAddButton.type = "button";
     compAddButton.textContent = "+ Add layer";
-    compAddButton.style.border = "1px solid rgba(255,255,255,0.12)";
-    compAddButton.style.background = "rgba(255,255,255,0.04)";
-    compAddButton.style.color = "rgba(255,255,255,0.92)";
-    compAddButton.style.borderRadius = "6px";
-    compAddButton.style.padding = "4px 8px";
-    compAddButton.style.cursor = "pointer";
+    styleSoftButton(compAddButton, false);
     compResetButton = document.createElement("button");
     compResetButton.type = "button";
     compResetButton.textContent = "Reset layer";
-    compResetButton.style.border = "1px solid rgba(255,255,255,0.12)";
-    compResetButton.style.background = "rgba(255,255,255,0.04)";
-    compResetButton.style.color = "rgba(255,255,255,0.92)";
-    compResetButton.style.borderRadius = "6px";
-    compResetButton.style.padding = "4px 8px";
-    compResetButton.style.cursor = "pointer";
+    styleSoftButton(compResetButton, false);
     compLayerLabel = document.createElement("div");
     compLayerLabel.style.fontSize = "11px";
     compLayerLabel.style.opacity = "0.85";
@@ -195,32 +207,36 @@ function ensurePreviewWidget(node, progress, canvasSize) {
     const compBottomRow = document.createElement("div");
     compBottomRow.style.gridColumn = "1 / -1";
     compBottomRow.style.display = "grid";
-    compBottomRow.style.gridTemplateColumns = "minmax(0,1fr) auto";
+    compBottomRow.style.gridTemplateColumns = "minmax(0,1fr) auto minmax(110px,0.9fr)";
     compBottomRow.style.gap = "6px";
     compBottomRow.style.alignItems = "center";
     compModeSelect = document.createElement("select");
     compModeSelect.style.width = "100%";
-    compModeSelect.style.borderRadius = "6px";
-    compModeSelect.style.border = "1px solid rgba(255,255,255,0.12)";
-    compModeSelect.style.background = "rgba(0,0,0,0.28)";
-    compModeSelect.style.color = "rgba(255,255,255,0.95)";
-    compModeSelect.style.padding = "4px 6px";
+    styleSoftField(compModeSelect);
     for (const mode of COMP_BLEND_MODES) {
       const option = document.createElement("option");
       option.value = mode;
       option.textContent = mode.replace("_", " ");
       compModeSelect.appendChild(option);
     }
+    compOpacityLabel = document.createElement("div");
+    compOpacityLabel.textContent = "100%";
+    compOpacityLabel.style.fontSize = "11px";
+    compOpacityLabel.style.opacity = "0.82";
+    compOpacityLabel.style.justifySelf = "end";
     compOpacityInput = document.createElement("input");
     compOpacityInput.type = "range";
     compOpacityInput.min = "0";
     compOpacityInput.max = "100";
     compOpacityInput.step = "1";
     compOpacityInput.value = "100";
+    compOpacityInput.title = "Layer opacity";
+    styleSoftRange(compOpacityInput);
     compControls.appendChild(compAddButton);
     compControls.appendChild(compResetButton);
     compControls.appendChild(compLayerLabel);
     compBottomRow.appendChild(compModeSelect);
+    compBottomRow.appendChild(compOpacityLabel);
     compBottomRow.appendChild(compOpacityInput);
     compControls.appendChild(compBottomRow);
   }
@@ -262,12 +278,7 @@ function ensurePreviewWidget(node, progress, canvasSize) {
     drawClearButton = document.createElement("button");
     drawClearButton.type = "button";
     drawClearButton.textContent = "Clear";
-    drawClearButton.style.border = "none";
-    drawClearButton.style.background = "transparent";
-    drawClearButton.style.color = "rgba(255,255,255,0.85)";
-    drawClearButton.style.fontSize = "11px";
-    drawClearButton.style.cursor = "pointer";
-    drawClearButton.style.padding = "0";
+    styleInlineAction(drawClearButton);
     toolRow.appendChild(drawBrushButton);
     toolRow.appendChild(drawEraserButton);
     topRow.appendChild(toolRow);
@@ -299,6 +310,8 @@ function ensurePreviewWidget(node, progress, canvasSize) {
     drawOpacityInput.max = "100";
     drawOpacityInput.step = "1";
     drawOpacityInput.value = "100";
+    drawOpacityInput.title = "Brush opacity";
+    styleSoftRange(drawOpacityInput);
     strokeRow.appendChild(colorLabel);
     strokeRow.appendChild(drawColorInput);
     strokeRow.appendChild(drawOpacityLabel);
@@ -318,6 +331,8 @@ function ensurePreviewWidget(node, progress, canvasSize) {
     drawSizeInput.max = "256";
     drawSizeInput.step = "1";
     drawSizeInput.value = "10";
+    drawSizeInput.title = "Brush size";
+    styleSoftRange(drawSizeInput);
     drawSizeLabel = document.createElement("div");
     drawSizeLabel.textContent = "10";
     drawSizeLabel.style.fontSize = "11px";
@@ -420,6 +435,7 @@ function ensurePreviewWidget(node, progress, canvasSize) {
   st.compResetButton = compResetButton;
   st.compModeSelect = compModeSelect;
   st.compOpacityInput = compOpacityInput;
+  st.compOpacityLabel = compOpacityLabel;
   st.compLayerLabel = compLayerLabel;
   try {
     node.setSize?.([Math.max(node.size?.[0] ?? 360, 360), Math.max(node.size?.[1] ?? 420, 420)]);
@@ -631,11 +647,13 @@ function syncDrawWidgets(node, changedName) {
   if (st.drawOpacityInput) {
     const opacity = Math.round(clampDrawOpacity(widgetNumber(node, "brush_opacity", 1), 1) * 100);
     st.drawOpacityInput.value = String(opacity);
+    st.drawOpacityInput.title = `Brush opacity ${opacity}%`;
     if (st.drawOpacityLabel) st.drawOpacityLabel.textContent = `${opacity}%`;
   }
   if (st.drawSizeInput) {
     const size = clampDrawSize(widgetNumber(node, "brush_size", 10), 10);
     st.drawSizeInput.value = String(size);
+    st.drawSizeInput.title = `Brush size ${size}`;
     if (st.drawSizeLabel) st.drawSizeLabel.textContent = String(size);
   }
   if (linkWidget) linkWidget.value = linked;
@@ -986,22 +1004,28 @@ function updateCompControls(node) {
   const selected = layers.find((layer) => layer.slot === st.compSelectedSlot) ?? layers[layers.length - 1] ?? null;
   if (!selected) {
     if (st.compLayerLabel) st.compLayerLabel.textContent = "No layer";
-    if (st.compModeSelect) st.compModeSelect.disabled = true;
-    if (st.compOpacityInput) st.compOpacityInput.disabled = true;
+    setControlDisabled(st.compResetButton, true);
+    setControlDisabled(st.compModeSelect, true);
+    setControlDisabled(st.compOpacityInput, true);
+    if (st.compOpacityLabel) st.compOpacityLabel.textContent = "0%";
     return;
   }
   st.compSelectedSlot = selected.slot;
+  setControlDisabled(st.compResetButton, false);
   if (st.compLayerLabel) {
     const match = /_(\d+)$/.exec(selected.slot);
     st.compLayerLabel.textContent = `Layer ${match?.[1] ?? "?"}`;
   }
   if (st.compModeSelect) {
-    st.compModeSelect.disabled = false;
+    setControlDisabled(st.compModeSelect, false);
     st.compModeSelect.value = selected.mode;
   }
   if (st.compOpacityInput) {
-    st.compOpacityInput.disabled = false;
-    st.compOpacityInput.value = String(Math.round(selected.opacity * 100));
+    const opacity = Math.round(selected.opacity * 100);
+    setControlDisabled(st.compOpacityInput, false);
+    st.compOpacityInput.value = String(opacity);
+    st.compOpacityInput.title = `Layer opacity ${opacity}%`;
+    if (st.compOpacityLabel) st.compOpacityLabel.textContent = `${opacity}%`;
   }
 }
 function updateSelectedCompLayer(node, updater) {
@@ -1184,33 +1208,13 @@ function registerImageOpsLivePreview() {
     octx.putImageData(image, 0, 0);
     return output;
   }
-  async function renderMaskCanvasFromNode(upstream, tick) {
-    if (isDrawNode(upstream)) {
+  async function renderMaskCanvasFromNode(upstream, tick, outputSlot = 1) {
+    if (isDrawNode(upstream) && outputSlot === 1) {
       return await renderDrawMaskCanvas(upstream, tick);
     }
-    if (isPreviewNode(upstream)) {
-      const previewMaskIndex = getInputIndexByName(upstream, "mask");
-      if (previewMaskIndex >= 0 && (upstream.inputs?.[previewMaskIndex]?.link ?? null) != null) {
-        const previewMaskSource = getUpstreamNode(upstream, previewMaskIndex);
-        if (previewMaskSource) {
-          return await renderMaskCanvasFromNode(previewMaskSource, tick);
-        }
-      }
-      const previewImageIndex = getInputIndexByName(upstream, "image");
-      if (previewImageIndex >= 0) {
-        const previewImageSource = getUpstreamNode(upstream, previewImageIndex);
-        if (previewImageSource) {
-          const rendered2 = await renderer.render(previewImageSource, tick);
-          if (rendered2.canvas) {
-            return deriveMaskCanvasFromCanvas(rendered2.canvas);
-          }
-        }
-      }
-      return null;
-    }
-    const rendered = await renderer.render(upstream, tick);
+    const rendered = await renderer.render(upstream, tick, outputSlot);
     if (rendered.canvas) {
-      return deriveMaskCanvasFromCanvas(rendered.canvas);
+      return rendered.canvas;
     }
     const nodeStream = await resolveNodeStreamPreview(upstream, canvasSize);
     if (!nodeStream?.canvas) return null;
@@ -1219,7 +1223,9 @@ function registerImageOpsLivePreview() {
   async function renderMaskInputForComp(node, inputIndex, tick) {
     const upstream = getUpstreamNode(node, inputIndex);
     if (!upstream) return null;
-    return await renderMaskCanvasFromNode(upstream, tick);
+    const link = getInputLink(node, inputIndex);
+    const outputSlot = link?.origin_slot ?? link?.originSlot ?? 1;
+    return await renderMaskCanvasFromNode(upstream, tick, outputSlot);
   }
   async function renderPreviewBridgeNode(node, tick) {
     const st = ensurePreviewWidget(node, progress, canvasSize);
@@ -1246,7 +1252,9 @@ function registerImageOpsLivePreview() {
     if (maskIndex >= 0) {
       const maskUpstream = getUpstreamNode(node, maskIndex);
       if (maskUpstream) {
-        const directMask = await renderMaskCanvasFromNode(maskUpstream, tick);
+        const maskLink = getInputLink(node, maskIndex);
+        const maskOutputSlot = maskLink?.origin_slot ?? maskLink?.originSlot ?? 1;
+        const directMask = await renderMaskCanvasFromNode(maskUpstream, tick, maskOutputSlot);
         maskCanvas = directMask;
         if (!maskCanvas) {
           const nodeStream = await resolveNodeStreamPreview(maskUpstream, canvasSize);

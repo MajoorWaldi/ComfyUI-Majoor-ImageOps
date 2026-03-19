@@ -1,4 +1,4 @@
-import { getUpstreamNode, detectSource } from "./graph.js";
+import { getInputLink, getUpstreamNode, detectSource } from "./graph.js";
 import { makeViewUrl, ensureBitmap, ensureImageElement, ensureVideoFrameCanvas, fitWithinMaxSize } from "./source.js";
 function buildRenderer({ api, registry, canvasSize }) {
   const MAX_RECURSION = 64;
@@ -63,17 +63,23 @@ function buildRenderer({ api, registry, canvasSize }) {
     }
     return null;
   }
-  async function render(node, tick = 0) {
+  function makePlaceholderCanvas() {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    return canvas;
+  }
+  async function render(node, tick = 0, outputSlot = null) {
     const ctx = { api, canvasSize, tick, cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() };
-    const canvas = await renderNode(node, ctx);
+    const canvas = await renderNode(node, ctx, outputSlot);
     return { canvas };
   }
-  async function renderNode(node, ctx) {
+  async function renderNode(node, ctx, outputSlot) {
     if (!node) return null;
     if (ctx.visited.has(node.id)) return null;
     if (ctx.visited.size > MAX_RECURSION) return null;
     ctx.visited.add(node.id);
-    const sig = signature(node, ctx.tick);
+    const sig = signature(node, ctx.tick, outputSlot);
     if (ctx.cache.has(sig)) {
       ctx.visited.delete(node.id);
       return ctx.cache.get(sig);
@@ -132,7 +138,8 @@ function buildRenderer({ api, registry, canvasSize }) {
     const resolvedIndexes = adapterInputIndexes.length > 0 ? adapterInputIndexes : [...Array(adapter ? typeof adapter.inputs === "function" ? adapter.inputs(node) : adapter.inputs ?? 1 : 1).keys()];
     if (!adapter) {
       const primaryInputIndex2 = resolvedIndexes[0] ?? 0;
-      const primary2 = await renderNode(getUpstreamNode(node, primaryInputIndex2), ctx);
+      const link = getInputLink(node, primaryInputIndex2);
+      const primary2 = await renderNode(getUpstreamNode(node, primaryInputIndex2), ctx, link?.origin_slot ?? link?.originSlot ?? null);
       ctx.visited.delete(node.id);
       return primary2;
     }
@@ -148,30 +155,42 @@ function buildRenderer({ api, registry, canvasSize }) {
       return result2;
     }
     const primaryInputIndex = resolvedIndexes[0] ?? 0;
-    const primary = await renderNode(getUpstreamNode(node, primaryInputIndex), ctx);
+    const primaryLink = getInputLink(node, primaryInputIndex);
+    const primary = await renderNode(getUpstreamNode(node, primaryInputIndex), ctx, primaryLink?.origin_slot ?? primaryLink?.originSlot ?? null);
     if (!primary) {
       ctx.visited.delete(node.id);
       return null;
     }
     const inputs = [];
+    const inputInfos = [];
     for (let i = 0; i < resolvedIndexes.length; i++) {
       const inputIndex = resolvedIndexes[i];
       const up = getUpstreamNode(node, inputIndex);
+      const link = getInputLink(node, inputIndex);
+      const originSlot = link?.origin_slot ?? link?.originSlot ?? null;
       if (i === 0 && !up) {
         ctx.visited.delete(node.id);
         return primary;
       }
       if (i === 0 && inputIndex === primaryInputIndex && primary) {
         inputs.push(primary);
+        inputInfos.push({ canvas: primary, inputIndex, originSlot, upstreamNode: up });
         continue;
       }
-      const c = await renderNode(up, ctx);
+      const c = await renderNode(up, ctx, originSlot);
       if (!c) {
+        if (up) {
+          const placeholder = makePlaceholderCanvas();
+          inputs.push(placeholder);
+          inputInfos.push({ canvas: placeholder, inputIndex, originSlot, upstreamNode: up });
+          continue;
+        }
         ctx.cache.set(sig, primary);
         ctx.visited.delete(node.id);
         return primary;
       }
       inputs.push(c);
+      inputInfos.push({ canvas: c, inputIndex, originSlot, upstreamNode: up });
     }
     if (inputs.length === 0) {
       ctx.cache.set(sig, primary);
@@ -183,14 +202,14 @@ function buildRenderer({ api, registry, canvasSize }) {
     out.height = primary.height;
     const octx = out.getContext("2d");
     octx.drawImage(inputs[0], 0, 0);
-    const adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs });
+    const adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs, inputInfos, outputSlot });
     const result = adapted instanceof HTMLCanvasElement ? adapted : out;
     ctx.cache.set(sig, result);
     ctx.visited.delete(node.id);
     return result;
   }
-  function signature(node, tick) {
-    const parts = [node.id, String(node.comfyClass ?? ""), tick];
+  function signature(node, tick, outputSlot) {
+    const parts = [node.id, String(node.comfyClass ?? ""), tick, outputSlot ?? -1];
     for (const w of node.widgets ?? []) {
       const v = w?.value;
       if (v == null) continue;

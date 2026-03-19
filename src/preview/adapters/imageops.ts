@@ -11,10 +11,16 @@ export function imageOpsAdapter(): Adapter {
     inputs: (node: ComfyNode): number => {
       const cls = String(node?.comfyClass ?? "");
       const bypass = !!(node?.widgets ?? []).find(w => w?.name === "bypass")?.value;
-      if (cls === "ImageOpsMerge") return bypass ? 1 : 2;
+      const maskConnected = (node.inputs ?? []).some((input, index) => String(input?.name ?? "").toLowerCase() === "mask" && (node.inputs?.[index]?.link ?? null) != null);
+      if (cls === "ImageOpsMerge") return bypass ? 1 : (maskConnected ? 3 : 2);
       if (cls === "ImageOpsComp") return getCompSlots(node).filter((slot) => (node.inputs?.[slot.inputIndex]?.link ?? null) != null).length;
       if (cls === "ImageOpsDraw") return (node.inputs?.[0]?.link ?? null) != null ? 1 : 0;
-      return 1;
+      if (cls === "ImageOpsPreview") {
+        const imageConnected = (node.inputs?.[0]?.link ?? null) != null;
+        const maskConnected = (node.inputs?.[1]?.link ?? null) != null;
+        return Number(imageConnected) + Number(maskConnected);
+      }
+      return maskConnected ? 2 : 1;
     },
     inputIndexes: (node: ComfyNode): number[] => {
       const cls = String(node?.comfyClass ?? "");
@@ -23,32 +29,51 @@ export function imageOpsAdapter(): Adapter {
           .filter((slot) => (node.inputs?.[slot.inputIndex]?.link ?? null) != null)
           .map((slot) => slot.inputIndex);
       }
+      if (cls === "ImageOpsPreview") {
+        const indexes: number[] = [];
+        if ((node.inputs?.[0]?.link ?? null) != null) indexes.push(0);
+        if ((node.inputs?.[1]?.link ?? null) != null) indexes.push(1);
+        return indexes;
+      }
       return [];
     },
-    async apply({ node, ctx, canvasSize, inputs }: AdapterApplyContext): Promise<HTMLCanvasElement | void> {
+    async apply({ node, ctx, canvasSize, inputs, outputSlot }: AdapterApplyContext): Promise<HTMLCanvasElement | void> {
       const cls = String(node?.comfyClass ?? "");
       const bypass = !!(node?.widgets ?? []).find(w => w?.name === "bypass")?.value;
+      if (outputSlot === 1 && cls !== "ImageOpsPreview") {
+        if (cls === "ImageOpsDraw") {
+          return await ops.drawMask(ctx, canvasSize, node, inputs);
+        }
+        return ops.imageOpsMask(ctx, canvasSize, node, cls, inputs) ?? inputs[0];
+      }
       if (bypass && cls !== "ImageOpsDraw") return;
       if (cls === "ImageOpsColorAjust") {
-        ops.colorAjust(ctx, canvasSize, node);
+        return ops.colorAjust(ctx, canvasSize, node, inputs);
       } else if (cls === "ImageOpsChannel") {
-        ops.channel(ctx, canvasSize, node);
+        return ops.channel(ctx, canvasSize, node, outputSlot, inputs);
       } else if (cls === "ImageOpsCrop") {
-        return ops.crop(ctx, canvasSize, node);
+        return ops.crop(ctx, canvasSize, node, inputs);
       } else if (cls === "ImageOpsBlur") {
-        ops.blur(ctx, canvasSize, node);
+        return ops.blur(ctx, canvasSize, node, inputs);
       } else if (cls === "ImageOpsTransform") {
-        return ops.transform(ctx, canvasSize, node);
+        return ops.transform(ctx, canvasSize, node, inputs);
       } else if (cls === "ImageOpsInvert") {
-        ops.invert(ctx, canvasSize, node);
+        return ops.invert(ctx, canvasSize, node, inputs);
       } else if (cls === "ImageOpsClamp") {
-        ops.clamp(ctx, canvasSize, node);
+        return ops.clamp(ctx, canvasSize, node, inputs);
       } else if (cls === "ImageOpsMerge") {
-        ops.merge(ctx, canvasSize, node, inputs[1]);
+        return ops.merge(ctx, canvasSize, node, inputs);
       } else if (cls === "ImageOpsComp") {
         return ops.comp(ctx, canvasSize, node, inputs);
       } else if (cls === "ImageOpsDraw") {
         return await ops.draw(ctx, canvasSize, node, inputs);
+      } else if (cls === "ImageOpsPreview") {
+        const previewTarget = String((node?.widgets ?? []).find((widget) => widget?.name === "preview_target")?.value ?? "auto").toLowerCase();
+        if (outputSlot === 1) return inputs[1] ?? inputs[0];
+        if (outputSlot === 0) return inputs[0] ?? inputs[1];
+        if (previewTarget === "mask") return inputs[1] ?? inputs[0];
+        if (previewTarget === "image") return inputs[0] ?? inputs[1];
+        return inputs[0] ?? inputs[1];
       } else {
         // Preview / Load pass-through
       }

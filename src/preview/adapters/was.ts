@@ -41,7 +41,7 @@ export function wasAdapters(): Adapter[] {
         return n.includes("invert");
       },
       inputs: 1,
-      async apply({ ctx, canvasSize, node }: AdapterApplyContext): Promise<void> { ops.invert(ctx, canvasSize, node, { wasCompat: true }); }
+      async apply({ ctx, canvasSize, node }: AdapterApplyContext): Promise<void> { ops.invert(ctx, canvasSize, node); }
     },
     {
       name: "was:blend",
