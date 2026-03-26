@@ -36,19 +36,22 @@ def _transform_masked_source(source, input_mask, resample, translate_x, translat
     processed_alpha = []
 
     for fi, pil in enumerate(_tensor_batch_to_pil_list(premult_rgb)):
-        transformed = _transform_frame(pil, resample, translate_x, translate_y, rotate_deg, scale, expand, index=fi)
-        processed_rgb.append(_pil_to_tensor(transformed)[..., :3])
+        tx, ty = _scalar(translate_x, index=fi), _scalar(translate_y, index=fi)
+        rd, sc = _scalar(rotate_deg, index=fi), _scalar(scale, index=fi)
+        processed_rgb.append(_pil_to_tensor(_transform_frame(pil, resample, tx, ty, rd, sc, expand))[..., :3])
 
     for idx in range(input_mask.shape[0]):
+        tx, ty = _scalar(translate_x, index=idx), _scalar(translate_y, index=idx)
+        rd, sc = _scalar(rotate_deg, index=idx), _scalar(scale, index=idx)
         pil_mask = _mask_to_pil(input_mask[idx])
-        transformed_mask = _transform_frame(pil_mask, resample, translate_x, translate_y, rotate_deg, scale, expand, index=idx)
-        processed_mask.append(_pil_to_mask(transformed_mask, source.device, source.dtype))
+        processed_mask.append(_pil_to_mask(_transform_frame(pil_mask, resample, tx, ty, rd, sc, expand), source.device, source.dtype))
 
     if source.shape[-1] >= 4:
         for idx in range(source.shape[0]):
+            tx, ty = _scalar(translate_x, index=idx), _scalar(translate_y, index=idx)
+            rd, sc = _scalar(rotate_deg, index=idx), _scalar(scale, index=idx)
             pil_alpha = _mask_to_pil(source[idx, ..., 3])
-            transformed_alpha = _transform_frame(pil_alpha, resample, translate_x, translate_y, rotate_deg, scale, expand, index=idx)
-            processed_alpha.append(_pil_to_mask(transformed_alpha, source.device, source.dtype))
+            processed_alpha.append(_pil_to_mask(_transform_frame(pil_alpha, resample, tx, ty, rd, sc, expand), source.device, source.dtype))
 
     if not processed_rgb:
         raise ValueError("ImageOpsTransform received an empty image batch.")
@@ -66,14 +69,15 @@ def _transform_masked_source(source, input_mask, resample, translate_x, translat
     return result.clamp(0.0, 1.0), output_mask.clamp(0.0, 1.0)
 
 
-def _transform_frame(pil, resample, translate_x, translate_y, rotate_deg, scale, expand, index=0):
+def _transform_frame(pil, resample, translate_x, translate_y, rotate_deg, scale, expand):
+    """Transform a single PIL image. All params must be scalars (unwrapped by caller)."""
     base_w, base_h = pil.size
     working = pil
 
-    scale = _scalar(scale, index=index)
-    translate_x = _scalar(translate_x, index=index)
-    translate_y = _scalar(translate_y, index=index)
-    rotate_deg = _scalar(rotate_deg, index=index)
+    scale = _scalar(scale)
+    translate_x = _scalar(translate_x)
+    translate_y = _scalar(translate_y)
+    rotate_deg = _scalar(rotate_deg)
     if abs(scale - 1.0) > EPSILON:
         nw, nh = max(1, int(round(base_w * scale))), max(1, int(round(base_h * scale)))
         if nw > MAX_SCALE_DIMENSION or nh > MAX_SCALE_DIMENSION:
@@ -169,12 +173,15 @@ class ImageOpsTransform:
         processed_frames = []
         processed_masks = []
         for fi, pil in enumerate(_tensor_batch_to_pil_list(source)):
-            transformed = _transform_frame(pil, resample, translate_x, translate_y, rotate_deg, scale, expand, index=fi)
-            processed_frames.append(_pil_to_tensor(transformed))
+            tx, ty = _scalar(translate_x, index=fi), _scalar(translate_y, index=fi)
+            rd, sc = _scalar(rotate_deg, index=fi), _scalar(scale, index=fi)
+            processed_frames.append(_pil_to_tensor(_transform_frame(pil, resample, tx, ty, rd, sc, expand)))
 
         for idx in range(output_mask_source.shape[0]):
+            tx, ty = _scalar(translate_x, index=idx), _scalar(translate_y, index=idx)
+            rd, sc = _scalar(rotate_deg, index=idx), _scalar(scale, index=idx)
             pil_mask = _mask_to_pil(output_mask_source[idx])
-            transformed_mask = _transform_frame(pil_mask, resample, translate_x, translate_y, rotate_deg, scale, expand, index=idx)
+            transformed_mask = _transform_frame(pil_mask, resample, tx, ty, rd, sc, expand)
             processed_masks.append(_pil_to_mask(transformed_mask, source.device, source.dtype))
 
         if not processed_frames:
