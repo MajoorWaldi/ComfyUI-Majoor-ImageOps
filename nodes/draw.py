@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from ._helpers import MEDIA_INPUT_TYPE, _hex_to_rgb01, _scalar, _select_media_tensor
+from ._helpers import MEDIA_INPUT_TYPE, _expand_image_batch, _hex_to_rgb01, _scalar, _select_media_tensor
 from ._preview import build_node_preview_result
 
 
@@ -66,6 +66,9 @@ def _composite_overlay(base: torch.Tensor, overlay_rgba: torch.Tensor) -> tuple[
 
     base = base.float().clamp(0.0, 1.0)
     overlay_rgba = overlay_rgba.float().clamp(0.0, 1.0)
+
+    if base.shape[0] != overlay_rgba.shape[0]:
+        overlay_rgba = _expand_image_batch(overlay_rgba, base.shape[0])
 
     overlay_rgb = overlay_rgba[..., :3]
     overlay_alpha = overlay_rgba[..., 3:4]

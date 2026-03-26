@@ -9,6 +9,12 @@ function imageOpsAdapter() {
       const cls = String(node?.comfyClass ?? "");
       const bypass = !!(node?.widgets ?? []).find((w) => w?.name === "bypass")?.value;
       const maskConnected = (node.inputs ?? []).some((input, index) => String(input?.name ?? "").toLowerCase() === "mask" && (node.inputs?.[index]?.link ?? null) != null);
+      if (cls === "ImageOpsNoise") return 0;
+      if (cls === "ImageOpsDistort") {
+        const displacementConnected = (node.inputs?.[1]?.link ?? null) != null;
+        const effectMaskConnected = (node.inputs?.[2]?.link ?? null) != null;
+        return 1 + Number(displacementConnected) + Number(effectMaskConnected);
+      }
       if (cls === "ImageOpsMerge") return bypass ? 1 : maskConnected ? 3 : 2;
       if (cls === "ImageOpsComp") return getCompSlots(node).filter((slot) => (node.inputs?.[slot.inputIndex]?.link ?? null) != null).length;
       if (cls === "ImageOpsDraw") return (node.inputs?.[0]?.link ?? null) != null ? 1 : 0;
@@ -24,6 +30,12 @@ function imageOpsAdapter() {
       if (cls === "ImageOpsComp") {
         return getCompSlots(node).filter((slot) => (node.inputs?.[slot.inputIndex]?.link ?? null) != null).map((slot) => slot.inputIndex);
       }
+      if (cls === "ImageOpsDistort") {
+        const indexes = [0];
+        if ((node.inputs?.[1]?.link ?? null) != null) indexes.push(1);
+        if ((node.inputs?.[2]?.link ?? null) != null) indexes.push(2);
+        return indexes;
+      }
       if (cls === "ImageOpsPreview") {
         const indexes = [];
         if ((node.inputs?.[0]?.link ?? null) != null) indexes.push(0);
@@ -32,14 +44,14 @@ function imageOpsAdapter() {
       }
       return [];
     },
-    async apply({ node, ctx, canvasSize, inputs, outputSlot }) {
+    async apply({ node, ctx, canvasSize, inputs, outputSlot, tick }) {
       const cls = String(node?.comfyClass ?? "");
       const bypass = !!(node?.widgets ?? []).find((w) => w?.name === "bypass")?.value;
       if (outputSlot === 1 && cls !== "ImageOpsPreview") {
         if (cls === "ImageOpsDraw") {
           return await ops.drawMask(ctx, canvasSize, node, inputs);
         }
-        return ops.imageOpsMask(ctx, canvasSize, node, cls, inputs) ?? inputs[0];
+        return ops.imageOpsMask(ctx, canvasSize, node, cls, inputs, tick ?? 0) ?? inputs[0];
       }
       if (bypass && cls !== "ImageOpsDraw") return;
       if (cls === "ImageOpsColorAjust") {
@@ -60,6 +72,10 @@ function imageOpsAdapter() {
         return ops.merge(ctx, canvasSize, node, inputs);
       } else if (cls === "ImageOpsComp") {
         return ops.comp(ctx, canvasSize, node, inputs);
+      } else if (cls === "ImageOpsDistort") {
+        return ops.distort(ctx, canvasSize, node, inputs, tick ?? 0);
+      } else if (cls === "ImageOpsNoise") {
+        return ops.noise(ctx, canvasSize, node, tick ?? 0);
       } else if (cls === "ImageOpsDraw") {
         return await ops.draw(ctx, canvasSize, node, inputs);
       } else if (cls === "ImageOpsPreview") {

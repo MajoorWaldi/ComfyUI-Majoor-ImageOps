@@ -303,6 +303,19 @@ def _expand_mask_batch(mask: torch.Tensor, target_batch: int) -> torch.Tensor:
     return mask.repeat(reps, 1, 1)[:target_batch]
 
 
+def _reduce_4d_to_3d(m: torch.Tensor) -> torch.Tensor:
+    """Reduce a 4D tensor to 3D (B,H,W) for use as a mask."""
+    if m.shape[1] == 1:
+        return m[:, 0]                          # (B,1,H,W) → (B,H,W)
+    if m.shape[-1] == 1:
+        return m[..., 0]                        # (B,H,W,1) → (B,H,W)
+    if m.shape[-1] >= 3:
+        # Multi-channel BHWC image used as mask – convert RGB to luma (ignore alpha)
+        lw = torch.tensor(LUMA_WEIGHTS, device=m.device, dtype=m.dtype)
+        return (m[..., :3] * lw).sum(dim=-1)
+    return m.mean(dim=-1)                       # Unknown layout – average channels
+
+
 def _prepare_mask_tensor(mask, batch, height, width, device, dtype):
     if mask is None:
         return None
@@ -317,12 +330,7 @@ def _prepare_mask_tensor(mask, batch, height, width, device, dtype):
         m = m.to(device=device)
 
     if m.dim() == 4:
-        if m.shape[1] == 1:
-            m = m[:, 0]
-        elif m.shape[-1] == 1:
-            m = m[..., 0]
-        else:
-            m = m[..., 0]
+        m = _reduce_4d_to_3d(m)
 
     if m.dim() == 2:
         m = m.unsqueeze(0)
@@ -363,12 +371,7 @@ def _coerce_mask_tensor(mask, device=None, dtype=torch.float32):
         m = m.to(**kwargs) if kwargs else m
 
     if m.dim() == 4:
-        if m.shape[1] == 1:
-            m = m[:, 0]
-        elif m.shape[-1] == 1:
-            m = m[..., 0]
-        else:
-            m = m[..., 0]
+        m = _reduce_4d_to_3d(m)
     if m.dim() == 2:
         m = m.unsqueeze(0)
     elif m.dim() != 3:
@@ -1117,7 +1120,8 @@ def _hex_to_rgb01(color: str):
         text = text[1:]
     if len(text) == 3:
         text = "".join(ch * 2 for ch in text)
-    if len(text) != 6:
+    if len(text) != 6 or not all(c in "0123456789abcdefABCDEF" for c in text):
+        logger.warning("Invalid hex color '%s'; falling back to black", color)
         text = "000000"
     try:
         return tuple(int(text[i:i + 2], 16) / 255.0 for i in (0, 2, 4))

@@ -54,12 +54,14 @@ ImageOpsBlur = _load_module(f"{_PKG}.nodes.blur", _nodes_dir / "blur.py").ImageO
 ImageOpsChannel = _load_module(f"{_PKG}.nodes.channel", _nodes_dir / "channel.py").ImageOpsChannel
 ImageOpsComp = _load_module(f"{_PKG}.nodes.comp", _nodes_dir / "comp.py").ImageOpsComp
 ImageOpsCrop = _load_module(f"{_PKG}.nodes.crop", _nodes_dir / "crop.py").ImageOpsCrop
+ImageOpsDistort = _load_module(f"{_PKG}.nodes.distort", _nodes_dir / "distort.py").ImageOpsDistort
 ImageOpsDraw = _load_module(f"{_PKG}.nodes.draw", _nodes_dir / "draw.py").ImageOpsDraw
 ImageOpsTransform = _load_module(f"{_PKG}.nodes.transform", _nodes_dir / "transform.py").ImageOpsTransform
 ImageOpsColorAjust = _load_module(f"{_PKG}.nodes.color_ajust", _nodes_dir / "color_ajust.py").ImageOpsColorAjust
 ImageOpsInvert = _load_module(f"{_PKG}.nodes.invert", _nodes_dir / "invert.py").ImageOpsInvert
 ImageOpsClamp = _load_module(f"{_PKG}.nodes.clamp", _nodes_dir / "clamp.py").ImageOpsClamp
 ImageOpsMerge = _load_module(f"{_PKG}.nodes.merge", _nodes_dir / "merge.py").ImageOpsMerge
+ImageOpsNoise = _load_module(f"{_PKG}.nodes.noise", _nodes_dir / "noise.py").ImageOpsNoise
 ImageOpsPreview = _load_module(f"{_PKG}.nodes.preview", _nodes_dir / "preview.py").ImageOpsPreview
 
 NODE_CLASS_MAPPINGS = {
@@ -67,12 +69,14 @@ NODE_CLASS_MAPPINGS = {
     "ImageOpsChannel": ImageOpsChannel,
     "ImageOpsComp": ImageOpsComp,
     "ImageOpsCrop": ImageOpsCrop,
+    "ImageOpsDistort": ImageOpsDistort,
     "ImageOpsDraw": ImageOpsDraw,
     "ImageOpsTransform": ImageOpsTransform,
     "ImageOpsColorAjust": ImageOpsColorAjust,
     "ImageOpsInvert": ImageOpsInvert,
     "ImageOpsClamp": ImageOpsClamp,
     "ImageOpsMerge": ImageOpsMerge,
+    "ImageOpsNoise": ImageOpsNoise,
     "ImageOpsPreview": ImageOpsPreview,
 }
 
@@ -81,6 +85,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageOpsChannel": "ImageOps Channels",
     "ImageOpsComp": "ImageOps Comp",
     "ImageOpsCrop": "ImageOps Resize/Crop",
+    "ImageOpsDistort": "ImageOps Distort",
     "ImageOpsDraw": "ImageOps Draw",
     "ImageOpsTransform": "ImageOps Transform",
     # Keep the legacy class key for workflow compatibility, but expose the
@@ -89,6 +94,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageOpsInvert": "ImageOps Invert",
     "ImageOpsClamp": "ImageOps Clamp",
     "ImageOpsMerge": "ImageOps Merge",
+    "ImageOpsNoise": "ImageOps Noise",
     "ImageOpsPreview": "ImageOps Preview",
 }
 

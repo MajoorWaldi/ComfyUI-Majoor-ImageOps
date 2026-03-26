@@ -47,7 +47,8 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
       const canvas = document.createElement("canvas");
       canvas.width = dims.width;
       canvas.height = dims.height;
-      const ctx = canvas.getContext("2d")!;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
       ctx.drawImage(media, 0, 0, dims.width, dims.height);
       return canvas;
     }
@@ -61,7 +62,8 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
       const canvas = document.createElement("canvas");
       canvas.width = dims.width;
       canvas.height = dims.height;
-      const ctx = canvas.getContext("2d")!;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
       ctx.drawImage(media, 0, 0, dims.width, dims.height);
       return canvas;
     }
@@ -71,7 +73,8 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
       const canvas = document.createElement("canvas");
       canvas.width = dims.width;
       canvas.height = dims.height;
-      const ctx = canvas.getContext("2d")!;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
       ctx.drawImage(media, 0, 0, dims.width, dims.height);
       return canvas;
     }
@@ -118,8 +121,8 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
         c = document.createElement("canvas");
         c.width = dims.width;
         c.height = dims.height;
-        const cctx = c.getContext("2d")!;
-        cctx.drawImage(img, 0, 0, dims.width, dims.height);
+        const cctx = c.getContext("2d");
+        if (cctx) cctx.drawImage(img, 0, 0, dims.width, dims.height);
       } else if (src.kind === "image") {
         const bmp = await ensureBitmap(node, url);
         if (!bmp) { ctx.visited.delete(node.id); return null; }
@@ -127,8 +130,8 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
         c = document.createElement("canvas");
         c.width = dims.width;
         c.height = dims.height;
-        const cctx = c.getContext("2d")!;
-        cctx.drawImage(bmp, 0, 0, dims.width, dims.height);
+        const cctx = c.getContext("2d");
+        if (cctx) cctx.drawImage(bmp, 0, 0, dims.width, dims.height);
       } else {
         c = await ensureVideoFrameCanvas(node, url, ctx.canvasSize);
       }
@@ -167,8 +170,9 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
       const out = document.createElement("canvas");
       out.width = 1;
       out.height = 1;
-      const octx = out.getContext("2d")!;
-      const adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs: [] });
+      const octx = out.getContext("2d");
+      if (!octx) { ctx.visited.delete(node.id); return null; }
+      const adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs: [], tick: ctx.tick });
       const result = adapted instanceof HTMLCanvasElement ? adapted : out;
       ctx.cache.set(sig, result);
       ctx.visited.delete(node.id);
@@ -223,10 +227,11 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
     const out = document.createElement("canvas");
     out.width = primary.width;
     out.height = primary.height;
-    const octx = out.getContext("2d")!;
+    const octx = out.getContext("2d");
+    if (!octx) { ctx.visited.delete(node.id); return null; }
     octx.drawImage(inputs[0], 0, 0);
 
-    const adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs, inputInfos, outputSlot });
+    const adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs, inputInfos, outputSlot, tick: ctx.tick });
     const result = adapted instanceof HTMLCanvasElement ? adapted : out;
 
     ctx.cache.set(sig, result);

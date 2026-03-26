@@ -38,11 +38,13 @@ const IMAGEOPS_CLASSES = new Set([
   "ImageOpsChannel",
   "ImageOpsComp",
   "ImageOpsCrop",
+  "ImageOpsDistort",
   "ImageOpsDraw",
   "ImageOpsTransform",
   "ImageOpsInvert",
   "ImageOpsClamp",
   "ImageOpsMerge",
+  "ImageOpsNoise",
   "ImageOpsPreview",
 ]);
 
@@ -547,6 +549,33 @@ function isCompNode(node: ComfyNode): boolean {
   return String(node?.comfyClass ?? "") === "ImageOpsComp";
 }
 
+function widgetHasAnimatedValues(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  if (value.length > 1) return true;
+  return value.length === 1 ? widgetHasAnimatedValues(value[0]) : false;
+}
+
+function hasProceduralAnimation(node: ComfyNode): boolean {
+  const cls = String(node?.comfyClass ?? "");
+  if (cls !== "ImageOpsNoise") return false;
+
+  const widget = (name: string) => node.widgets?.find((entry) => entry?.name === name) ?? null;
+  const numeric = (name: string, fallback: number = 0): number => {
+    const value = widget(name)?.value;
+    if (Array.isArray(value) && value.length > 1) return 1;
+    const parsed = parseFloat(value as string);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  const batchSize = Math.max(1, Math.round(numeric("batch_size", 1)));
+  if (batchSize <= 1) return false;
+  if (numeric("seed_step", 0) !== 0) return true;
+  if (numeric("frame_offset_x", 0) !== 0) return true;
+  if (numeric("frame_offset_y", 0) !== 0) return true;
+
+  return (node.widgets ?? []).some((entry) => widgetHasAnimatedValues(entry?.value));
+}
+
 function getInputIndexByName(node: ComfyNode, name: string): number {
   return (node.inputs ?? []).findIndex((input) => String(input?.name ?? "") === name);
 }
@@ -789,9 +818,14 @@ function updateDrawOverlayWidget(node: ComfyNode): void {
   setWidgetStringValue(findWidget(node, "overlay_data"), value);
 }
 
+let _dirtyRaf: number | null = null;
 function markCanvasDirty(): void {
-  (app as any)?.graph?.setDirtyCanvas?.(true, true);
-  (app as any)?.canvas?.setDirty?.(true, true);
+  if (_dirtyRaf != null) return;
+  _dirtyRaf = requestAnimationFrame(() => {
+    _dirtyRaf = null;
+    (app as any)?.graph?.setDirtyCanvas?.(true, true);
+    (app as any)?.canvas?.setDirty?.(true, true);
+  });
 }
 
 function syncCropWidgets(node: ComfyNode, changedName?: string): void {
@@ -1082,9 +1116,11 @@ function tryRenderNativePreview(node: ComfyNode, st: NodeState, canvasSize: numb
 }
 
 function blit(node: ComfyNode, st: NodeState, imgCanvas: HTMLCanvasElement, canvasSize: number): void {
-  const ctx = st.canvas!.getContext("2d")!;
-  st.canvas!.width = canvasSize;
-  st.canvas!.height = canvasSize;
+  if (!st.canvas) return;
+  const ctx = st.canvas.getContext("2d");
+  if (!ctx) return;
+  st.canvas.width = canvasSize;
+  st.canvas.height = canvasSize;
   drawFitSource(ctx, canvasSize, canvasSize, imgCanvas, imgCanvas.width || 1, imgCanvas.height || 1);
   if (isDrawNode(node)) {
     const fit = getFitPlacement(canvasSize, canvasSize, imgCanvas.width || 1, imgCanvas.height || 1);
@@ -1586,6 +1622,7 @@ export function registerImageOpsLivePreview(): void {
     });
 
     canvas.addEventListener("pointerdown", async (event: PointerEvent) => {
+      if (!st.drawGeometry) return;
       const point = getCanvasPointer(canvas, event);
       const mapped = canvasToDrawSourcePoint(st.drawGeometry, point.x, point.y);
       if (!mapped.inside) return;
@@ -1607,6 +1644,7 @@ export function registerImageOpsLivePreview(): void {
     canvas.addEventListener("pointermove", (event: PointerEvent) => {
       const drag = st.drawStroke;
       if (!drag || drag.pointerId !== event.pointerId) return;
+      if (!st.drawGeometry) return;
       const point = getCanvasPointer(canvas, event);
       const mapped = canvasToDrawSourcePoint(st.drawGeometry, point.x, point.y);
       if (!mapped.inside) return;
@@ -2070,7 +2108,7 @@ export function registerImageOpsLivePreview(): void {
     }
 
     const src = detectSourceUpstream(node);
-    if ((!src || (src.kind !== "video" && !src.animated)) && !st.nativeAnimated) {
+    if ((!src || (src.kind !== "video" && !src.animated)) && !st.nativeAnimated && !hasProceduralAnimation(node)) {
       stopRAF(st);
       schedule(node, () => renderNode(node, 0), 10);
       return;

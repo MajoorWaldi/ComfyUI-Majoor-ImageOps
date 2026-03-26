@@ -37,10 +37,12 @@
 | **ImageOps Blur** | `ImageOpsBlur` | Gaussian blur with radius/sigma control and mask support |
 | **ImageOps Channels** | `ImageOpsChannel` | Extract and manipulate individual RGB/Alpha channels |
 | **ImageOps Resize/Crop** | `ImageOpsCrop` | Interactive crop and resize with aspect ratio presets |
+| **ImageOps Distort** | `ImageOpsDistort` | iDistort-style displacement warp driven by source channels, external maps, masks, or internal procedural noise |
 | **ImageOps Transform** | `ImageOpsTransform` | Translate, rotate, scale with filter options (nearest/bilinear/bicubic) |
 | **ImageOps Invert** | `ImageOpsInvert` | Invert colors and/or alpha channel |
 | **ImageOps Clamp** | `ImageOpsClamp` | Clamp pixel values to min/max range |
 | **ImageOps Merge** | `ImageOpsMerge` | Blend two images with multiple blend modes (over, add, subtract, multiply, screen, difference, max, min) |
+| **ImageOps Noise** | `ImageOpsNoise` | Procedural noise source with Perlin, value, FBM, turbulence, ridged, seed stepping, and color ramp output |
 | **ImageOps Draw** | `ImageOpsDraw` | Digital painting with brush/eraser tools, opacity, and color controls |
 | **ImageOps Comp** | `ImageOpsComp` | Multi-layer compositor with blend modes, positioning, and opacity per layer |
 
@@ -130,6 +132,29 @@ Interactive crop and resize with aspect ratio control.
 
 ---
 
+### 🌀 ImageOps Distort
+Channel-driven displacement warp inspired by iDistort-style workflows.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO): Source media to deform
+- `displacement` (IMAGE/VIDEO, optional): External displacement plate when `map_source` is `displacement_channel`
+- `mask` (MASK, optional): Used as the distortion map in `mask` mode, otherwise acts as an effect mask
+
+**Parameters:**
+- `map_source`: source_channel, displacement_channel, mask, or noise
+- `x_channel`, `y_channel`: Choose independent channels for horizontal and vertical deformation
+- `strength_x`, `strength_y`: Warp amplitude in pixels
+- `centered_map`: Treat mid-gray as neutral displacement
+- `invert_map`: Invert the driving map before warping
+- `filter`: nearest, bilinear, bicubic
+- `edge_mode`: border, reflection, zeros
+- Internal noise controls: basis, fractal mode, scale, octaves, lacunarity, gain, seed, and offsets
+- `invert_mask`: Invert the effect mask when the mask input is acting as an effect mask
+
+**Outputs:** `IMAGE`, `MASK`
+
+---
+
 ### 🔄 ImageOps Transform
 Geometric transformations with quality filters.
 
@@ -197,6 +222,24 @@ Blend two images with various blend modes.
 - `mix` (0.0 to 1.0): Blend opacity
 - `invert_mask`: Invert mask effect
 - `bypass`: Skip processing
+
+**Outputs:** `IMAGE`, `MASK`
+
+---
+
+### 🌫️ ImageOps Noise
+Procedural texture generator for masks and grayscale or color noise plates.
+
+**Parameters:**
+- `basis`: perlin, value, or white
+- `fractal_mode`: none, fbm, turbulence, or ridged
+- `seed` / `seed_step`: deterministic variation across frames
+- `scale`: primary feature size
+- `octaves`, `lacunarity`, `gain`: fractal shaping controls
+- `offset_x`, `offset_y`: pattern translation
+- `frame_offset_x`, `frame_offset_y`: per-frame motion offset
+- `contrast`, `invert`: output shaping
+- `low_color`, `high_color`: color ramp for the generated image
 
 **Outputs:** `IMAGE`, `MASK`
 

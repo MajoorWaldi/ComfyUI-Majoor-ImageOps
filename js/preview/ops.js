@@ -6,17 +6,25 @@ initOpsConstants();
 function w(node, name) {
   return node?.widgets?.find((x) => x?.name === name) ?? null;
 }
-function num(node, name, fallback = 0) {
-  const v = w(node, name)?.value;
+function widgetScalarValue(value, index = 0) {
+  let current = value;
+  while (Array.isArray(current) && current.length > 0) {
+    const resolvedIndex = Math.max(0, Math.min(current.length - 1, index));
+    current = current[resolvedIndex];
+  }
+  return current;
+}
+function num(node, name, fallback = 0, index = 0) {
+  const v = widgetScalarValue(w(node, name)?.value, index);
   const n = parseFloat(v);
   return Number.isFinite(n) ? n : fallback;
 }
-function str(node, name, fallback = "") {
-  const v = w(node, name)?.value;
+function str(node, name, fallback = "", index = 0) {
+  const v = widgetScalarValue(w(node, name)?.value, index);
   return typeof v === "string" ? v : fallback;
 }
-function bool(node, name, fallback = false) {
-  const v = w(node, name)?.value;
+function bool(node, name, fallback = false, index = 0) {
+  const v = widgetScalarValue(w(node, name)?.value, index);
   if (typeof v === "boolean") return v;
   if (typeof v === "number") return !!v;
   if (typeof v === "string") return v.toLowerCase() === "true";
@@ -29,17 +37,17 @@ function wAny(node, names) {
   }
   return null;
 }
-function numAny(node, names, fallback = 0) {
-  const v = wAny(node, names)?.value;
+function numAny(node, names, fallback = 0, index = 0) {
+  const v = widgetScalarValue(wAny(node, names)?.value, index);
   const n = parseFloat(v);
   return Number.isFinite(n) ? n : fallback;
 }
-function strAny(node, names, fallback = "") {
-  const v = wAny(node, names)?.value;
+function strAny(node, names, fallback = "", index = 0) {
+  const v = widgetScalarValue(wAny(node, names)?.value, index);
   return typeof v === "string" ? v : fallback;
 }
-function boolAny(node, names, fallback = false) {
-  const v = wAny(node, names)?.value;
+function boolAny(node, names, fallback = false, index = 0) {
+  const v = widgetScalarValue(wAny(node, names)?.value, index);
   if (typeof v === "boolean") return v;
   if (typeof v === "number") return !!v;
   if (typeof v === "string") return v.toLowerCase() === "true";
@@ -229,6 +237,322 @@ function compModeToCanvasOp(mode) {
   if (normalized === "lighten") return "lighten";
   if (normalized === "darken") return "darken";
   return "source-over";
+}
+function hexToRgb01(value) {
+  const hex = parseHexColor(value);
+  return [
+    parseInt(hex.slice(1, 3), 16) / 255,
+    parseInt(hex.slice(3, 5), 16) / 255,
+    parseInt(hex.slice(5, 7), 16) / 255
+  ];
+}
+function noiseFade(t) {
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+function noiseLerp(a, b, t) {
+  return a + (b - a) * t;
+}
+function noiseHash2D(x, y, seed) {
+  let h = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(seed | 0, 1442695041) | 0;
+  h ^= h >>> 13;
+  h = Math.imul(h, 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967295;
+}
+function sampleWhiteNoise(x, y, seed) {
+  return noiseHash2D(Math.floor(x), Math.floor(y), seed) * 2 - 1;
+}
+function sampleValueNoise(x, y, seed) {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = x0 + 1;
+  const y1 = y0 + 1;
+  const tx = x - x0;
+  const ty = y - y0;
+  const u = noiseFade(tx);
+  const v = noiseFade(ty);
+  const v00 = noiseHash2D(x0, y0, seed) * 2 - 1;
+  const v10 = noiseHash2D(x1, y0, seed) * 2 - 1;
+  const v01 = noiseHash2D(x0, y1, seed) * 2 - 1;
+  const v11 = noiseHash2D(x1, y1, seed) * 2 - 1;
+  return noiseLerp(noiseLerp(v00, v10, u), noiseLerp(v01, v11, u), v);
+}
+function gradientDot(ix, iy, x, y, seed) {
+  const angle = noiseHash2D(ix, iy, seed) * Math.PI * 2;
+  return Math.cos(angle) * (x - ix) + Math.sin(angle) * (y - iy);
+}
+function samplePerlinNoise(x, y, seed) {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = x0 + 1;
+  const y1 = y0 + 1;
+  const tx = x - x0;
+  const ty = y - y0;
+  const u = noiseFade(tx);
+  const v = noiseFade(ty);
+  const n00 = gradientDot(x0, y0, x, y, seed);
+  const n10 = gradientDot(x1, y0, x, y, seed);
+  const n01 = gradientDot(x0, y1, x, y, seed);
+  const n11 = gradientDot(x1, y1, x, y, seed);
+  return Math.max(-1, Math.min(1, noiseLerp(noiseLerp(n00, n10, u), noiseLerp(n01, n11, u), v) * Math.SQRT2));
+}
+function sampleNoiseBasis(basis, sampleX, sampleY, rawX, rawY, seed) {
+  const normalized = String(basis || "perlin").toLowerCase();
+  if (normalized === "value") return sampleValueNoise(sampleX, sampleY, seed);
+  if (normalized === "white") return sampleWhiteNoise(rawX, rawY, seed);
+  return samplePerlinNoise(sampleX, sampleY, seed);
+}
+function buildNoiseField(width, height, options) {
+  const basis = options.basis;
+  const fractalMode = options.fractalMode.toLowerCase();
+  const frameIndex = Math.max(0, Math.round(options.frameIndex ?? 0));
+  const seed = Math.round(options.seed + frameIndex * (options.seedStep ?? 0));
+  const scale = Math.max(1, options.scale);
+  const octaves = Math.max(1, Math.round(options.octaves));
+  const lacunarity = Math.max(1.01, options.lacunarity);
+  const gain = Math.max(0, options.gain);
+  const offsetX = options.offsetX + frameIndex * (options.frameOffsetX ?? 0);
+  const offsetY = options.offsetY + frameIndex * (options.frameOffsetY ?? 0);
+  const contrast = Math.max(0, options.contrast);
+  const invert = options.invert;
+  const grayValues = new Float32Array(width * height);
+  let minGray = Number.POSITIVE_INFINITY;
+  let maxGray = Number.NEGATIVE_INFINITY;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const rawX = x + offsetX;
+      const rawY = y + offsetY;
+      let gray = 0;
+      if (fractalMode === "none") {
+        const signed = sampleNoiseBasis(basis, rawX / scale, rawY / scale, rawX, rawY, seed);
+        gray = clamp01(signed * 0.5 + 0.5);
+      } else {
+        let total = 0;
+        let amplitude = 1;
+        let amplitudeSum = 0;
+        let currentScale = scale;
+        for (let octave = 0; octave < octaves; octave++) {
+          const octaveSeed = seed + octave * 10007;
+          const signed = sampleNoiseBasis(basis, rawX / currentScale, rawY / currentScale, rawX, rawY, octaveSeed);
+          let contribution = signed;
+          if (fractalMode === "turbulence") contribution = Math.abs(signed);
+          else if (fractalMode === "ridged") contribution = 1 - Math.abs(signed);
+          total += contribution * amplitude;
+          amplitudeSum += amplitude;
+          amplitude *= gain;
+          currentScale = Math.max(1, currentScale / lacunarity);
+        }
+        const normalized = amplitudeSum > 0 ? total / amplitudeSum : 0;
+        gray = fractalMode === "fbm" ? clamp01(normalized * 0.5 + 0.5) : clamp01(normalized);
+      }
+      const index = y * width + x;
+      grayValues[index] = gray;
+      if (gray < minGray) minGray = gray;
+      if (gray > maxGray) maxGray = gray;
+    }
+  }
+  const grayRange = maxGray - minGray;
+  for (let index = 0; index < grayValues.length; index++) {
+    let gray = grayRange > 1e-6 ? (grayValues[index] - minGray) / grayRange : 0;
+    gray = clamp01((gray - 0.5) * contrast + 0.5);
+    if (invert) gray = 1 - gray;
+    grayValues[index] = gray;
+  }
+  return grayValues;
+}
+function renderNoiseFieldCanvas(width, height, grayValues, low, high, maskOnly = false) {
+  const canvas = makeCanvas(width, height);
+  const context = canvas.getContext("2d");
+  const image = context.createImageData(width, height);
+  const data = image.data;
+  for (let index = 0; index < grayValues.length; index++) {
+    const gray = grayValues[index];
+    const offset = index * 4;
+    if (maskOnly) {
+      const channel = Math.round(gray * 255);
+      data[offset] = channel;
+      data[offset + 1] = channel;
+      data[offset + 2] = channel;
+    } else {
+      data[offset] = Math.round(clamp01(low[0] + gray * (high[0] - low[0])) * 255);
+      data[offset + 1] = Math.round(clamp01(low[1] + gray * (high[1] - low[1])) * 255);
+      data[offset + 2] = Math.round(clamp01(low[2] + gray * (high[2] - low[2])) * 255);
+    }
+    data[offset + 3] = 255;
+  }
+  context.putImageData(image, 0, 0);
+  return canvas;
+}
+function renderNoiseCanvas(node, maskOnly = false, frameIndex = 0) {
+  const width = Math.max(1, Math.round(numAny(node, ["width"], 1024)));
+  const height = Math.max(1, Math.round(numAny(node, ["height"], 1024)));
+  const batchSize = Math.max(1, Math.round(numAny(node, ["batch_size"], 1)));
+  const resolvedFrameIndex = (Math.max(0, Math.round(frameIndex)) % batchSize + batchSize) % batchSize;
+  const low = hexToRgb01(strAny(node, ["low_color"], "#000000"));
+  const high = hexToRgb01(strAny(node, ["high_color"], "#ffffff"));
+  const grayValues = buildNoiseField(width, height, {
+    basis: strAny(node, ["basis"], "perlin", resolvedFrameIndex),
+    fractalMode: strAny(node, ["fractal_mode"], "fbm", resolvedFrameIndex),
+    seed: numAny(node, ["seed"], 0, resolvedFrameIndex),
+    seedStep: numAny(node, ["seed_step"], 1, resolvedFrameIndex),
+    scale: numAny(node, ["scale"], 160, resolvedFrameIndex),
+    octaves: numAny(node, ["octaves"], 5, resolvedFrameIndex),
+    lacunarity: numAny(node, ["lacunarity"], 2, resolvedFrameIndex),
+    gain: numAny(node, ["gain"], 0.5, resolvedFrameIndex),
+    offsetX: numAny(node, ["offset_x"], 0, resolvedFrameIndex),
+    offsetY: numAny(node, ["offset_y"], 0, resolvedFrameIndex),
+    frameOffsetX: numAny(node, ["frame_offset_x"], 0, resolvedFrameIndex),
+    frameOffsetY: numAny(node, ["frame_offset_y"], 0, resolvedFrameIndex),
+    contrast: numAny(node, ["contrast"], 1, resolvedFrameIndex),
+    invert: boolAny(node, ["invert"], false, resolvedFrameIndex),
+    frameIndex: resolvedFrameIndex
+  });
+  return renderNoiseFieldCanvas(width, height, grayValues, low, high, maskOnly);
+}
+function distortConnectedInputs(node, inputs) {
+  const source = inputs[0];
+  const displacementConnected = (node.inputs?.[1]?.link ?? null) != null;
+  const maskConnected = (node.inputs?.[2]?.link ?? null) != null;
+  let cursor = 1;
+  const displacement = displacementConnected ? inputs[cursor++] ?? null : null;
+  const mask = maskConnected ? inputs[cursor] ?? null : null;
+  return { source, displacement, mask };
+}
+function extractCanvasField(canvas, width, height, channel) {
+  const fitted = fitCanvas(canvas, width, height);
+  const data = fitted.getContext("2d").getImageData(0, 0, width, height).data;
+  const field = new Float32Array(width * height);
+  const normalized = String(channel || "red").toLowerCase();
+  const weights = getOpsConstants().luma_weights;
+  for (let index = 0; index < field.length; index++) {
+    const offset = index * 4;
+    const r = data[offset] / 255;
+    const g = data[offset + 1] / 255;
+    const b = data[offset + 2] / 255;
+    const a = data[offset + 3] / 255;
+    if (normalized === "green") field[index] = g;
+    else if (normalized === "blue") field[index] = b;
+    else if (normalized === "alpha") field[index] = a;
+    else if (normalized === "luma") field[index] = clamp01(luma01(r, g, b, weights));
+    else field[index] = r;
+  }
+  return field;
+}
+function neutralField(width, height, centered) {
+  const field = new Float32Array(width * height);
+  field.fill(centered ? 0.5 : 0);
+  return field;
+}
+function reflectCoordinate(value, size) {
+  if (size <= 1) return 0;
+  let coord = value;
+  const max = size - 1;
+  while (coord < 0 || coord > max) {
+    if (coord < 0) coord = -coord;
+    if (coord > max) coord = max - (coord - max);
+  }
+  return coord;
+}
+function sampleChannel(data, width, height, x, y, edgeMode) {
+  let px = x;
+  let py = y;
+  if (edgeMode === "zeros") {
+    if (px < 0 || py < 0 || px >= width || py >= height) return [0, 0, 0, 0];
+  } else if (edgeMode === "reflection") {
+    px = reflectCoordinate(px, width);
+    py = reflectCoordinate(py, height);
+  } else {
+    px = Math.max(0, Math.min(width - 1, px));
+    py = Math.max(0, Math.min(height - 1, py));
+  }
+  const offset = (py * width + px) * 4;
+  return [data[offset], data[offset + 1], data[offset + 2], data[offset + 3]];
+}
+function bilinearSample(data, width, height, x, y, edgeMode) {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = x0 + 1;
+  const y1 = y0 + 1;
+  const tx = x - x0;
+  const ty = y - y0;
+  const c00 = sampleChannel(data, width, height, x0, y0, edgeMode);
+  const c10 = sampleChannel(data, width, height, x1, y0, edgeMode);
+  const c01 = sampleChannel(data, width, height, x0, y1, edgeMode);
+  const c11 = sampleChannel(data, width, height, x1, y1, edgeMode);
+  const out = [0, 0, 0, 0];
+  for (let c = 0; c < 4; c++) {
+    const top = noiseLerp(c00[c], c10[c], tx);
+    const bottom = noiseLerp(c01[c], c11[c], tx);
+    out[c] = noiseLerp(top, bottom, ty);
+  }
+  return out;
+}
+function renderDistortCanvas(node, inputs, frameIndex = 0) {
+  const { source, displacement, mask: rawMask } = distortConnectedInputs(node, inputs);
+  const width = source.width || 1;
+  const height = source.height || 1;
+  const mapSource = strAny(node, ["map_source"], "source_channel", frameIndex).toLowerCase();
+  const centeredMap = boolAny(node, ["centered_map"], true, frameIndex);
+  const invertMap = boolAny(node, ["invert_map"], false, frameIndex);
+  const effectMask = mapSource === "mask" ? null : resolvePreviewMaskCanvas(node, source, rawMask);
+  let previewMask = null;
+  let xField;
+  let yField;
+  if (mapSource === "mask") {
+    if (rawMask) {
+      const maskCanvas = buildMaskAlphaCanvas(rawMask, width, height);
+      previewMask = invertMap ? invertMaskCanvas(maskCanvas) : maskCanvas;
+      xField = extractCanvasField(previewMask, width, height, "red");
+      yField = xField;
+    } else {
+      xField = neutralField(width, height, centeredMap);
+      yField = xField;
+    }
+  } else {
+    const driver = mapSource === "displacement_channel" && displacement ? displacement : source;
+    xField = extractCanvasField(driver, width, height, strAny(node, ["x_channel"], "Red", frameIndex));
+    yField = extractCanvasField(driver, width, height, strAny(node, ["y_channel"], "Green", frameIndex));
+  }
+  const sourceCanvas = fitCanvas(source, width, height);
+  const sourceCtx = sourceCanvas.getContext("2d");
+  const sourceData = sourceCtx.getImageData(0, 0, width, height);
+  const output = makeCanvas(width, height);
+  const outCtx = output.getContext("2d");
+  const outImage = outCtx.createImageData(width, height);
+  const outData = outImage.data;
+  const strengthX = numAny(node, ["strength_x"], 40, frameIndex);
+  const strengthY = numAny(node, ["strength_y"], 40, frameIndex);
+  const filter = strAny(node, ["filter"], "bilinear", frameIndex).toLowerCase();
+  const edgeMode = strAny(node, ["edge_mode"], "border", frameIndex).toLowerCase();
+  const useNearest = filter === "nearest";
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const index = y * width + x;
+      let fx = xField[index];
+      let fy = yField[index];
+      if (invertMap && mapSource !== "mask") {
+        fx = 1 - fx;
+        fy = 1 - fy;
+      }
+      if (centeredMap) {
+        fx = fx * 2 - 1;
+        fy = fy * 2 - 1;
+      }
+      const sampleX = x - fx * strengthX;
+      const sampleY = y - fy * strengthY;
+      const rgba = useNearest ? sampleChannel(sourceData.data, width, height, Math.round(sampleX), Math.round(sampleY), edgeMode) : bilinearSample(sourceData.data, width, height, sampleX, sampleY, edgeMode);
+      const offset = index * 4;
+      outData[offset] = Math.round(clamp01(rgba[0] / 255) * 255);
+      outData[offset + 1] = Math.round(clamp01(rgba[1] / 255) * 255);
+      outData[offset + 2] = Math.round(clamp01(rgba[2] / 255) * 255);
+      outData[offset + 3] = Math.round(clamp01(rgba[3] / 255) * 255);
+    }
+  }
+  outCtx.putImageData(outImage, 0, 0);
+  const finalImage = effectMask ? compositeProcessedWithMask(sourceCanvas, output, effectMask) : output;
+  if (effectMask) return { image: finalImage, mask: effectMask };
+  if (previewMask) return { image: finalImage, mask: previewMask };
+  return { image: finalImage, mask: alphaMaskCanvas(finalImage) };
 }
 function setResampleMode(ctx, filter) {
   const mode = String(filter || "bilinear").toLowerCase();
@@ -1415,6 +1739,12 @@ const ops = {
       }))
     ).canvas;
   },
+  distort(ctx, W, node, inputs, frameIndex = 0) {
+    return renderDistortCanvas(node, inputs, frameIndex).image;
+  },
+  noise(ctx, W, node, frameIndex = 0) {
+    return renderNoiseCanvas(node, false, frameIndex);
+  },
   async draw(ctx, W, node, inputs) {
     return await renderDrawPreview(node, inputs[0] ?? null);
   },
@@ -1425,10 +1755,16 @@ const ops = {
     const overlay = await resolveDrawOverlayCanvas(node, width, height);
     return buildMaskAlphaCanvas(overlay, overlay.width || 1, overlay.height || 1);
   },
-  imageOpsMask(ctx, W, node, cls, inputs = []) {
+  imageOpsMask(ctx, W, node, cls, inputs = [], frameIndex = 0) {
     const source = inputs[0] ?? ctx.canvas;
     const rawMask = inputs[1] ?? null;
     const resolvedMask = resolvePreviewMaskCanvas(node, source, rawMask);
+    if (cls === "ImageOpsNoise") {
+      return renderNoiseCanvas(node, true, frameIndex);
+    }
+    if (cls === "ImageOpsDistort") {
+      return renderDistortCanvas(node, inputs, frameIndex).mask;
+    }
     if (cls === "ImageOpsBlur") {
       const radius = numAny(node, ["radius", "blur", "blur_radius"], 0);
       const sigma = numAny(node, ["sigma", "radius", "blur"], radius);

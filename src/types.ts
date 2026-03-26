@@ -104,6 +104,7 @@ export interface AdapterApplyContext {
   inputs: HTMLCanvasElement[];
   inputInfos?: RenderInputInfo[];
   outputSlot?: number | null;
+  tick?: number;
 }
 
 export interface AdapterRegistry {

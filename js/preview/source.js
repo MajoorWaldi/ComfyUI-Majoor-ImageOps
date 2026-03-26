@@ -57,6 +57,9 @@ async function ensureBitmap(node, url) {
   const img = await ensureImageElement(node, url);
   if (!img) return null;
   const bmp = await createImageBitmap(img);
+  if (st.lastBitmap && st.lastBitmapURL !== url) {
+    st.lastBitmap.close();
+  }
   st.lastBitmapURL = url;
   st.lastBitmap = bmp;
   return bmp;
@@ -84,6 +87,7 @@ async function ensureVideoFrameCanvas(node, url, size) {
   c.width = width;
   c.height = height;
   const ctx = c.getContext("2d");
+  if (!ctx) return c;
   if (v.readyState < 2) return c;
   ctx.clearRect(0, 0, width, height);
   ctx.drawImage(v, 0, 0, width, height);

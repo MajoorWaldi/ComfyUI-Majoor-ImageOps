@@ -19,11 +19,13 @@ const IMAGEOPS_CLASSES = /* @__PURE__ */ new Set([
   "ImageOpsChannel",
   "ImageOpsComp",
   "ImageOpsCrop",
+  "ImageOpsDistort",
   "ImageOpsDraw",
   "ImageOpsTransform",
   "ImageOpsInvert",
   "ImageOpsClamp",
   "ImageOpsMerge",
+  "ImageOpsNoise",
   "ImageOpsPreview"
 ]);
 function isPreviewNode(node) {
@@ -461,6 +463,28 @@ function isDrawNode(node) {
 function isCompNode(node) {
   return String(node?.comfyClass ?? "") === "ImageOpsComp";
 }
+function widgetHasAnimatedValues(value) {
+  if (!Array.isArray(value)) return false;
+  if (value.length > 1) return true;
+  return value.length === 1 ? widgetHasAnimatedValues(value[0]) : false;
+}
+function hasProceduralAnimation(node) {
+  const cls = String(node?.comfyClass ?? "");
+  if (cls !== "ImageOpsNoise") return false;
+  const widget = (name) => node.widgets?.find((entry) => entry?.name === name) ?? null;
+  const numeric = (name, fallback = 0) => {
+    const value = widget(name)?.value;
+    if (Array.isArray(value) && value.length > 1) return 1;
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const batchSize = Math.max(1, Math.round(numeric("batch_size", 1)));
+  if (batchSize <= 1) return false;
+  if (numeric("seed_step", 0) !== 0) return true;
+  if (numeric("frame_offset_x", 0) !== 0) return true;
+  if (numeric("frame_offset_y", 0) !== 0) return true;
+  return (node.widgets ?? []).some((entry) => widgetHasAnimatedValues(entry?.value));
+}
 function getInputIndexByName(node, name) {
   return (node.inputs ?? []).findIndex((input) => String(input?.name ?? "") === name);
 }
@@ -669,9 +693,14 @@ function updateDrawOverlayWidget(node) {
   st.drawOverlayKey = value;
   setWidgetStringValue(findWidget(node, "overlay_data"), value);
 }
+let _dirtyRaf = null;
 function markCanvasDirty() {
-  app?.graph?.setDirtyCanvas?.(true, true);
-  app?.canvas?.setDirty?.(true, true);
+  if (_dirtyRaf != null) return;
+  _dirtyRaf = requestAnimationFrame(() => {
+    _dirtyRaf = null;
+    app?.graph?.setDirtyCanvas?.(true, true);
+    app?.canvas?.setDirty?.(true, true);
+  });
 }
 function syncCropWidgets(node, changedName) {
   if (!isCropNode(node)) return;
@@ -904,7 +933,9 @@ function tryRenderNativePreview(node, st, canvasSize) {
   return true;
 }
 function blit(node, st, imgCanvas, canvasSize) {
+  if (!st.canvas) return;
   const ctx = st.canvas.getContext("2d");
+  if (!ctx) return;
   st.canvas.width = canvasSize;
   st.canvas.height = canvasSize;
   drawFitSource(ctx, canvasSize, canvasSize, imgCanvas, imgCanvas.width || 1, imgCanvas.height || 1);
@@ -1357,6 +1388,7 @@ function registerImageOpsLivePreview() {
       refreshDrawInteraction(node);
     });
     canvas.addEventListener("pointerdown", async (event) => {
+      if (!st.drawGeometry) return;
       const point = getCanvasPointer(canvas, event);
       const mapped = canvasToDrawSourcePoint(st.drawGeometry, point.x, point.y);
       if (!mapped.inside) return;
@@ -1377,6 +1409,7 @@ function registerImageOpsLivePreview() {
     canvas.addEventListener("pointermove", (event) => {
       const drag = st.drawStroke;
       if (!drag || drag.pointerId !== event.pointerId) return;
+      if (!st.drawGeometry) return;
       const point = getCanvasPointer(canvas, event);
       const mapped = canvasToDrawSourcePoint(st.drawGeometry, point.x, point.y);
       if (!mapped.inside) return;
@@ -1787,7 +1820,7 @@ function registerImageOpsLivePreview() {
       return;
     }
     const src = detectSourceUpstream(node);
-    if ((!src || src.kind !== "video" && !src.animated) && !st.nativeAnimated) {
+    if ((!src || src.kind !== "video" && !src.animated) && !st.nativeAnimated && !hasProceduralAnimation(node)) {
       stopRAF(st);
       schedule(node, () => renderNode(node, 0), 10);
       return;
