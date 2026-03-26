@@ -13,6 +13,7 @@ from ._helpers import (
     _composite_comp_layer,
     _expand_image_batch,
     _make_comp_canvas,
+    _scalar,
 )
 from ._preview import build_node_preview_result
 
@@ -48,10 +49,10 @@ def _normalize_layer(entry: dict[str, Any], slot: str, index: int) -> dict[str, 
     default = _default_layer(slot, index)
     data = default | dict(entry or {})
     data["slot"] = slot
-    data["center_x"] = float(data.get("center_x", default["center_x"]))
-    data["center_y"] = float(data.get("center_y", default["center_y"]))
-    data["scale"] = float(max(0.05, min(8.0, data.get("scale", default["scale"]))))
-    data["opacity"] = float(max(0.0, min(1.0, data.get("opacity", default["opacity"]))))
+    data["center_x"] = _scalar(data.get("center_x", default["center_x"]))
+    data["center_y"] = _scalar(data.get("center_y", default["center_y"]))
+    data["scale"] = _scalar(max(0.05, min(8.0, _scalar(data.get("scale", default["scale"])))))
+    data["opacity"] = _scalar(max(0.0, min(1.0, _scalar(data.get("opacity", default["opacity"])))))
     mode = str(data.get("mode", default["mode"]) or "over").strip().lower()
     data["mode"] = mode if mode in COMP_BLEND_MODES else "over"
     data["enabled"] = bool(data.get("enabled", True))
@@ -149,11 +150,11 @@ class ImageOpsComp(io.ComfyNode):
             connected_layers.append((layer, image_value, mask_value))
 
         if not connected_layers:
-            out_w = max(1, int(width))
-            out_h = max(1, int(height))
+            out_w = max(1, _scalar(width, int))
+            out_h = max(1, _scalar(height, int))
             blank = _make_comp_canvas(1, out_h, out_w, device="cpu", dtype=torch.float32, background_color=background_color)
             output_mask = blank[..., 3]
-            if bool(invert_mask):
+            if _scalar(invert_mask, bool):
                 output_mask = 1.0 - output_mask
             return build_node_preview_result(blank, (blank, output_mask), prefix="imageops_comp")
 
@@ -162,19 +163,19 @@ class ImageOpsComp(io.ComfyNode):
             image_tensor = _coerce_media_to_tensor(image_value, layer["slot"]).float().clamp(0.0, 1.0)
             tensors.append((layer, image_tensor, mask_value))
 
-        if bool(use_first_layer_size):
+        if _scalar(use_first_layer_size, bool):
             ref_tensor = tensors[0][1]
             out_h = int(ref_tensor.shape[1])
             out_w = int(ref_tensor.shape[2])
         else:
-            out_w = max(1, int(width))
-            out_h = max(1, int(height))
+            out_w = max(1, _scalar(width, int))
+            out_h = max(1, _scalar(height, int))
 
         batch = max(int(image.shape[0]) for _, image, _ in tensors)
         device = tensors[0][1].device
         dtype = tensors[0][1].dtype
 
-        if bool(bypass):
+        if _scalar(bypass, bool):
             _, first_image, first_mask = tensors[0]
             result = _expand_image_batch(first_image, batch).to(device=device, dtype=dtype)
             output_mask = _alpha_mask_from_image(result)
@@ -191,7 +192,7 @@ class ImageOpsComp(io.ComfyNode):
                 )
                 if prepared is not None:
                     output_mask = prepared
-            if bool(invert_mask):
+            if _scalar(invert_mask, bool):
                 output_mask = (1.0 - output_mask).clamp(0.0, 1.0)
             return build_node_preview_result(result, (result, output_mask), prefix="imageops_comp")
 
@@ -211,6 +212,6 @@ class ImageOpsComp(io.ComfyNode):
             )
 
         output_mask = canvas[..., 3].clamp(0.0, 1.0)
-        if bool(invert_mask):
+        if _scalar(invert_mask, bool):
             output_mask = (1.0 - output_mask).clamp(0.0, 1.0)
         return build_node_preview_result(canvas, (canvas, output_mask), prefix="imageops_comp")

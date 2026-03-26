@@ -13,6 +13,14 @@ except ImportError:
 
 from ._ops_constants import EPSILON, GAMMA_MAX, GAMMA_SAFE_MIN, LUMA_WEIGHTS
 
+
+def _scalar(v, typ=float):
+    """Unwrap a value that may be wrapped in a list/tuple (ComfyUI batching)."""
+    while isinstance(v, (list, tuple)):
+        v = v[0]
+    return typ(v)
+
+
 # Constants shared across ImageOps nodes
 logger = logging.getLogger(__name__)
 
@@ -71,7 +79,7 @@ def _apply_color_correct(image, brightness, contrast, gamma, saturation):
     x = image.float()
     x = x + brightness
     x = (x - 0.5) * contrast + 0.5
-    gamma = max(GAMMA_SAFE_MIN, min(GAMMA_MAX, float(gamma)))
+    gamma = max(GAMMA_SAFE_MIN, min(GAMMA_MAX, _scalar(gamma)))
     x = torch.clamp(x, 0, 1) ** (1.0 / gamma)
 
     rgb = x[..., :3]
@@ -96,12 +104,12 @@ def _apply_color_correct_reference(image, temperature, hue, brightness, contrast
     dtype = image.dtype
     out = []
 
-    brightness_factor = 1.0 + (float(brightness) / 100.0)
-    contrast_factor = 1.0 + (float(contrast) / 100.0)
-    saturation_factor = 1.0 + (float(saturation) / 100.0)
-    temperature_factor = float(temperature) / 100.0
-    hue_shift = float(hue)
-    safe_gamma = max(0.2, min(2.2, float(gamma)))
+    brightness_factor = 1.0 + (_scalar(brightness) / 100.0)
+    contrast_factor = 1.0 + (_scalar(contrast) / 100.0)
+    saturation_factor = 1.0 + (_scalar(saturation) / 100.0)
+    temperature_factor = _scalar(temperature) / 100.0
+    hue_shift = _scalar(hue)
+    safe_gamma = max(0.2, min(2.2, _scalar(gamma)))
 
     for frame in image.detach().cpu().float().clamp(0, 1):
         rgb = (frame[..., :3].numpy() * 255.0 + 0.5).astype(np.uint8)
@@ -339,7 +347,7 @@ def _prepare_effect_mask(mask, reference, invert_mask=False):
     )
     if prepared is None:
         return None
-    if bool(invert_mask):
+    if _scalar(invert_mask, bool):
         prepared = 1.0 - prepared
     return torch.clamp(prepared, 0.0, 1.0)
 
@@ -350,7 +358,7 @@ def _resolve_mask_output_source(mask, reference, invert_mask=False):
     prepared = _prepare_effect_mask(mask, reference, invert_mask=False)
     if prepared is None:
         prepared = _alpha_mask_from_image(reference)
-    if bool(invert_mask):
+    if _scalar(invert_mask, bool):
         prepared = 1.0 - prepared
     return torch.clamp(prepared, 0.0, 1.0)
 
@@ -528,12 +536,12 @@ def _match_image_to_reference(image: torch.Tensor, reference: torch.Tensor) -> t
 
 def _apply_levels(image: torch.Tensor, in_min: float, in_max: float, gamma: float, out_min: float, out_max: float):
     x = image.float()
-    in_min = float(in_min); in_max = float(in_max)
-    out_min = float(out_min); out_max = float(out_max)
+    in_min = _scalar(in_min); in_max = _scalar(in_max)
+    out_min = _scalar(out_min); out_max = _scalar(out_max)
     denom = max(EPSILON, (in_max - in_min))
     y = (x - in_min) / denom
     y = y.clamp(0.0, 1.0)
-    g = float(max(GAMMA_SAFE_MIN, min(GAMMA_MAX, gamma)))
+    g = _scalar(max(GAMMA_SAFE_MIN, min(GAMMA_MAX, _scalar(gamma))))
     y = y ** (1.0 / g)
     y = out_min + y * (out_max - out_min)
     return y.clamp(0.0, 1.0)
@@ -575,9 +583,9 @@ def _apply_huesat(image: torch.Tensor, hue_deg: float, saturation: float, value:
     x = image.float()
     rgb = x[..., :3].clamp(0,1)
     hsv = _rgb_to_hsv(rgb)
-    hue = (hsv[...,0] + (float(hue_deg) / 360.0)) % 1.0
-    sat = (hsv[...,1] * float(saturation)).clamp(0.0, 4.0)
-    val = (hsv[...,2] * float(value)).clamp(0.0, 4.0)
+    hue = (hsv[...,0] + (_scalar(hue_deg) / 360.0)) % 1.0
+    sat = (hsv[...,1] * _scalar(saturation)).clamp(0.0, 4.0)
+    val = (hsv[...,2] * _scalar(value)).clamp(0.0, 4.0)
     rgb2 = _hsv_to_rgb(torch.stack([hue, sat, val], dim=-1)).clamp(0,1)
     if x.shape[-1] == 4:
         x = torch.cat([rgb2, x[...,3:4]], dim=-1)
@@ -594,20 +602,20 @@ def _apply_invert(image: torch.Tensor, invert_alpha: bool = False):
     return (1.0 - x).clamp(0,1)
 
 def _apply_clamp(image: torch.Tensor, min_v: float, max_v: float):
-    lo = float(min(min_v, max_v))
-    hi = float(max(min_v, max_v))
+    lo = _scalar(min(_scalar(min_v), _scalar(max_v)))
+    hi = _scalar(max(_scalar(min_v), _scalar(max_v)))
     return image.float().clamp(lo, hi).clamp(0,1)
 
 def _apply_sharpen(image: torch.Tensor, amount: float, radius: int, sigma: float, threshold: float):
     x = image.float().clamp(0,1)
-    if float(amount) == 0.0 or int(radius) <= 0:
+    if _scalar(amount) == 0.0 or _scalar(radius, int) <= 0:
         return x
-    blurred = _apply_blur(x, int(radius), float(max(EPSILON, sigma)))
+    blurred = _apply_blur(x, _scalar(radius, int), _scalar(max(EPSILON, _scalar(sigma))))
     diff = x - blurred
-    if float(threshold) > 0:
+    if _scalar(threshold) > 0:
         m = diff.abs().mean(dim=-1, keepdim=True)
-        diff = torch.where(m >= float(threshold), diff, torch.zeros_like(diff))
-    y = (x + diff * float(amount)).clamp(0,1)
+        diff = torch.where(m >= _scalar(threshold), diff, torch.zeros_like(diff))
+    y = (x + diff * _scalar(amount)).clamp(0,1)
     return y
 
 def _apply_edge_detect(image: torch.Tensor, strength: float):
@@ -625,7 +633,7 @@ def _apply_edge_detect(image: torch.Tensor, strength: float):
     gx = torch.nn.functional.conv2d(pad, kx)
     gy = torch.nn.functional.conv2d(pad, ky)
 
-    mag = torch.sqrt(gx * gx + gy * gy) * float(strength)
+    mag = torch.sqrt(gx * gx + gy * gy) * _scalar(strength)
     mag = mag.clamp(0, 1)
 
     out_rgb = mag.repeat(1, 3, 1, 1).permute(0, 2, 3, 1).contiguous()
@@ -638,7 +646,7 @@ def _apply_merge(a: torch.Tensor, b: torch.Tensor, mode: str, mix: float):
     a = a.float().clamp(0,1)
     b = _match_image_to_reference(b.float().clamp(0,1), a)
     mode = str(mode).lower()
-    m = float(mix)
+    m = _scalar(mix)
     ar, br = a[..., :3], b[..., :3]
     if mode == "over":
         # if b has alpha, over a
@@ -687,7 +695,7 @@ def _dilate_erode_mask(mask: torch.Tensor, radius: int, op: str):
     else:
         m = m.reshape(-1, 1, m.shape[-2], m.shape[-1])
 
-    r = int(max(0, radius))
+    r = _scalar(max(0, _scalar(radius, int)), int)
     if r == 0:
         return m[:,0,:,:]
     k = 2*r + 1
@@ -702,12 +710,12 @@ def _apply_glow(image: torch.Tensor, threshold: float, radius: int, sigma: float
     rgb = x[..., :3]
     lr, lg, lb = LUMA_WEIGHTS
     luma = (lr*rgb[...,0] + lg*rgb[...,1] + lb*rgb[...,2]).unsqueeze(-1)
-    mask = (luma - float(threshold)).clamp(0,1)
+    mask = (luma - _scalar(threshold)).clamp(0,1)
     glow = rgb * mask
     glow4 = torch.cat([glow, torch.ones_like(mask)], dim=-1) if x.shape[-1]==4 else glow
-    glow_blur = _apply_blur(glow4, int(radius), float(max(EPSILON, sigma)))
+    glow_blur = _apply_blur(glow4, _scalar(radius, int), _scalar(max(EPSILON, _scalar(sigma))))
     g_rgb = glow_blur[..., :3]
-    out_rgb = (rgb + g_rgb * float(intensity)).clamp(0,1)
+    out_rgb = (rgb + g_rgb * _scalar(intensity)).clamp(0,1)
     if x.shape[-1]==4:
         return torch.cat([out_rgb, x[...,3:4]], dim=-1)
     return out_rgb
@@ -715,7 +723,7 @@ def _apply_glow(image: torch.Tensor, threshold: float, radius: int, sigma: float
 def _crop_pad(image: torch.Tensor, x: int, y: int, w: int, h: int, pad: int, pad_mode: str):
     # image [B,H,W,C]
     B,H,W,C = image.shape
-    x0 = int(x); y0=int(y); w=int(w); h=int(h); pad=int(pad)
+    x0 = _scalar(x, int); y0 = _scalar(y, int); w = _scalar(w, int); h = _scalar(h, int); pad = _scalar(pad, int)
     x1 = x0 + w; y1 = y0 + h
     # pad as needed
     left = max(0, -x0); top = max(0, -y0); right = max(0, x1 - W); bottom = max(0, y1 - H)
@@ -791,8 +799,8 @@ def _resolve_aspect_ratio(aspect_ratio: str, out_w: int, out_h: int) -> float:
 
 def _compute_crop_box(source_w: int, source_h: int, aspect_ratio: str, out_w: int, out_h: int,
                       center_x: float = 0.5, center_y: float = 0.5, scale: float = 1.0):
-    src_w = max(1, int(source_w))
-    src_h = max(1, int(source_h))
+    src_w = max(1, _scalar(source_w, int))
+    src_h = max(1, _scalar(source_h, int))
     target_ratio = max(EPSILON, _resolve_aspect_ratio(aspect_ratio, out_w, out_h))
     src_ratio = float(src_w) / float(max(1, src_h))
 
@@ -806,12 +814,12 @@ def _compute_crop_box(source_w: int, source_h: int, aspect_ratio: str, out_w: in
         base_w = src_w
         base_h = max(1, min(src_h, int(round(src_w / target_ratio))))
 
-    safe_scale = float(max(0.05, min(1.0, scale)))
+    safe_scale = _scalar(max(0.05, min(1.0, _scalar(scale))))
     crop_w = max(1, min(src_w, int(round(base_w * safe_scale))))
     crop_h = max(1, min(src_h, int(round(base_h * safe_scale))))
 
-    safe_center_x = float(max(0.0, min(1.0, center_x)))
-    safe_center_y = float(max(0.0, min(1.0, center_y)))
+    safe_center_x = _scalar(max(0.0, min(1.0, _scalar(center_x))))
+    safe_center_y = _scalar(max(0.0, min(1.0, _scalar(center_y))))
     center_px = safe_center_x * float(src_w)
     center_py = safe_center_y * float(src_h)
 
@@ -841,8 +849,8 @@ def _apply_center_crop_resize(image: torch.Tensor, out_w: int, out_h: int, aspec
     if image.dim() != 4:
         raise ValueError(f"Expected [B,H,W,C], got {tuple(image.shape)}")
 
-    target_w = max(1, int(out_w))
-    target_h = max(1, int(out_h))
+    target_w = max(1, _scalar(out_w, int))
+    target_h = max(1, _scalar(out_h, int))
     target_ratio = max(EPSILON, _resolve_aspect_ratio(aspect_ratio, target_w, target_h))
 
     _, src_h, src_w, _ = image.shape
@@ -870,8 +878,8 @@ def _apply_interactive_crop_resize(image: torch.Tensor, out_w: int, out_h: int, 
     if image.dim() != 4:
         raise ValueError(f"Expected [B,H,W,C], got {tuple(image.shape)}")
 
-    target_w = max(1, int(out_w))
-    target_h = max(1, int(out_h))
+    target_w = max(1, _scalar(out_w, int))
+    target_h = max(1, _scalar(out_h, int))
     _, src_h, src_w, _ = image.shape
     crop_x, crop_y, crop_w, crop_h = _compute_crop_box(
         src_w,
@@ -977,7 +985,9 @@ def _apply_lumakey(image: torch.Tensor, low: float, high: float, softness: float
     rgb = x[..., :3]
     lr, lg, lb = LUMA_WEIGHTS
     luma = (lr*rgb[...,0] + lg*rgb[...,1] + lb*rgb[...,2]).clamp(0,1)
-    low = float(low); high=float(high); soft=float(max(0.0, softness))
+    low = _scalar(low)
+    high = _scalar(high)
+    soft = _scalar(max(0.0, _scalar(softness)))
     # smoothstep on low/high with softness
     if soft > 0:
         low1 = low - soft
@@ -1046,8 +1056,8 @@ def _expand_image_batch(image: torch.Tensor, target_batch: int) -> torch.Tensor:
 def _resize_mask(mask: torch.Tensor, out_w: int, out_h: int) -> torch.Tensor:
     if mask is None:
         raise ValueError("mask is None")
-    target_w = max(1, int(out_w))
-    target_h = max(1, int(out_h))
+    target_w = max(1, _scalar(out_w, int))
+    target_h = max(1, _scalar(out_h, int))
     x = mask.unsqueeze(1)
     x = torch.nn.functional.interpolate(
         x,
@@ -1109,10 +1119,10 @@ def _make_comp_canvas(batch: int, height: int, width: int, device, dtype, backgr
 
 def _compute_comp_rect(output_w: int, output_h: int, source_w: int, source_h: int,
                        center_x: float, center_y: float, scale: float):
-    draw_w = max(1, int(round(max(1, source_w) * max(0.05, float(scale)))))
-    draw_h = max(1, int(round(max(1, source_h) * max(0.05, float(scale)))))
-    left = int(round(float(center_x) * float(max(1, output_w)) - draw_w / 2.0))
-    top = int(round(float(center_y) * float(max(1, output_h)) - draw_h / 2.0))
+    draw_w = max(1, int(round(max(1, _scalar(source_w, int)) * max(0.05, _scalar(scale)))))
+    draw_h = max(1, int(round(max(1, _scalar(source_h, int)) * max(0.05, _scalar(scale)))))
+    left = int(round(_scalar(center_x) * float(max(1, _scalar(output_w, int))) - draw_w / 2.0))
+    top = int(round(_scalar(center_y) * float(max(1, _scalar(output_h, int))) - draw_h / 2.0))
     return left, top, draw_w, draw_h
 
 
@@ -1140,7 +1150,7 @@ def _composite_comp_layer(canvas: torch.Tensor, image: torch.Tensor, mask: torch
     resized_source = _resize_premultiplied_rgba(source, draw_w, draw_h)
     effective_alpha = resized_source[..., 3]
 
-    effective_alpha = (effective_alpha * float(max(0.0, min(1.0, opacity)))).clamp(0.0, 1.0)
+    effective_alpha = (effective_alpha * _scalar(max(0.0, min(1.0, _scalar(opacity))))).clamp(0.0, 1.0)
     src_x0 = x0 - left
     src_y0 = y0 - top
     src_x1 = src_x0 + (x1 - x0)

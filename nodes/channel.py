@@ -5,6 +5,7 @@ from ._helpers import (
     _extract_channel_mask,
     _prepare_effect_mask,
     _resolve_mask_output_source,
+    _scalar,
     _select_media_tensor,
 )
 from ._preview import build_node_preview_result
@@ -33,7 +34,7 @@ class ImageOpsChannel:
     def apply(self, image=None, bypass=False, channel="Red", invert_mask=False, mask=None):
         source = _select_media_tensor(image, None)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-        if bool(bypass):
+        if _scalar(bypass, bool):
             return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_channel")
 
         extracted = _extract_channel_mask(source, channel)

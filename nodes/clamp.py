@@ -3,6 +3,7 @@ from ._helpers import (
     _apply_clamp,
     _clamp_mask,
     _resolve_mask_output_source,
+    _scalar,
     _select_media_tensor,
 )
 from ._preview import build_node_preview_result
@@ -31,7 +32,7 @@ class ImageOpsClamp:
     def apply(self, image=None, bypass=False, min_v=0.0, max_v=1.0, invert_mask=False, video=None, mask=None):
         src = _select_media_tensor(image, video)
         output_mask_source = _resolve_mask_output_source(mask, src, invert_mask=invert_mask)
-        if bool(bypass):
+        if _scalar(bypass, bool):
             return build_node_preview_result(src, (src, output_mask_source), prefix="imageops_clamp")
         out = _apply_clamp(src, min_v, max_v)
         if mask is None and src.shape[-1] < 4:

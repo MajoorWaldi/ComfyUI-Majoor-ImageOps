@@ -2,6 +2,7 @@ from ._helpers import (
     MEDIA_INPUT_TYPE,
     _apply_invert,
     _resolve_mask_output_source,
+    _scalar,
     _select_media_tensor,
 )
 from ._preview import build_node_preview_result
@@ -29,9 +30,9 @@ class ImageOpsInvert:
     def apply(self, image=None, bypass=False, invert_alpha=False, invert_mask=False, video=None, mask=None):
         src = _select_media_tensor(image, video)
         output_mask = _resolve_mask_output_source(mask, src, invert_mask=invert_mask)
-        if bool(bypass):
+        if _scalar(bypass, bool):
             return build_node_preview_result(src, (src, output_mask), prefix="imageops_invert")
-        out = _apply_invert(src, invert_alpha=bool(invert_alpha))
-        if mask is None and src.shape[-1] >= 4 and bool(invert_alpha):
+        out = _apply_invert(src, invert_alpha=_scalar(invert_alpha, bool))
+        if mask is None and src.shape[-1] >= 4 and _scalar(invert_alpha, bool):
             output_mask = (1.0 - output_mask).clamp(0.0, 1.0)
         return build_node_preview_result(out, (out, output_mask), prefix="imageops_invert")

@@ -7,13 +7,13 @@ import numpy as np
 import torch
 from PIL import Image
 
-from ._helpers import MEDIA_INPUT_TYPE, _hex_to_rgb01, _select_media_tensor
+from ._helpers import MEDIA_INPUT_TYPE, _hex_to_rgb01, _scalar, _select_media_tensor
 from ._preview import build_node_preview_result
 
 
 def _blank_draw_base(width: int, height: int, bg_color: str) -> torch.Tensor:
-    target_w = max(1, int(width))
-    target_h = max(1, int(height))
+    target_w = max(1, _scalar(width, int))
+    target_h = max(1, _scalar(height, int))
     r, g, b = _hex_to_rgb01(bg_color)
     base = torch.zeros((1, target_h, target_w, 3), dtype=torch.float32)
     base[..., 0] = r
@@ -30,18 +30,19 @@ def _decode_overlay_rgba(
     device,
     dtype,
 ) -> torch.Tensor:
-    target_w = max(1, int(width))
-    target_h = max(1, int(height))
+    target_w = max(1, _scalar(width, int))
+    target_h = max(1, _scalar(height, int))
+    safe_batch = max(1, _scalar(batch, int))
     blank = torch.zeros((1, target_h, target_w, 4), device=device, dtype=dtype)
 
     raw = str(overlay_data or "").strip()
     if not raw:
-        return blank.expand(max(1, int(batch)), -1, -1, -1)
+        return blank.expand(safe_batch, -1, -1, -1)
 
     if raw.startswith("data:"):
         _, _, raw = raw.partition(",")
     if not raw:
-        return blank.expand(max(1, int(batch)), -1, -1, -1)
+        return blank.expand(safe_batch, -1, -1, -1)
 
     try:
         decoded = base64.b64decode(raw)
@@ -51,10 +52,10 @@ def _decode_overlay_rgba(
                 overlay = overlay.resize((target_w, target_h), Image.LANCZOS)
             array = np.asarray(overlay).astype(np.float32) / 255.0
     except Exception:
-        return blank.expand(max(1, int(batch)), -1, -1, -1)
+        return blank.expand(safe_batch, -1, -1, -1)
 
     tensor = torch.from_numpy(array).to(device=device, dtype=dtype).unsqueeze(0)
-    return tensor.expand(max(1, int(batch)), -1, -1, -1)
+    return tensor.expand(safe_batch, -1, -1, -1)
 
 
 def _composite_overlay(base: torch.Tensor, overlay_rgba: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -144,13 +145,13 @@ class ImageOpsDraw:
             dtype=source.dtype,
         )
 
-        if bool(bypass):
+        if _scalar(bypass, bool):
             mask = torch.zeros((batch, target_h, target_w), device=source.device, dtype=source.dtype)
-            if bool(invert_mask):
+            if _scalar(invert_mask, bool):
                 mask = 1.0 - mask
             return build_node_preview_result(source, (source, mask), prefix="imageops_draw")
 
         result, mask = _composite_overlay(source, overlay)
-        if bool(invert_mask):
+        if _scalar(invert_mask, bool):
             mask = 1.0 - mask
         return build_node_preview_result(result, (result, mask.clamp(0.0, 1.0)), prefix="imageops_draw")

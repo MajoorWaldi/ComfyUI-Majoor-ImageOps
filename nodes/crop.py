@@ -5,6 +5,7 @@ from ._helpers import (
     _apply_interactive_crop_resize_with_mask_pair,
     _prepare_effect_mask,
     _resolve_mask_output_source,
+    _scalar,
     _select_media_tensor,
 )
 from ._preview import build_node_preview_result
@@ -44,7 +45,7 @@ class ImageOpsCrop:
         input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
 
-        if bool(bypass):
+        if _scalar(bypass, bool):
             return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_crop")
 
         if input_mask is not None:

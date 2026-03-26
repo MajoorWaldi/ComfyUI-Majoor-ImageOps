@@ -2,6 +2,7 @@ from ._helpers import (
     MEDIA_INPUT_TYPE,
     _apply_color_correct_reference,
     _resolve_mask_output_source,
+    _scalar,
     _select_media_tensor,
 )
 from ._preview import build_node_preview_result
@@ -48,7 +49,7 @@ class ImageOpsColorAjust:
     ):
         source = _select_media_tensor(image, video)
         output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-        if bool(bypass):
+        if _scalar(bypass, bool):
             return build_node_preview_result(source, (source, output_mask), prefix="imageops_color_ajust")
         result = _apply_color_correct_reference(source, temperature, hue, brightness, contrast, saturation, gamma)
         return build_node_preview_result(result, (result, output_mask), prefix="imageops_color_ajust")

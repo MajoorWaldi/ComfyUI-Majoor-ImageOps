@@ -4,7 +4,7 @@ from PIL import Image
 
 import folder_paths
 
-from ._helpers import _tensor_batch_to_pil_list, logger
+from ._helpers import _scalar, _tensor_batch_to_pil_list, logger
 
 
 def _ensure_dir(p: str):
@@ -27,10 +27,10 @@ def save_temp_images(images, prefix="imageops", ext="png", quality=95):
         out_path = os.path.join(temp_dir, name)
         try:
             if ext.lower() in ("jpg", "jpeg"):
-                img.convert("RGB").save(out_path, quality=int(quality), optimize=True)
+                img.convert("RGB").save(out_path, quality=_scalar(quality, int), optimize=True)
             elif ext.lower() == "webp":
                 # WEBP can be used as static preview too
-                img.save(out_path, quality=int(quality), method=6)
+                img.save(out_path, quality=_scalar(quality, int), method=6)
             else:
                 img.save(out_path)
         except Exception as e:
@@ -52,7 +52,7 @@ def save_temp_animated(images, prefix="imageops_anim", ext="webp", fps=12, quali
 
     name = f"{prefix}_{uuid.uuid4().hex[:10]}.{ext}"
     out_path = os.path.join(temp_dir, name)
-    duration_ms = int(max(1, round(1000.0 / max(1.0, float(fps)))))
+    duration_ms = int(max(1, round(1000.0 / max(1.0, _scalar(fps)))))
 
     try:
         if ext.lower() == "gif":
@@ -73,7 +73,7 @@ def save_temp_animated(images, prefix="imageops_anim", ext="webp", fps=12, quali
                 duration=duration_ms,
                 loop=0,
                 format="WEBP",
-                quality=int(quality),
+                quality=_scalar(quality, int),
                 method=6,
             )
     except Exception as e:
@@ -92,16 +92,16 @@ def save_temp_strip(images, prefix="imageops_strip", ext="png", max_frames=16, t
     if not pil_list:
         return None
 
-    frames = pil_list[: int(max(1, max_frames))]
+    frames = pil_list[: _scalar(max(1, _scalar(max_frames, int)), int)]
     resized = []
     for im in frames:
         try:
             w, h = im.size
             if h <= 0:
                 continue
-            s = float(tile_height) / float(h)
+            s = _scalar(tile_height) / float(h)
             nw = max(1, int(round(w * s)))
-            resized.append(im.resize((nw, int(tile_height)), resample=Image.BILINEAR))
+            resized.append(im.resize((nw, _scalar(tile_height, int)), resample=Image.BILINEAR))
         except Exception:
             continue
     if not resized:
@@ -119,7 +119,7 @@ def save_temp_strip(images, prefix="imageops_strip", ext="png", max_frames=16, t
     out_path = os.path.join(temp_dir, name)
     try:
         if ext.lower() in ("jpg", "jpeg"):
-            strip.save(out_path, quality=int(quality), optimize=True)
+            strip.save(out_path, quality=_scalar(quality, int), optimize=True)
         else:
             strip.save(out_path)
     except Exception as e:

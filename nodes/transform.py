@@ -13,6 +13,7 @@ from ._helpers import (
     EPSILON,
     LARGE_IMAGE_WARN_MB,
     MAX_SCALE_DIMENSION,
+    _scalar,
     logger,
 )
 from ._preview import build_node_preview_result
@@ -69,6 +70,10 @@ def _transform_frame(pil, resample, translate_x, translate_y, rotate_deg, scale,
     base_w, base_h = pil.size
     working = pil
 
+    scale = _scalar(scale)
+    translate_x = _scalar(translate_x)
+    translate_y = _scalar(translate_y)
+    rotate_deg = _scalar(rotate_deg)
     if abs(scale - 1.0) > EPSILON:
         nw, nh = max(1, int(round(base_w * scale))), max(1, int(round(base_h * scale)))
         if nw > MAX_SCALE_DIMENSION or nh > MAX_SCALE_DIMENSION:
@@ -87,7 +92,7 @@ def _transform_frame(pil, resample, translate_x, translate_y, rotate_deg, scale,
 
     if abs(rotate_deg) > EPSILON:
         # Match compositor conventions used in Nuke/UI overlays: positive values rotate clockwise.
-        working = working.rotate(-rotate_deg, resample=resample, expand=bool(expand))
+        working = working.rotate(-rotate_deg, resample=resample, expand=_scalar(expand, bool))
         rw, rh = working.size
         if rw > MAX_SCALE_DIMENSION or rh > MAX_SCALE_DIMENSION:
             logger.error(f"Rotated dimensions ({rw}x{rh}) exceed maximum")
@@ -139,7 +144,7 @@ class ImageOpsTransform:
         source = _select_media_tensor(image, video)
         input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-        if bool(bypass):
+        if _scalar(bypass, bool):
             return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_transform")
 
         resample = {

@@ -5,6 +5,7 @@ from ._helpers import (
     MEDIA_INPUT_TYPE,
     _prepare_effect_mask,
     _resolve_mask_output_source,
+    _scalar,
     _select_media_tensor,
 )
 from ._preview import build_node_preview_result
@@ -35,7 +36,7 @@ class ImageOpsBlur:
         source = _select_media_tensor(image, video)
         input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-        if bool(bypass):
+        if _scalar(bypass, bool):
             return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_blur")
         if input_mask is not None:
             result, output_mask = _apply_blur_with_mask_pair(source, input_mask, radius, sigma)
