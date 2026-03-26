@@ -35,19 +35,19 @@ def _transform_masked_source(source, input_mask, resample, translate_x, translat
     processed_mask = []
     processed_alpha = []
 
-    for pil in _tensor_batch_to_pil_list(premult_rgb):
-        transformed = _transform_frame(pil, resample, translate_x, translate_y, rotate_deg, scale, expand)
+    for fi, pil in enumerate(_tensor_batch_to_pil_list(premult_rgb)):
+        transformed = _transform_frame(pil, resample, translate_x, translate_y, rotate_deg, scale, expand, index=fi)
         processed_rgb.append(_pil_to_tensor(transformed)[..., :3])
 
     for idx in range(input_mask.shape[0]):
         pil_mask = _mask_to_pil(input_mask[idx])
-        transformed_mask = _transform_frame(pil_mask, resample, translate_x, translate_y, rotate_deg, scale, expand)
+        transformed_mask = _transform_frame(pil_mask, resample, translate_x, translate_y, rotate_deg, scale, expand, index=idx)
         processed_mask.append(_pil_to_mask(transformed_mask, source.device, source.dtype))
 
     if source.shape[-1] >= 4:
         for idx in range(source.shape[0]):
             pil_alpha = _mask_to_pil(source[idx, ..., 3])
-            transformed_alpha = _transform_frame(pil_alpha, resample, translate_x, translate_y, rotate_deg, scale, expand)
+            transformed_alpha = _transform_frame(pil_alpha, resample, translate_x, translate_y, rotate_deg, scale, expand, index=idx)
             processed_alpha.append(_pil_to_mask(transformed_alpha, source.device, source.dtype))
 
     if not processed_rgb:
@@ -66,14 +66,14 @@ def _transform_masked_source(source, input_mask, resample, translate_x, translat
     return result.clamp(0.0, 1.0), output_mask.clamp(0.0, 1.0)
 
 
-def _transform_frame(pil, resample, translate_x, translate_y, rotate_deg, scale, expand):
+def _transform_frame(pil, resample, translate_x, translate_y, rotate_deg, scale, expand, index=0):
     base_w, base_h = pil.size
     working = pil
 
-    scale = _scalar(scale)
-    translate_x = _scalar(translate_x)
-    translate_y = _scalar(translate_y)
-    rotate_deg = _scalar(rotate_deg)
+    scale = _scalar(scale, index=index)
+    translate_x = _scalar(translate_x, index=index)
+    translate_y = _scalar(translate_y, index=index)
+    rotate_deg = _scalar(rotate_deg, index=index)
     if abs(scale - 1.0) > EPSILON:
         nw, nh = max(1, int(round(base_w * scale))), max(1, int(round(base_h * scale)))
         if nw > MAX_SCALE_DIMENSION or nh > MAX_SCALE_DIMENSION:
@@ -168,13 +168,13 @@ class ImageOpsTransform:
 
         processed_frames = []
         processed_masks = []
-        for pil in _tensor_batch_to_pil_list(source):
-            transformed = _transform_frame(pil, resample, translate_x, translate_y, rotate_deg, scale, expand)
+        for fi, pil in enumerate(_tensor_batch_to_pil_list(source)):
+            transformed = _transform_frame(pil, resample, translate_x, translate_y, rotate_deg, scale, expand, index=fi)
             processed_frames.append(_pil_to_tensor(transformed))
 
         for idx in range(output_mask_source.shape[0]):
             pil_mask = _mask_to_pil(output_mask_source[idx])
-            transformed_mask = _transform_frame(pil_mask, resample, translate_x, translate_y, rotate_deg, scale, expand)
+            transformed_mask = _transform_frame(pil_mask, resample, translate_x, translate_y, rotate_deg, scale, expand, index=idx)
             processed_masks.append(_pil_to_mask(transformed_mask, source.device, source.dtype))
 
         if not processed_frames:
