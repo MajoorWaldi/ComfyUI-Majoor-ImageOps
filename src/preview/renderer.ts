@@ -1,7 +1,7 @@
 // Renderer (recursive, supports interop) (v6)
 import type { ComfyNode, ComfyAPI, AdapterRegistry, RenderContext, RenderInputInfo, RenderResult } from "../types.js";
 import { getInputLink, getUpstreamNode, detectSource } from "./graph.js";
-import { makeViewUrl, ensureBitmap, ensureImageElement, ensureVideoFrameCanvas, fitWithinMaxSize } from "./source.js";
+import { makeViewUrl, ensureBitmap, ensureImageElement, ensureVideoFrameCanvas, fitWithinMaxSize, renderImageSourceToCanvas } from "./source.js";
 
 interface RendererConfig {
   api: ComfyAPI;
@@ -38,20 +38,14 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
     const media = getNativePreviewElement(node);
     if (!media) return null;
 
-    if (media instanceof HTMLVideoElement) {
-      if (media.readyState < 2) {
-        try { await media.play(); } catch {}
-        if (media.readyState < 2) return null;
+      if (media instanceof HTMLVideoElement) {
+        if (media.readyState < 2) {
+          try { await media.play(); } catch {}
+          if (media.readyState < 2) return null;
+        }
+        const dims = fitWithinMaxSize(media.videoWidth || 1, media.videoHeight || 1, canvasSize);
+        return renderImageSourceToCanvas(node, media, dims.width, dims.height, "nativeCanvas");
       }
-      const dims = fitWithinMaxSize(media.videoWidth || 1, media.videoHeight || 1, canvasSize);
-      const canvas = document.createElement("canvas");
-      canvas.width = dims.width;
-      canvas.height = dims.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return null;
-      ctx.drawImage(media, 0, 0, dims.width, dims.height);
-      return canvas;
-    }
 
     if (media instanceof HTMLImageElement) {
       if (!media.complete) {
@@ -59,24 +53,12 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
         if (!media.complete) return null;
       }
       const dims = fitWithinMaxSize(media.naturalWidth || media.width || 1, media.naturalHeight || media.height || 1, canvasSize);
-      const canvas = document.createElement("canvas");
-      canvas.width = dims.width;
-      canvas.height = dims.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return null;
-      ctx.drawImage(media, 0, 0, dims.width, dims.height);
-      return canvas;
+      return renderImageSourceToCanvas(node, media, dims.width, dims.height, "nativeCanvas");
     }
 
     if (media instanceof HTMLCanvasElement) {
       const dims = fitWithinMaxSize(media.width || 1, media.height || 1, canvasSize);
-      const canvas = document.createElement("canvas");
-      canvas.width = dims.width;
-      canvas.height = dims.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return null;
-      ctx.drawImage(media, 0, 0, dims.width, dims.height);
-      return canvas;
+      return renderImageSourceToCanvas(node, media, dims.width, dims.height, "nativeCanvas");
     }
 
     return null;
@@ -118,20 +100,12 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
         const img = await ensureImageElement(node, url);
         if (!img) { ctx.visited.delete(node.id); return null; }
         const dims = fitWithinMaxSize(img.naturalWidth || img.width || 1, img.naturalHeight || img.height || 1, ctx.canvasSize);
-        c = document.createElement("canvas");
-        c.width = dims.width;
-        c.height = dims.height;
-        const cctx = c.getContext("2d");
-        if (cctx) cctx.drawImage(img, 0, 0, dims.width, dims.height);
+        c = renderImageSourceToCanvas(node, img, dims.width, dims.height, "animatedImageCanvas");
       } else if (src.kind === "image") {
         const bmp = await ensureBitmap(node, url);
         if (!bmp) { ctx.visited.delete(node.id); return null; }
         const dims = fitWithinMaxSize(bmp.width || 1, bmp.height || 1, ctx.canvasSize);
-        c = document.createElement("canvas");
-        c.width = dims.width;
-        c.height = dims.height;
-        const cctx = c.getContext("2d");
-        if (cctx) cctx.drawImage(bmp, 0, 0, dims.width, dims.height);
+        c = renderImageSourceToCanvas(node, bmp, dims.width, dims.height, "imageCanvas");
       } else {
         c = await ensureVideoFrameCanvas(node, url, ctx.canvasSize);
       }

@@ -50,6 +50,10 @@ function ensureState(node) {
     rafId: null,
     debounceTimer: null,
     lastKey: null,
+    lastRenderTick: null,
+    renderInFlight: false,
+    queuedRenderTick: null,
+    renderNonce: 0,
     isPreview: isPreviewNode(node),
     nativeAnimated: false,
     nativeDirty: false,
@@ -91,6 +95,50 @@ function ensureState(node) {
     compInteractiveHooked: false
   });
   return node.__imageops_state;
+}
+function hashText(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
+}
+function serializePreviewValue(value) {
+  if (value == null) return "null";
+  if (typeof value === "string") {
+    return value.length > 120 ? `str:${value.length}:${hashText(value)}` : `str:${value}`;
+  }
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return `arr:${value.length}:${value.map((entry) => serializePreviewValue(entry)).join(",")}`;
+  }
+  try {
+    const json = JSON.stringify(value);
+    if (!json) return String(value);
+    return json.length > 120 ? `json:${json.length}:${hashText(json)}` : `json:${json}`;
+  } catch {
+    return String(value);
+  }
+}
+function buildPreviewRenderKey(node, tick, st) {
+  const parts = [
+    String(node.id),
+    String(node.comfyClass ?? ""),
+    `tick:${tick}`,
+    `dirty:${st.nativeDirty ? 1 : 0}`,
+    `anim:${st.nativeAnimated ? 1 : 0}`,
+    `imageIndex:${typeof node.imageIndex === "number" ? node.imageIndex : -1}`,
+    `imgs:${Array.isArray(node.imgs) ? node.imgs.length : 0}`
+  ];
+  for (const widget of node.widgets ?? []) {
+    parts.push(`${widget?.name ?? "widget"}=${serializePreviewValue(widget?.value)}`);
+  }
+  for (let index = 0; index < (node.inputs?.length ?? 0); index++) {
+    const input = node.inputs?.[index];
+    parts.push(`in${index}:${input?.name ?? ""}:${input?.link ?? "null"}`);
+  }
+  return parts.join("|");
 }
 function stopRAF(st) {
   if (st?.rafId) {
@@ -952,29 +1000,34 @@ function tryRenderNativePreview(node, st, canvasSize) {
   }
   const sourceWidth = img.naturalWidth || img.width || 1;
   const sourceHeight = img.naturalHeight || img.height || 1;
-  const frame = document.createElement("canvas");
-  frame.width = sourceWidth;
-  frame.height = sourceHeight;
-  const frameCtx = frame.getContext("2d");
-  if (!frameCtx) return false;
-  frameCtx.clearRect(0, 0, sourceWidth, sourceHeight);
-  frameCtx.drawImage(img, 0, 0, sourceWidth, sourceHeight);
-  blit(node, st, frame, canvasSize);
+  blit(node, st, img, canvasSize, sourceWidth, sourceHeight);
   st.info.textContent = st.nativeAnimated ? "Node preview (animated)" : "Node preview";
   return true;
 }
-function blit(node, st, imgCanvas, canvasSize) {
+function blit(node, st, source, canvasSize, sourceWidth, sourceHeight) {
   if (!st.canvas) return;
   const ctx = st.canvas.getContext("2d");
   if (!ctx) return;
-  st.canvas.width = canvasSize;
-  st.canvas.height = canvasSize;
-  drawFitSource(ctx, canvasSize, canvasSize, imgCanvas, imgCanvas.width || 1, imgCanvas.height || 1);
+  if (st.canvas.width !== canvasSize) st.canvas.width = canvasSize;
+  if (st.canvas.height !== canvasSize) st.canvas.height = canvasSize;
+  const resolvedWidth = Math.max(
+    1,
+    Math.round(
+      sourceWidth ?? source.naturalWidth ?? source.videoWidth ?? source.width ?? 1
+    )
+  );
+  const resolvedHeight = Math.max(
+    1,
+    Math.round(
+      sourceHeight ?? source.naturalHeight ?? source.videoHeight ?? source.height ?? 1
+    )
+  );
+  drawFitSource(ctx, canvasSize, canvasSize, source, resolvedWidth, resolvedHeight);
   if (isDrawNode(node)) {
-    const fit = getFitPlacement(canvasSize, canvasSize, imgCanvas.width || 1, imgCanvas.height || 1);
+    const fit = getFitPlacement(canvasSize, canvasSize, resolvedWidth, resolvedHeight);
     st.drawGeometry = {
-      sourceWidth: imgCanvas.width || 1,
-      sourceHeight: imgCanvas.height || 1,
+      sourceWidth: resolvedWidth,
+      sourceHeight: resolvedHeight,
       fitDx: fit.dx,
       fitDy: fit.dy,
       fitDrawWidth: fit.drawWidth,
@@ -983,9 +1036,9 @@ function blit(node, st, imgCanvas, canvasSize) {
   } else {
     st.drawGeometry = null;
   }
-  st.cropGeometry = drawCropBounds(node, ctx, canvasSize, canvasSize, imgCanvas.width || 1, imgCanvas.height || 1);
-  drawTransformBounds(node, ctx, canvasSize, canvasSize, imgCanvas.width || 1, imgCanvas.height || 1);
-  drawCompBounds(node, ctx, canvasSize, canvasSize, st.compOutputWidth || imgCanvas.width || 1, st.compOutputHeight || imgCanvas.height || 1, st.compLayers);
+  st.cropGeometry = drawCropBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
+  drawTransformBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
+  drawCompBounds(node, ctx, canvasSize, canvasSize, st.compOutputWidth || resolvedWidth, st.compOutputHeight || resolvedHeight, st.compLayers);
 }
 function getCropInfoText(node) {
   const preset = widgetString(node, "aspect_ratio", "custom");
@@ -1717,15 +1770,46 @@ function registerImageOpsLivePreview() {
   function renderNode(node, tick = 0) {
     const st = ensurePreviewWidget(node, progress, canvasSize);
     if (!st) return;
+    const renderKey = buildPreviewRenderKey(node, tick, st);
+    if (!st.nativeDirty && st.lastKey === renderKey && st.lastRenderTick === tick) {
+      return;
+    }
+    if (st.renderInFlight) {
+      st.queuedRenderTick = tick;
+      return;
+    }
+    const finishRender = () => {
+      st.renderInFlight = false;
+      const queuedTick = st.queuedRenderTick;
+      st.queuedRenderTick = null;
+      if (queuedTick != null) {
+        renderNode(node, queuedTick);
+      }
+    };
+    const commitRender = () => {
+      st.lastKey = renderKey;
+      st.lastRenderTick = tick;
+      st.nativeDirty = false;
+    };
+    const failRender = (message, error) => {
+      st.info.textContent = message;
+      console.warn("[ImageOps] render error", error);
+      finishRender();
+    };
+    st.renderInFlight = true;
+    st.renderNonce += 1;
     if (isPreviewNode(node)) {
       if (isGraphTooLarge(node?.graph, cfg.maxGraphNodes)) {
         st.info.textContent = "Live preview disabled: graph too large";
         stopRAF(st);
+        finishRender();
         return;
       }
-      renderPreviewBridgeNode(node, tick).catch((err) => {
-        st.info.textContent = "Preview bridge error (check console)";
-        console.warn("[ImageOps] preview bridge render error", err);
+      renderPreviewBridgeNode(node, tick).then(() => {
+        commitRender();
+        finishRender();
+      }).catch((err) => {
+        failRender("Preview bridge error (check console)", err);
       });
       return;
     }
@@ -1733,11 +1817,14 @@ function registerImageOpsLivePreview() {
       if (isGraphTooLarge(node?.graph, cfg.maxGraphNodes)) {
         st.info.textContent = "Live preview disabled: graph too large";
         stopRAF(st);
+        finishRender();
         return;
       }
-      renderDrawNode(node, tick).catch((err) => {
-        st.info.textContent = "Draw preview error (check console)";
-        console.warn("[ImageOps] draw render error", err);
+      renderDrawNode(node, tick).then(() => {
+        commitRender();
+        finishRender();
+      }).catch((err) => {
+        failRender("Draw preview error (check console)", err);
       });
       return;
     }
@@ -1746,26 +1833,30 @@ function registerImageOpsLivePreview() {
         st.info.textContent = "Live preview disabled: graph too large";
         st.cropGeometry = null;
         stopRAF(st);
+        finishRender();
         return;
       }
       const upstream = getUpstreamNode(node, 0);
       if (!upstream) {
         st.info.textContent = "Live preview: connect a supported loader/chain";
         st.cropGeometry = null;
+        finishRender();
         return;
       }
       renderer.render(upstream, tick).then((result) => {
         if (!result?.canvas) {
           st.info.textContent = "Live preview: connect a supported loader/chain";
           st.cropGeometry = null;
+          finishRender();
           return;
         }
         blit(node, st, result.canvas, canvasSize);
         st.info.textContent = getCropInfoText(node);
+        commitRender();
+        finishRender();
       }).catch((err) => {
-        st.info.textContent = "Live preview error (check console)";
         st.cropGeometry = null;
-        console.warn("[ImageOps] render error", err);
+        failRender("Live preview error (check console)", err);
       });
       return;
     }
@@ -1774,6 +1865,7 @@ function registerImageOpsLivePreview() {
         st.info.textContent = "Live preview disabled: graph too large";
         st.compLayers = [];
         stopRAF(st);
+        finishRender();
         return;
       }
       const slots = getCompSlots(node);
@@ -1796,6 +1888,7 @@ function registerImageOpsLivePreview() {
           st.compOutputWidth = Math.max(1, Math.round(widgetNumber(node, "width", 1024)));
           st.compOutputHeight = Math.max(1, Math.round(widgetNumber(node, "height", 1024)));
           updateCompControls(node);
+          finishRender();
           return;
         }
         const rendered = renderCompPreview(node, ordered);
@@ -1805,24 +1898,31 @@ function registerImageOpsLivePreview() {
         blit(node, st, rendered.canvas, canvasSize);
         st.info.textContent = getCompInfoText(node, ordered.length, slots.length, st.compOutputWidth, st.compOutputHeight);
         updateCompControls(node);
+        commitRender();
+        finishRender();
       }).catch((err) => {
         st.info.textContent = "Comp preview error (check console)";
         st.compLayers = [];
         console.warn("[ImageOps] comp render error", err);
+        finishRender();
       });
       return;
     }
     if (tryRenderNativePreview(node, st, canvasSize)) {
+      commitRender();
+      finishRender();
       return;
     }
     if (isGraphTooLarge(node?.graph, cfg.maxGraphNodes)) {
       st.info.textContent = "Live preview disabled: graph too large";
       stopRAF(st);
+      finishRender();
       return;
     }
     renderer.render(node, tick).then((result) => {
       if (!result?.canvas) {
         st.info.textContent = "Live preview: connect a supported loader/chain";
+        finishRender();
         return;
       }
       blit(node, st, result.canvas, canvasSize);
@@ -1836,9 +1936,10 @@ function registerImageOpsLivePreview() {
       } else {
         st.info.textContent = "Live preview (no queue)";
       }
+      commitRender();
+      finishRender();
     }).catch((err) => {
-      st.info.textContent = "Live preview error (check console)";
-      console.warn("[ImageOps] render error", err);
+      failRender("Live preview error (check console)", err);
     });
   }
   function startLoopIfVideo(node) {
@@ -1857,6 +1958,7 @@ function registerImageOpsLivePreview() {
       return;
     }
     let tick = 0;
+    let lastLoopTick = null;
     const proceduralFrameCount = getProceduralFrameCount(node);
     const proceduralFps = proceduralFrameCount != null ? getProceduralPlaybackFps(node) ?? 12 : null;
     const startedAt = performance.now();
@@ -1867,7 +1969,10 @@ function registerImageOpsLivePreview() {
       } else {
         tick++;
       }
-      renderNode(node, tick);
+      if (tick !== lastLoopTick) {
+        lastLoopTick = tick;
+        renderNode(node, tick);
+      }
       st.rafId = requestAnimationFrame(loop);
     };
     stopRAF(st);
@@ -1968,6 +2073,8 @@ function registerImageOpsLivePreview() {
       const r = origExecuted?.apply(this, arguments);
       st.nativeAnimated = !!message?.animated?.[0];
       st.nativeDirty = false;
+      st.lastKey = null;
+      st.lastRenderTick = null;
       schedule(node, () => {
         if (IMAGEOPS_CLASSES.has(node.comfyClass)) startLoopIfVideo(node);
         refreshDependents(node);

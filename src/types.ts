@@ -152,6 +152,10 @@ export interface NodeState {
   rafId: number | null;
   debounceTimer: ReturnType<typeof setTimeout> | null;
   lastKey: string | null;
+  lastRenderTick: number | null;
+  renderInFlight: boolean;
+  queuedRenderTick: number | null;
+  renderNonce: number;
   isPreview: boolean;
   nativeAnimated: boolean;
   nativeDirty: boolean;
@@ -281,6 +285,10 @@ export interface MediaState {
   lastBitmap?: ImageBitmap;
   videoEl?: HTMLVideoElement;
   lastVideoURL?: string;
+  imageCanvas?: HTMLCanvasElement;
+  animatedImageCanvas?: HTMLCanvasElement;
+  videoCanvas?: HTMLCanvasElement;
+  nativeCanvas?: HTMLCanvasElement;
 }
 
 // ── Media / source ──

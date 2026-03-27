@@ -31,6 +31,25 @@ function fitWithinMaxSize(width, height, maxSize) {
     height: Math.max(1, Math.round(safeHeight * scale))
   };
 }
+function ensureCanvasSize(canvas, width, height) {
+  const targetWidth = Math.max(1, Math.round(width || 1));
+  const targetHeight = Math.max(1, Math.round(height || 1));
+  const next = canvas ?? document.createElement("canvas");
+  if (next.width !== targetWidth) next.width = targetWidth;
+  if (next.height !== targetHeight) next.height = targetHeight;
+  return next;
+}
+function renderImageSourceToCanvas(node, source, width, height, slot) {
+  node.__imageops_media ?? (node.__imageops_media = {});
+  const st = node.__imageops_media;
+  const canvas = ensureCanvasSize(st[slot], width, height);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+  st[slot] = canvas;
+  return canvas;
+}
 async function ensureImageElement(node, url) {
   node.__imageops_media ?? (node.__imageops_media = {});
   const st = node.__imageops_media;
@@ -83,14 +102,13 @@ async function ensureVideoFrameCanvas(node, url, size) {
   }
   const v = st.videoEl;
   const { width, height } = fitWithinMaxSize(v.videoWidth || size, v.videoHeight || size, size);
-  const c = document.createElement("canvas");
-  c.width = width;
-  c.height = height;
+  const c = ensureCanvasSize(st.videoCanvas, width, height);
   const ctx = c.getContext("2d");
   if (!ctx) return c;
   if (v.readyState < 2) return c;
   ctx.clearRect(0, 0, width, height);
   ctx.drawImage(v, 0, 0, width, height);
+  st.videoCanvas = c;
   return c;
 }
 export {
@@ -99,5 +117,6 @@ export {
   ensureVideoFrameCanvas,
   fitWithinMaxSize,
   makeViewUrl,
-  parseAnnotated
+  parseAnnotated,
+  renderImageSourceToCanvas
 };

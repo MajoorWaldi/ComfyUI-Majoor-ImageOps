@@ -421,7 +421,7 @@ function distortConnectedInputs(node, inputs) {
   return { source, displacement, mask };
 }
 function extractCanvasField(canvas, width, height, channel) {
-  const fitted = fitCanvas(canvas, width, height);
+  const fitted = (canvas.width || 1) === width && (canvas.height || 1) === height ? canvas : fitCanvas(canvas, width, height);
   const data = fitted.getContext("2d").getImageData(0, 0, width, height).data;
   const field = new Float32Array(width * height);
   const normalized = String(channel || "red").toLowerCase();
@@ -515,7 +515,7 @@ function renderDistortCanvas(node, inputs, frameIndex = 0) {
     xField = extractCanvasField(driver, width, height, strAny(node, ["x_channel"], "Red", frameIndex));
     yField = extractCanvasField(driver, width, height, strAny(node, ["y_channel"], "Green", frameIndex));
   }
-  const sourceCanvas = fitCanvas(source, width, height);
+  const sourceCanvas = source;
   const sourceCtx = sourceCanvas.getContext("2d");
   const sourceData = sourceCtx.getImageData(0, 0, width, height);
   const output = makeCanvas(width, height);
@@ -1011,7 +1011,7 @@ function resolvePreviewMaskCanvas(node, source, rawMask, frameIndex = 0) {
   return boolAny(node, ["invert_mask"], false, frameIndex) ? invertMaskCanvas(matte) : matte;
 }
 function compositeProcessedWithMask(baseCanvas, processedCanvas, maskCanvas) {
-  if (!maskCanvas) return fitCanvas(processedCanvas, processedCanvas.width || 1, processedCanvas.height || 1);
+  if (!maskCanvas) return processedCanvas;
   const output = fitCanvas(baseCanvas, processedCanvas.width || 1, processedCanvas.height || 1);
   const octx = output.getContext("2d");
   octx.imageSmoothingEnabled = true;

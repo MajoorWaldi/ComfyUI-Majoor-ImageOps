@@ -514,7 +514,9 @@ function distortConnectedInputs(
 }
 
 function extractCanvasField(canvas: HTMLCanvasElement, width: number, height: number, channel: string): Float32Array {
-  const fitted = fitCanvas(canvas, width, height);
+  const fitted = (canvas.width || 1) === width && (canvas.height || 1) === height
+    ? canvas
+    : fitCanvas(canvas, width, height);
   const data = fitted.getContext("2d")!.getImageData(0, 0, width, height).data;
   const field = new Float32Array(width * height);
   const normalized = String(channel || "red").toLowerCase();
@@ -619,7 +621,7 @@ function renderDistortCanvas(
     yField = extractCanvasField(driver, width, height, strAny(node, ["y_channel"], "Green", frameIndex));
   }
 
-  const sourceCanvas = fitCanvas(source, width, height);
+  const sourceCanvas = source;
   const sourceCtx = sourceCanvas.getContext("2d")!;
   const sourceData = sourceCtx.getImageData(0, 0, width, height);
   const output = makeCanvas(width, height);
@@ -1167,7 +1169,7 @@ function compositeProcessedWithMask(
   processedCanvas: HTMLCanvasElement,
   maskCanvas: HTMLCanvasElement | null,
 ): HTMLCanvasElement {
-  if (!maskCanvas) return fitCanvas(processedCanvas, processedCanvas.width || 1, processedCanvas.height || 1);
+  if (!maskCanvas) return processedCanvas;
   const output = fitCanvas(baseCanvas, processedCanvas.width || 1, processedCanvas.height || 1);
   const octx = output.getContext("2d")!;
   octx.imageSmoothingEnabled = true;
