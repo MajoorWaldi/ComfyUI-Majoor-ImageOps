@@ -8,6 +8,7 @@ import torch
 from PIL import Image
 
 from ._helpers import MEDIA_INPUT_TYPE, _expand_image_batch, _hex_to_rgb01, _scalar, _select_media_tensor
+from ._progress import start_progress
 from ._preview import build_node_preview_result
 
 
@@ -110,6 +111,9 @@ class ImageOpsDraw:
             "optional": {
                 "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input. Accepts IMAGE batches and VIDEO frame sources.", "forceInput": True, "display_name": "Images/Video"}),
             },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            },
         }
 
     def apply(
@@ -127,8 +131,10 @@ class ImageOpsDraw:
         overlay_data="",
         invert_mask=False,
         video=None,
+        unique_id=None,
     ):
         del sync_dimensions, tool, brush_color, brush_opacity, brush_size
+        progress = start_progress(unique_id=unique_id)
 
         source = None
         if image is not None or video is not None:
@@ -152,9 +158,11 @@ class ImageOpsDraw:
             mask = torch.zeros((batch, target_h, target_w), device=source.device, dtype=source.dtype)
             if _scalar(invert_mask, bool):
                 mask = 1.0 - mask
+            progress.finish()
             return build_node_preview_result(source, (source, mask), prefix="imageops_draw")
 
         result, mask = _composite_overlay(source, overlay)
         if _scalar(invert_mask, bool):
             mask = 1.0 - mask
+        progress.finish()
         return build_node_preview_result(result, (result, mask.clamp(0.0, 1.0)), prefix="imageops_draw")

@@ -16,6 +16,7 @@ from ._helpers import (
     _scalar,
     _select_media_tensor,
 )
+from ._progress import start_progress
 from ._preview import build_node_preview_result
 
 _DISTORT_MAP_SOURCES = ["source_channel", "displacement_channel", "mask"]
@@ -55,34 +56,69 @@ def _neutral_map(reference: torch.Tensor, centered_map) -> torch.Tensor:
 
 def _resolve_distortion_maps(
     source: torch.Tensor,
-    map_source: str,
-    x_channel: str,
-    y_channel: str,
+    map_source,
+    x_channel,
+    y_channel,
     centered_map,
     displacement=None,
     mask=None,
 ):
-    normalized = str(map_source or "source_channel").strip().lower()
-    if normalized == "mask":
-        prepared_mask = _prepare_mask_tensor(
-            mask,
-            batch=source.shape[0],
-            height=source.shape[1],
-            width=source.shape[2],
+    prepared_mask = _prepare_mask_tensor(
+        mask,
+        batch=source.shape[0],
+        height=source.shape[1],
+        width=source.shape[2],
+        device=source.device,
+        dtype=source.dtype,
+    )
+    x_frames = []
+    y_frames = []
+    preview_mask_frames = []
+    mask_source_frames: list[bool] = []
+
+    for frame_index in range(source.shape[0]):
+        normalized = _scalar(map_source, str, index=frame_index).strip().lower()
+        frame_source = source[frame_index:frame_index + 1]
+        frame_displacement = displacement[frame_index:frame_index + 1] if displacement is not None else None
+
+        if normalized == "mask":
+            mask_source_frames.append(True)
+            if prepared_mask is None:
+                neutral = _neutral_map(frame_source, centered_map=_scalar(centered_map, bool, index=frame_index))
+                x_frames.append(neutral)
+                y_frames.append(neutral)
+                preview_mask_frames.append(None)
+            else:
+                frame_mask = prepared_mask[frame_index:frame_index + 1]
+                x_frames.append(frame_mask)
+                y_frames.append(frame_mask)
+                preview_mask_frames.append(frame_mask)
+            continue
+
+        mask_source_frames.append(False)
+        driver = frame_source
+        if normalized == "displacement_channel" and frame_displacement is not None:
+            driver = frame_displacement
+        x_frames.append(
+            _extract_map_channel(driver, _scalar(x_channel, str, index=frame_index)).to(device=source.device, dtype=source.dtype)
+        )
+        y_frames.append(
+            _extract_map_channel(driver, _scalar(y_channel, str, index=frame_index)).to(device=source.device, dtype=source.dtype)
+        )
+        preview_mask_frames.append(None)
+
+    preview_mask = None
+    if any(frame is not None for frame in preview_mask_frames):
+        preview_mask = torch.zeros(
+            (source.shape[0], source.shape[1], source.shape[2]),
             device=source.device,
             dtype=source.dtype,
         )
-        if prepared_mask is None:
-            neutral = _neutral_map(source, centered_map=centered_map)
-            return neutral, neutral, None
-        return prepared_mask, prepared_mask, prepared_mask
+        for frame_index, frame in enumerate(preview_mask_frames):
+            if frame is not None:
+                preview_mask[frame_index:frame_index + 1] = frame
 
-    driver = source
-    if normalized == "displacement_channel" and displacement is not None:
-        driver = displacement
-    x_map = _extract_map_channel(driver, x_channel).to(device=source.device, dtype=source.dtype)
-    y_map = _extract_map_channel(driver, y_channel).to(device=source.device, dtype=source.dtype)
-    return x_map, y_map, None
+    return torch.cat(x_frames, dim=0), torch.cat(y_frames, dim=0), preview_mask, mask_source_frames
 
 
 def _warp_image(
@@ -93,8 +129,9 @@ def _warp_image(
     strength_y,
     centered_map,
     invert_map,
-    filter_mode: str,
-    edge_mode: str,
+    filter_mode,
+    edge_mode,
+    progress=None,
 ) -> torch.Tensor:
     image = source.float().permute(0, 3, 1, 2).contiguous()
     warped_frames = []
@@ -120,6 +157,12 @@ def _warp_image(
 
         dx = frame_x * float(_scalar(strength_x, index=frame_index))
         dy = frame_y * float(_scalar(strength_y, index=frame_index))
+        safe_filter = _scalar(filter_mode, str, index=frame_index).strip().lower()
+        if safe_filter not in ("nearest", "bilinear", "bicubic"):
+            safe_filter = "bilinear"
+        safe_edge_mode = _scalar(edge_mode, str, index=frame_index).strip().lower()
+        if safe_edge_mode not in ("border", "reflection", "zeros"):
+            safe_edge_mode = "border"
         grid = torch.stack(
             [
                 (base_x - dx * width_norm),
@@ -131,11 +174,13 @@ def _warp_image(
         warped = F.grid_sample(
             image[frame_index:frame_index + 1],
             grid,
-            mode=str(filter_mode or "bilinear"),
-            padding_mode=str(edge_mode or "border"),
+            mode=safe_filter,
+            padding_mode=safe_edge_mode,
             align_corners=True,
         )
         warped_frames.append(warped)
+        if progress is not None:
+            progress.update()
 
     return (
         torch.cat(warped_frames, dim=0)
@@ -173,6 +218,9 @@ class ImageOpsDistort:
                 "displacement": (MEDIA_INPUT_TYPE, {"tooltip": "Optional displacement image/video when map_source is displacement_channel.", "display_name": "Displacement"}),
                 "mask": ("MASK", {"tooltip": "Used as the distortion map when map_source is mask, otherwise acts as an effect mask."}),
             },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            },
         }
 
     def apply(
@@ -192,6 +240,7 @@ class ImageOpsDistort:
         video=None,
         displacement=None,
         mask=None,
+        unique_id=None,
     ):
         source = _select_media_tensor(image, video).float().clamp(0.0, 1.0)
         displacement_tensor = None
@@ -199,40 +248,42 @@ class ImageOpsDistort:
             displacement_tensor = _coerce_media_to_tensor(displacement, "displacement").float().clamp(0.0, 1.0)
             displacement_tensor = _match_image_to_reference(displacement_tensor, source)
 
-        normalized_map_source = str(map_source or "source_channel").strip().lower()
-        effect_mask = None
-        if normalized_map_source != "mask":
-            effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
+        effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
 
-        x_map, y_map, driver_preview_mask = _resolve_distortion_maps(
+        x_map, y_map, driver_preview_mask, mask_source_frames = _resolve_distortion_maps(
             source,
-            map_source=normalized_map_source,
+            map_source=map_source,
             x_channel=x_channel,
             y_channel=y_channel,
             centered_map=centered_map,
             displacement=displacement_tensor,
             mask=mask,
         )
+        apply_effect_mask = effect_mask.clone() if effect_mask is not None else None
+        if apply_effect_mask is not None:
+            for frame_index, is_mask_source in enumerate(mask_source_frames):
+                if is_mask_source:
+                    apply_effect_mask[frame_index:frame_index + 1] = 1.0
 
         if _scalar(bypass, bool):
+            progress = start_progress(unique_id=unique_id)
+            output_mask = _alpha_mask_from_image(source)
             if effect_mask is not None:
-                output_mask = effect_mask
-            elif driver_preview_mask is not None:
-                preview_mask = driver_preview_mask
-                if _scalar(invert_map, bool):
-                    preview_mask = 1.0 - preview_mask
-                output_mask = preview_mask.clamp(0.0, 1.0)
-            else:
-                output_mask = _alpha_mask_from_image(source)
+                for frame_index, is_mask_source in enumerate(mask_source_frames):
+                    if not is_mask_source:
+                        output_mask[frame_index:frame_index + 1] = effect_mask[frame_index:frame_index + 1].clamp(0.0, 1.0)
+            if driver_preview_mask is not None:
+                preview_mask = driver_preview_mask.clone()
+                for frame_index, is_mask_source in enumerate(mask_source_frames):
+                    if is_mask_source and _scalar(invert_map, bool, index=frame_index):
+                        preview_mask[frame_index:frame_index + 1] = 1.0 - preview_mask[frame_index:frame_index + 1]
+                for frame_index, is_mask_source in enumerate(mask_source_frames):
+                    if is_mask_source:
+                        output_mask[frame_index:frame_index + 1] = preview_mask[frame_index:frame_index + 1].clamp(0.0, 1.0)
+            progress.finish()
             return build_node_preview_result(source, (source, output_mask), prefix="imageops_distort")
 
-        safe_filter = str(filter or "bilinear").lower()
-        if safe_filter not in ("nearest", "bilinear", "bicubic"):
-            safe_filter = "bilinear"
-        safe_edge_mode = str(edge_mode or "border").lower()
-        if safe_edge_mode not in ("border", "reflection", "zeros"):
-            safe_edge_mode = "border"
-
+        progress = start_progress(total=max(1, int(source.shape[0])), unique_id=unique_id)
         result = _warp_image(
             source,
             x_map=x_map,
@@ -241,19 +292,26 @@ class ImageOpsDistort:
             strength_y=strength_y,
             centered_map=centered_map,
             invert_map=invert_map,
-            filter_mode=safe_filter,
-            edge_mode=safe_edge_mode,
+            filter_mode=filter,
+            edge_mode=edge_mode,
+            progress=progress,
         )
 
+        if apply_effect_mask is not None:
+            result = source * (1.0 - apply_effect_mask.unsqueeze(-1)) + result * apply_effect_mask.unsqueeze(-1)
+        output_mask = _alpha_mask_from_image(result)
         if effect_mask is not None:
-            result = source * (1.0 - effect_mask.unsqueeze(-1)) + result * effect_mask.unsqueeze(-1)
-            output_mask = effect_mask.clamp(0.0, 1.0)
-        elif driver_preview_mask is not None:
-            preview_mask = driver_preview_mask
-            if _scalar(invert_map, bool):
-                preview_mask = 1.0 - preview_mask
-            output_mask = preview_mask.clamp(0.0, 1.0)
-        else:
-            output_mask = _alpha_mask_from_image(result)
+            for frame_index, is_mask_source in enumerate(mask_source_frames):
+                if not is_mask_source:
+                    output_mask[frame_index:frame_index + 1] = effect_mask[frame_index:frame_index + 1].clamp(0.0, 1.0)
+        if driver_preview_mask is not None:
+            preview_mask = driver_preview_mask.clone()
+            for frame_index, is_mask_source in enumerate(mask_source_frames):
+                if is_mask_source and _scalar(invert_map, bool, index=frame_index):
+                    preview_mask[frame_index:frame_index + 1] = 1.0 - preview_mask[frame_index:frame_index + 1]
+            for frame_index, is_mask_source in enumerate(mask_source_frames):
+                if is_mask_source:
+                    output_mask[frame_index:frame_index + 1] = preview_mask[frame_index:frame_index + 1].clamp(0.0, 1.0)
 
+        progress.finish()
         return build_node_preview_result(result.clamp(0.0, 1.0), (result.clamp(0.0, 1.0), output_mask), prefix="imageops_distort")

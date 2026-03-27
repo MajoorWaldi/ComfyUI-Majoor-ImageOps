@@ -16,7 +16,17 @@ from ._helpers import (
     _scalar,
     logger,
 )
+from ._progress import start_progress
 from ._preview import build_node_preview_result
+
+
+def _resample_from_filter(filter_mode, index: int = 0):
+    normalized = _scalar(filter_mode, str, index=index).strip().lower()
+    return {
+        "nearest": Image.NEAREST,
+        "bilinear": Image.BILINEAR,
+        "bicubic": Image.BICUBIC,
+    }.get(normalized, Image.BILINEAR)
 
 
 def _mask_to_pil(mask_frame: torch.Tensor) -> Image.Image:
@@ -29,7 +39,7 @@ def _pil_to_mask(pil: Image.Image, device: torch.device, dtype: torch.dtype) -> 
     return torch.from_numpy(arr).unsqueeze(0).to(device=device, dtype=dtype)
 
 
-def _transform_masked_source(source, input_mask, resample, translate_x, translate_y, rotate_deg, scale, expand):
+def _transform_masked_source(source, input_mask, filter_mode, translate_x, translate_y, rotate_deg, scale, expand, progress=None):
     premult_rgb = source[..., :3].float().clamp(0.0, 1.0) * input_mask.unsqueeze(-1)
     processed_rgb = []
     processed_mask = []
@@ -38,20 +48,29 @@ def _transform_masked_source(source, input_mask, resample, translate_x, translat
     for fi, pil in enumerate(_tensor_batch_to_pil_list(premult_rgb)):
         tx, ty = _scalar(translate_x, index=fi), _scalar(translate_y, index=fi)
         rd, sc = _scalar(rotate_deg, index=fi), _scalar(scale, index=fi)
-        processed_rgb.append(_pil_to_tensor(_transform_frame(pil, resample, tx, ty, rd, sc, expand))[..., :3])
+        ex = _scalar(expand, bool, index=fi)
+        processed_rgb.append(_pil_to_tensor(_transform_frame(pil, _resample_from_filter(filter_mode, fi), tx, ty, rd, sc, ex))[..., :3])
+        if progress is not None:
+            progress.update()
 
     for idx in range(input_mask.shape[0]):
         tx, ty = _scalar(translate_x, index=idx), _scalar(translate_y, index=idx)
         rd, sc = _scalar(rotate_deg, index=idx), _scalar(scale, index=idx)
         pil_mask = _mask_to_pil(input_mask[idx])
-        processed_mask.append(_pil_to_mask(_transform_frame(pil_mask, resample, tx, ty, rd, sc, expand), source.device, source.dtype))
+        ex = _scalar(expand, bool, index=idx)
+        processed_mask.append(_pil_to_mask(_transform_frame(pil_mask, _resample_from_filter(filter_mode, idx), tx, ty, rd, sc, ex), source.device, source.dtype))
+        if progress is not None:
+            progress.update()
 
     if source.shape[-1] >= 4:
         for idx in range(source.shape[0]):
             tx, ty = _scalar(translate_x, index=idx), _scalar(translate_y, index=idx)
             rd, sc = _scalar(rotate_deg, index=idx), _scalar(scale, index=idx)
             pil_alpha = _mask_to_pil(source[idx, ..., 3])
-            processed_alpha.append(_pil_to_mask(_transform_frame(pil_alpha, resample, tx, ty, rd, sc, expand), source.device, source.dtype))
+            ex = _scalar(expand, bool, index=idx)
+            processed_alpha.append(_pil_to_mask(_transform_frame(pil_alpha, _resample_from_filter(filter_mode, idx), tx, ty, rd, sc, ex), source.device, source.dtype))
+            if progress is not None:
+                progress.update()
 
     if not processed_rgb:
         raise ValueError("ImageOpsTransform received an empty image batch.")
@@ -78,6 +97,7 @@ def _transform_frame(pil, resample, translate_x, translate_y, rotate_deg, scale,
     translate_x = _scalar(translate_x)
     translate_y = _scalar(translate_y)
     rotate_deg = _scalar(rotate_deg)
+    expand = _scalar(expand, bool)
     if abs(scale - 1.0) > EPSILON:
         nw, nh = max(1, int(round(base_w * scale))), max(1, int(round(base_h * scale)))
         if nw > MAX_SCALE_DIMENSION or nh > MAX_SCALE_DIMENSION:
@@ -96,7 +116,7 @@ def _transform_frame(pil, resample, translate_x, translate_y, rotate_deg, scale,
 
     if abs(rotate_deg) > EPSILON:
         # Match compositor conventions used in Nuke/UI overlays: positive values rotate clockwise.
-        working = working.rotate(-rotate_deg, resample=resample, expand=_scalar(expand, bool))
+        working = working.rotate(-rotate_deg, resample=resample, expand=expand)
         rw, rh = working.size
         if rw > MAX_SCALE_DIMENSION or rh > MAX_SCALE_DIMENSION:
             logger.error(f"Rotated dimensions ({rw}x{rh}) exceed maximum")
@@ -141,52 +161,61 @@ class ImageOpsTransform:
             "optional": {
                 "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input. Accepts IMAGE batches and VIDEO frame sources.", "forceInput": True, "display_name": "Images/Video"}),
                 "mask": ("MASK",),
-            }
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            },
         }
 
-    def apply(self, image=None, bypass=False, translate_x=0, translate_y=0, rotate_deg=0.0, scale=1.0, filter="bilinear", expand=False, invert_mask=False, video=None, mask=None):
+    def apply(self, image=None, bypass=False, translate_x=0, translate_y=0, rotate_deg=0.0, scale=1.0, filter="bilinear", expand=False, invert_mask=False, video=None, mask=None, unique_id=None):
         source = _select_media_tensor(image, video)
         input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
+        progress = start_progress(unique_id=unique_id)
         if _scalar(bypass, bool):
+            progress.finish()
             return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_transform")
 
-        resample = {
-            "nearest": Image.NEAREST,
-            "bilinear": Image.BILINEAR,
-            "bicubic": Image.BICUBIC,
-        }.get(filter, Image.BILINEAR)
-
         if input_mask is not None:
+            total_steps = int(source.shape[0]) + int(input_mask.shape[0]) + (int(source.shape[0]) if source.shape[-1] >= 4 else 0)
+            progress.update_absolute(0, total=max(1, total_steps))
             result, output_mask = _transform_masked_source(
                 source,
                 input_mask,
-                resample,
+                filter,
                 translate_x,
                 translate_y,
                 rotate_deg,
                 scale,
                 expand,
+                progress=progress,
             )
+            progress.finish()
             return build_node_preview_result(result, (result, output_mask), prefix="imageops_transform")
 
+        progress.update_absolute(0, total=max(1, int(source.shape[0]) + int(output_mask_source.shape[0])))
         processed_frames = []
         processed_masks = []
         for fi, pil in enumerate(_tensor_batch_to_pil_list(source)):
             tx, ty = _scalar(translate_x, index=fi), _scalar(translate_y, index=fi)
             rd, sc = _scalar(rotate_deg, index=fi), _scalar(scale, index=fi)
-            processed_frames.append(_pil_to_tensor(_transform_frame(pil, resample, tx, ty, rd, sc, expand)))
+            ex = _scalar(expand, bool, index=fi)
+            processed_frames.append(_pil_to_tensor(_transform_frame(pil, _resample_from_filter(filter, fi), tx, ty, rd, sc, ex)))
+            progress.update()
 
         for idx in range(output_mask_source.shape[0]):
             tx, ty = _scalar(translate_x, index=idx), _scalar(translate_y, index=idx)
             rd, sc = _scalar(rotate_deg, index=idx), _scalar(scale, index=idx)
             pil_mask = _mask_to_pil(output_mask_source[idx])
-            transformed_mask = _transform_frame(pil_mask, resample, tx, ty, rd, sc, expand)
+            ex = _scalar(expand, bool, index=idx)
+            transformed_mask = _transform_frame(pil_mask, _resample_from_filter(filter, idx), tx, ty, rd, sc, ex)
             processed_masks.append(_pil_to_mask(transformed_mask, source.device, source.dtype))
+            progress.update()
 
         if not processed_frames:
             raise ValueError("ImageOpsTransform received an empty image batch.")
 
         result = torch.cat(processed_frames, dim=0).to(device=source.device, dtype=source.dtype)
         output_mask = torch.cat(processed_masks, dim=0).to(device=source.device, dtype=source.dtype)
+        progress.finish()
         return build_node_preview_result(result, (result, output_mask), prefix="imageops_transform")

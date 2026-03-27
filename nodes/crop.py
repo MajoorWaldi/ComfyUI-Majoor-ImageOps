@@ -8,6 +8,7 @@ from ._helpers import (
     _scalar,
     _select_media_tensor,
 )
+from ._progress import start_progress
 from ._preview import build_node_preview_result
 
 
@@ -36,16 +37,21 @@ class ImageOpsCrop:
                 "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input. Accepts IMAGE batches and VIDEO frame sources.", "forceInput": True, "display_name": "Images/Video"}),
                 "mask": ("MASK",),
             },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            },
         }
 
     def apply(self, image=None, bypass=False, aspect_ratio="1:1", width=1024, height=1024, sync_dimensions=True,
-              invert_mask=False, mask=None, crop_center_x=0.5, crop_center_y=0.5, crop_scale=1.0):
+              invert_mask=False, mask=None, crop_center_x=0.5, crop_center_y=0.5, crop_scale=1.0, unique_id=None):
         del sync_dimensions
         source = _select_media_tensor(image, None)
         input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
+        progress = start_progress(unique_id=unique_id)
 
         if _scalar(bypass, bool):
+            progress.finish()
             return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_crop")
 
         if input_mask is not None:
@@ -78,4 +84,5 @@ class ImageOpsCrop:
                 center_y=crop_center_y,
                 scale=crop_scale,
             )[..., 0]
+        progress.finish()
         return build_node_preview_result(result, (result, output_mask), prefix="imageops_crop")

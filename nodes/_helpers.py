@@ -394,7 +394,12 @@ def _prepare_effect_mask(mask, reference, invert_mask=False):
     )
     if prepared is None:
         return None
-    if _scalar(invert_mask, bool):
+    if isinstance(invert_mask, (list, tuple)):
+        prepared = prepared.clone()
+        for frame_index in range(prepared.shape[0]):
+            if _scalar(invert_mask, bool, index=frame_index):
+                prepared[frame_index:frame_index + 1] = 1.0 - prepared[frame_index:frame_index + 1]
+    elif _scalar(invert_mask, bool):
         prepared = 1.0 - prepared
     return torch.clamp(prepared, 0.0, 1.0)
 
@@ -405,7 +410,12 @@ def _resolve_mask_output_source(mask, reference, invert_mask=False):
     prepared = _prepare_effect_mask(mask, reference, invert_mask=False)
     if prepared is None:
         prepared = _alpha_mask_from_image(reference)
-    if _scalar(invert_mask, bool):
+    if isinstance(invert_mask, (list, tuple)):
+        prepared = prepared.clone()
+        for frame_index in range(prepared.shape[0]):
+            if _scalar(invert_mask, bool, index=frame_index):
+                prepared[frame_index:frame_index + 1] = 1.0 - prepared[frame_index:frame_index + 1]
+    elif _scalar(invert_mask, bool):
         prepared = 1.0 - prepared
     return torch.clamp(prepared, 0.0, 1.0)
 
@@ -429,6 +439,11 @@ def _extract_channel_mask(image: torch.Tensor, channel: str) -> torch.Tensor:
         raise ValueError("image is None")
     if image.dim() != 4:
         raise ValueError(f"Expected [B,H,W,C], got {tuple(image.shape)}")
+    if isinstance(channel, (list, tuple)):
+        return torch.cat([
+            _extract_channel_mask(image[i:i+1], _scalar(channel, str, index=i))
+            for i in range(image.shape[0])
+        ], dim=0)
 
     normalized = str(channel or "Red").strip().lower()
     if normalized == "green":
@@ -710,6 +725,16 @@ def _apply_merge(a: torch.Tensor, b: torch.Tensor, mode: str, mix):
     # a,b: [B,H,W,C]
     a = a.float().clamp(0,1)
     b = _match_image_to_reference(b.float().clamp(0,1), a)
+    if _has_list_param(mode, mix):
+        return torch.cat([
+            _apply_merge(
+                a[i:i+1],
+                b[i:i+1],
+                _scalar(mode, str, index=i),
+                _scalar(mix, index=i),
+            )
+            for i in range(a.shape[0])
+        ], dim=0)
     mode = str(mode).lower()
     m = _param_tensor(mix, a.shape[0], a.device, a.dtype)
     ar, br = a[..., :3], b[..., :3]
@@ -964,12 +989,12 @@ def _apply_interactive_crop_resize(image: torch.Tensor, out_w, out_h, aspect_rat
     if image.dim() != 4:
         raise ValueError(f"Expected [B,H,W,C], got {tuple(image.shape)}")
 
-    if _has_list_param(out_w, out_h, center_x, center_y, scale):
+    if _has_list_param(out_w, out_h, aspect_ratio, center_x, center_y, scale):
         return torch.cat([
             _apply_interactive_crop_resize(
                 image[i:i+1],
                 _scalar(out_w, int, index=i), _scalar(out_h, int, index=i),
-                aspect_ratio,
+                _scalar(aspect_ratio, str, index=i),
                 center_x=_scalar(center_x, index=i),
                 center_y=_scalar(center_y, index=i),
                 scale=_scalar(scale, index=i),

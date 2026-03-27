@@ -387,9 +387,11 @@ function renderNoiseCanvas(node, maskOnly = false, frameIndex = 0) {
   const width = Math.max(1, Math.round(numAny(node, ["width"], 1024)));
   const height = Math.max(1, Math.round(numAny(node, ["height"], 1024)));
   const batchSize = Math.max(1, Math.round(numAny(node, ["batch_size"], 1)));
-  const resolvedFrameIndex = (Math.max(0, Math.round(frameIndex)) % batchSize + batchSize) % batchSize;
-  const low = hexToRgb01(strAny(node, ["low_color"], "#000000"));
-  const high = hexToRgb01(strAny(node, ["high_color"], "#ffffff"));
+  const frameLength = Math.max(0, Math.round(numAny(node, ["frame_length"], 0)));
+  const frameCount = frameLength > 0 ? frameLength : batchSize;
+  const resolvedFrameIndex = (Math.max(0, Math.round(frameIndex)) % frameCount + frameCount) % frameCount;
+  const low = hexToRgb01(strAny(node, ["low_color"], "#000000", resolvedFrameIndex));
+  const high = hexToRgb01(strAny(node, ["high_color"], "#ffffff", resolvedFrameIndex));
   const grayValues = buildNoiseField(width, height, {
     basis: strAny(node, ["basis"], "perlin", resolvedFrameIndex),
     fractalMode: strAny(node, ["fractal_mode"], "fbm", resolvedFrameIndex),
@@ -494,7 +496,7 @@ function renderDistortCanvas(node, inputs, frameIndex = 0) {
   const mapSource = strAny(node, ["map_source"], "source_channel", frameIndex).toLowerCase();
   const centeredMap = boolAny(node, ["centered_map"], true, frameIndex);
   const invertMap = boolAny(node, ["invert_map"], false, frameIndex);
-  const effectMask = mapSource === "mask" ? null : resolvePreviewMaskCanvas(node, source, rawMask);
+  const effectMask = mapSource === "mask" ? null : resolvePreviewMaskCanvas(node, source, rawMask, frameIndex);
   let previewMask = null;
   let xField;
   let yField;
@@ -1003,10 +1005,10 @@ function applyEffectToCanvas(source, effect) {
   const result = effect(octx, output.width, output.height);
   return result instanceof HTMLCanvasElement ? result : output;
 }
-function resolvePreviewMaskCanvas(node, source, rawMask) {
+function resolvePreviewMaskCanvas(node, source, rawMask, frameIndex = 0) {
   if (!rawMask) return null;
   const matte = buildMaskAlphaCanvas(rawMask, source.width || 1, source.height || 1);
-  return boolAny(node, ["invert_mask"], false) ? invertMaskCanvas(matte) : matte;
+  return boolAny(node, ["invert_mask"], false, frameIndex) ? invertMaskCanvas(matte) : matte;
 }
 function compositeProcessedWithMask(baseCanvas, processedCanvas, maskCanvas) {
   if (!maskCanvas) return fitCanvas(processedCanvas, processedCanvas.width || 1, processedCanvas.height || 1);
@@ -1024,7 +1026,7 @@ function compositeProcessedWithMask(baseCanvas, processedCanvas, maskCanvas) {
   return output;
 }
 function renderMaskedEffectPreview(node, source, rawMask, processImage, options = {}) {
-  const mask = resolvePreviewMaskCanvas(node, source, rawMask);
+  const mask = resolvePreviewMaskCanvas(node, source, rawMask, options.frameIndex ?? 0);
   if (!mask) return processImage(source);
   const processed = processImage(options.premultBeforeProcess ? premultLayerWithMask(source, mask) : source);
   const processedMask = options.processMask ? options.processMask(mask) : fitCanvas(mask, processed.width || 1, processed.height || 1);
@@ -1381,7 +1383,7 @@ function mergeChannelInputs(inputs, mode) {
   return output;
 }
 const ops = {
-  colorAjust(ctx, W, node, inputs = []) {
+  colorAjust(ctx, W, node, inputs = [], frameIndex = 0) {
     const source = inputs[0] ?? ctx.canvas;
     const rawMask = inputs[1] ?? null;
     return renderMaskedEffectPreview(
@@ -1393,24 +1395,25 @@ const ops = {
           effectCtx,
           width,
           height,
-          numAny(node, ["temperature"], 0),
-          numAny(node, ["hue", "hue_deg"], 0),
-          numAny(node, ["brightness"], 0),
-          numAny(node, ["contrast"], 0),
-          numAny(node, ["saturation", "sat"], 0),
-          numAny(node, ["gamma"], 1)
+          numAny(node, ["temperature"], 0, frameIndex),
+          numAny(node, ["hue", "hue_deg"], 0, frameIndex),
+          numAny(node, ["brightness"], 0, frameIndex),
+          numAny(node, ["contrast"], 0, frameIndex),
+          numAny(node, ["saturation", "sat"], 0, frameIndex),
+          numAny(node, ["gamma"], 1, frameIndex)
         );
-      })
+      }),
+      { frameIndex }
     );
   },
-  colorCorrect(ctx, W, node, inputs = []) {
-    return ops.colorAjust(ctx, W, node, inputs);
+  colorCorrect(ctx, W, node, inputs = [], frameIndex = 0) {
+    return ops.colorAjust(ctx, W, node, inputs, frameIndex);
   },
-  blur(ctx, W, node, inputs = []) {
+  blur(ctx, W, node, inputs = [], frameIndex = 0) {
     const source = inputs[0] ?? ctx.canvas;
     const rawMask = inputs[1] ?? null;
-    const radius = numAny(node, ["radius", "blur", "blur_radius"], 0);
-    const sigma = numAny(node, ["sigma", "radius", "blur"], radius);
+    const radius = numAny(node, ["radius", "blur", "blur_radius"], 0, frameIndex);
+    const sigma = numAny(node, ["sigma", "radius", "blur"], radius, frameIndex);
     return renderMaskedEffectPreview(
       node,
       source,
@@ -1419,6 +1422,7 @@ const ops = {
         applyBlur(effectCtx, width, height, radius, sigma);
       }),
       {
+        frameIndex,
         premultBeforeProcess: true,
         processMask: (mask) => applyEffectToCanvas(mask, (effectCtx, width, height) => {
           applyBlur(effectCtx, width, height, radius, sigma);
@@ -1426,10 +1430,10 @@ const ops = {
       }
     );
   },
-  channel(ctx, W, node, outputSlot, inputs = []) {
+  channel(ctx, W, node, outputSlot, inputs = [], frameIndex = 0) {
     const source = inputs[0] ?? ctx.canvas;
     const rawMask = inputs[1] ?? null;
-    const splitMode = strAny(node, ["mode"], "RGBA");
+    const splitMode = strAny(node, ["mode"], "RGBA", frameIndex);
     const hasSingleChannelWidget = !!wAny(node, ["channel"]);
     if (!hasSingleChannelWidget && outputSlot != null) {
       return extractSplitChannelCanvas(source, outputSlot, splitMode);
@@ -1439,11 +1443,12 @@ const ops = {
       source,
       rawMask,
       (input) => applyEffectToCanvas(input, (effectCtx, width, height) => {
-        applyChannel(effectCtx, width, height, strAny(node, ["channel"], "Red"));
-      })
+        applyChannel(effectCtx, width, height, strAny(node, ["channel"], "Red", frameIndex));
+      }),
+      { frameIndex }
     );
   },
-  crop(ctx, W, node, inputs = []) {
+  crop(ctx, W, node, inputs = [], frameIndex = 0) {
     const source = inputs[0] ?? ctx.canvas;
     const rawMask = inputs[1] ?? null;
     return renderMaskedEffectPreview(
@@ -1455,20 +1460,21 @@ const ops = {
         node,
         width,
         height,
-        str(node, "aspect_ratio", "custom"),
-        num(node, "width", width),
-        num(node, "height", height)
+        str(node, "aspect_ratio", "custom", frameIndex),
+        num(node, "width", width, frameIndex),
+        num(node, "height", height, frameIndex)
       )),
       {
+        frameIndex,
         premultBeforeProcess: true,
         processMask: (mask) => applyEffectToCanvas(mask, (effectCtx, width, height) => applyCrop(
           effectCtx,
           node,
           width,
           height,
-          str(node, "aspect_ratio", "custom"),
-          num(node, "width", width),
-          num(node, "height", height)
+          str(node, "aspect_ratio", "custom", frameIndex),
+          num(node, "width", width, frameIndex),
+          num(node, "height", height, frameIndex)
         ))
       }
     );
@@ -1506,34 +1512,34 @@ const ops = {
     const height = Math.max(1, Math.round(cropRegion?.height ?? numAny(bboxNode ?? node, ["height", "crop_h"], sourceHeight)));
     return cropRectCanvas(source, x, y, Math.min(width, sourceWidth - x), Math.min(height, sourceHeight - y));
   },
-  transform(ctx, W, node, inputs = []) {
+  transform(ctx, W, node, inputs = [], frameIndex = 0) {
     const source = inputs[0] ?? ctx.canvas;
     const rawMask = inputs[1] ?? null;
     const transformImage = (input) => {
       let working = input;
-      const mirror = strAny(node, ["mirror"], "none").toLowerCase();
-      const flipMethod = strAny(node, ["flip_method"], "");
+      const mirror = strAny(node, ["mirror"], "none", frameIndex).toLowerCase();
+      const flipMethod = strAny(node, ["flip_method"], "", frameIndex);
       const horizontal = mirror === "horizontal" || flipMethod.startsWith("y");
       const vertical = mirror === "vertical" || flipMethod.startsWith("x");
       working = flipCanvas(working, horizontal, vertical);
-      const rotationLabel = strAny(node, ["rotation"], "");
+      const rotationLabel = strAny(node, ["rotation"], "", frameIndex);
       if (rotationLabel.startsWith("90")) working = rotateDiscrete(working, 1);
       else if (rotationLabel.startsWith("180")) working = rotateDiscrete(working, 2);
       else if (rotationLabel.startsWith("270")) working = rotateDiscrete(working, 3);
-      const aspectRatio = numAny(node, ["aspect_ratio"], 1);
+      const aspectRatio = numAny(node, ["aspect_ratio"], 1, frameIndex);
       if (Math.abs(aspectRatio - 1) > 1e-4) {
         const scaled = makeCanvas(working.width || 1, Math.max(1, Math.round((working.height || 1) * aspectRatio)));
         const sctx = scaled.getContext("2d");
-        setResampleMode(sctx, normalizeFilterName(strAny(node, ["upscale_method", "interpolation", "transform_method", "filter"], "bilinear")));
+        setResampleMode(sctx, normalizeFilterName(strAny(node, ["upscale_method", "interpolation", "transform_method", "filter"], "bilinear", frameIndex)));
         sctx.drawImage(working, 0, 0, scaled.width, scaled.height);
         working = scaled;
       }
-      const tx = numAny(node, ["translate_x", "x", "shift_x"], 0);
-      const ty = numAny(node, ["translate_y", "y", "shift_y"], 0);
-      const rot = numAny(node, ["rotate_deg", "rotate"], 0);
-      const scale = numAny(node, ["scale"], 1);
-      const filter = normalizeFilterName(strAny(node, ["filter", "upscale_method", "interpolation", "transform_method"], "bilinear"));
-      const expand = boolAny(node, ["expand"], false);
+      const tx = numAny(node, ["translate_x", "x", "shift_x"], 0, frameIndex);
+      const ty = numAny(node, ["translate_y", "y", "shift_y"], 0, frameIndex);
+      const rot = numAny(node, ["rotate_deg", "rotate"], 0, frameIndex);
+      const scale = numAny(node, ["scale"], 1, frameIndex);
+      const filter = normalizeFilterName(strAny(node, ["filter", "upscale_method", "interpolation", "transform_method"], "bilinear", frameIndex));
+      const expand = boolAny(node, ["expand"], false, frameIndex);
       return applyEffectToCanvas(working, (effectCtx, width, height) => {
         return applyTransform(effectCtx, width, height, tx, ty, rot, scale, filter, expand);
       });
@@ -1544,6 +1550,7 @@ const ops = {
       rawMask,
       transformImage,
       {
+        frameIndex,
         premultBeforeProcess: true,
         processMask: transformImage
       }
@@ -1573,7 +1580,7 @@ const ops = {
       numAny(node, ["value", "val"], 1)
     );
   },
-  invert(ctx, W, node, inputs = []) {
+  invert(ctx, W, node, inputs = [], frameIndex = 0) {
     const source = inputs[0] ?? ctx.canvas;
     const rawMask = inputs[1] ?? null;
     return renderMaskedEffectPreview(
@@ -1581,11 +1588,12 @@ const ops = {
       source,
       rawMask,
       (input) => applyEffectToCanvas(input, (effectCtx, width, height) => {
-        applyInvert(effectCtx, width, height, boolAny(node, ["invert_alpha"], false));
-      })
+        applyInvert(effectCtx, width, height, boolAny(node, ["invert_alpha"], false, frameIndex));
+      }),
+      { frameIndex }
     );
   },
-  clamp(ctx, W, node, inputs = []) {
+  clamp(ctx, W, node, inputs = [], frameIndex = 0) {
     const source = inputs[0] ?? ctx.canvas;
     const rawMask = inputs[1] ?? null;
     return renderMaskedEffectPreview(
@@ -1593,8 +1601,9 @@ const ops = {
       source,
       rawMask,
       (input) => applyEffectToCanvas(input, (effectCtx, width, height) => {
-        applyClamp(effectCtx, width, height, numAny(node, ["min_v", "min"], 0), numAny(node, ["max_v", "max"], 1));
-      })
+        applyClamp(effectCtx, width, height, numAny(node, ["min_v", "min"], 0, frameIndex), numAny(node, ["max_v", "max"], 1, frameIndex));
+      }),
+      { frameIndex }
     );
   },
   sharpen(ctx, W, node) {
@@ -1629,18 +1638,18 @@ const ops = {
     const { width, height } = getCanvasDimensions(ctx);
     applyLumaKey(ctx, width, height, numAny(node, ["low"], 0.1), numAny(node, ["high"], 0.9), numAny(node, ["softness"], 0.05));
   },
-  merge(ctx, W, node, topCanvasOrInputs, _opts) {
+  merge(ctx, W, node, topCanvasOrInputs, _opts, frameIndex = 0) {
     const inputs = Array.isArray(topCanvasOrInputs) ? topCanvasOrInputs : [ctx.canvas, topCanvasOrInputs];
     const base = inputs[0] ?? ctx.canvas;
     const topCanvas = inputs[1] ?? null;
     if (!topCanvas) return fitCanvas(base, base.width || 1, base.height || 1);
-    const mode = strAny(node, ["mode", "blend_mode"], "over");
-    const rawOpacity = w(node, "opacity") ? num(node, "opacity", 100) : numAny(node, ["mix", "factor", "fade_factor", "blend_factor", "start_level", "end_level"], 1);
+    const mode = strAny(node, ["mode", "blend_mode"], "over", frameIndex);
+    const rawOpacity = w(node, "opacity") ? num(node, "opacity", 100, frameIndex) : numAny(node, ["mix", "factor", "fade_factor", "blend_factor", "start_level", "end_level"], 1, frameIndex);
     const opacity = rawOpacity > 1 ? rawOpacity / 100 : rawOpacity;
     const merged = applyEffectToCanvas(base, (effectCtx, width, height) => {
       blend(effectCtx, width, height, topCanvas, mode, opacity);
     });
-    const effectMask = resolvePreviewMaskCanvas(node, base, inputs[2] ?? null);
+    const effectMask = resolvePreviewMaskCanvas(node, base, inputs[2] ?? null, frameIndex);
     return effectMask ? compositeProcessedWithMask(base, merged, effectMask) : merged;
   },
   resize(ctx, W, node) {
@@ -1758,7 +1767,7 @@ const ops = {
   imageOpsMask(ctx, W, node, cls, inputs = [], frameIndex = 0) {
     const source = inputs[0] ?? ctx.canvas;
     const rawMask = inputs[1] ?? null;
-    const resolvedMask = resolvePreviewMaskCanvas(node, source, rawMask);
+    const resolvedMask = resolvePreviewMaskCanvas(node, source, rawMask, frameIndex);
     if (cls === "ImageOpsNoise") {
       return renderNoiseCanvas(node, true, frameIndex);
     }
@@ -1766,40 +1775,40 @@ const ops = {
       return renderDistortCanvas(node, inputs, frameIndex).mask;
     }
     if (cls === "ImageOpsBlur") {
-      const radius = numAny(node, ["radius", "blur", "blur_radius"], 0);
-      const sigma = numAny(node, ["sigma", "radius", "blur"], radius);
+      const radius = numAny(node, ["radius", "blur", "blur_radius"], 0, frameIndex);
+      const sigma = numAny(node, ["sigma", "radius", "blur"], radius, frameIndex);
       return applyEffectToCanvas(resolvedMask ?? alphaMaskCanvas(source), (effectCtx, width, height) => {
         applyBlur(effectCtx, width, height, radius, sigma);
       });
     }
     if (cls === "ImageOpsTransform") {
-      return ops.transform(ctx, W, node, [resolvedMask ?? alphaMaskCanvas(source)]);
+      return ops.transform(ctx, W, node, [resolvedMask ?? alphaMaskCanvas(source)], frameIndex);
     }
     if (cls === "ImageOpsCrop") {
-      return ops.crop(ctx, W, node, [resolvedMask ?? alphaMaskCanvas(source)]);
+      return ops.crop(ctx, W, node, [resolvedMask ?? alphaMaskCanvas(source)], frameIndex);
     }
     if (cls === "ImageOpsChannel") {
       const extracted = applyEffectToCanvas(source, (effectCtx, width, height) => {
-        applyChannel(effectCtx, width, height, strAny(node, ["channel"], "Red"));
+        applyChannel(effectCtx, width, height, strAny(node, ["channel"], "Red", frameIndex));
       });
       return resolvedMask ? premultLayerWithMask(extracted, resolvedMask) : extracted;
     }
     if (cls === "ImageOpsClamp") {
       if (!resolvedMask) return alphaMaskCanvas(source);
       return applyEffectToCanvas(resolvedMask, (effectCtx, width, height) => {
-        applyClamp(effectCtx, width, height, numAny(node, ["min_v", "min"], 0), numAny(node, ["max_v", "max"], 1));
+        applyClamp(effectCtx, width, height, numAny(node, ["min_v", "min"], 0, frameIndex), numAny(node, ["max_v", "max"], 1, frameIndex));
       });
     }
     if (cls === "ImageOpsInvert") {
       let mask = resolvedMask ?? alphaMaskCanvas(source);
-      if (!resolvedMask && boolAny(node, ["invert_alpha"], false)) {
+      if (!resolvedMask && boolAny(node, ["invert_alpha"], false, frameIndex)) {
         mask = invertMaskCanvas(mask);
       }
       return mask;
     }
     if (cls === "ImageOpsMerge") {
       if (resolvedMask) return resolvedMask;
-      const merged = ops.merge(ctx, W, node, inputs);
+      const merged = ops.merge(ctx, W, node, inputs, void 0, frameIndex);
       return alphaMaskCanvas(merged);
     }
     if (cls === "ImageOpsComp") {

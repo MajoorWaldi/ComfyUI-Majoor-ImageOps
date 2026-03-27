@@ -15,6 +15,7 @@ from ._helpers import (
     _make_comp_canvas,
     _scalar,
 )
+from ._progress import start_progress
 from ._preview import build_node_preview_result
 
 
@@ -123,6 +124,7 @@ class ImageOpsComp(io.ComfyNode):
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
             ],
+            hidden=[io.Hidden.unique_id],
         )
 
     @classmethod
@@ -137,6 +139,7 @@ class ImageOpsComp(io.ComfyNode):
         invert_mask: bool = False,
         **inputs,
     ):
+        progress_unique_id = getattr(getattr(cls, "hidden", None), "unique_id", None)
         layer_numbers = _sorted_layer_numbers(inputs)
         layers = _parse_layers_state(layers_json, layer_numbers)
         connected_layers: list[tuple[dict[str, Any], Any, Any]] = []
@@ -150,18 +153,23 @@ class ImageOpsComp(io.ComfyNode):
             connected_layers.append((layer, image_value, mask_value))
 
         if not connected_layers:
+            progress = start_progress(unique_id=progress_unique_id)
             out_w = max(1, _scalar(width, int))
             out_h = max(1, _scalar(height, int))
             blank = _make_comp_canvas(1, out_h, out_w, device="cpu", dtype=torch.float32, background_color=background_color)
             output_mask = blank[..., 3]
             if _scalar(invert_mask, bool):
                 output_mask = 1.0 - output_mask
+            progress.finish()
             return build_node_preview_result(blank, (blank, output_mask), prefix="imageops_comp")
 
+        enabled_count = sum(1 for layer, _, _ in connected_layers if bool(layer.get("enabled", True)))
+        progress = start_progress(total=max(1, len(connected_layers) + enabled_count), unique_id=progress_unique_id)
         tensors: list[tuple[dict[str, Any], Any, Any]] = []
         for layer, image_value, mask_value in connected_layers:
             image_tensor = _coerce_media_to_tensor(image_value, layer["slot"]).float().clamp(0.0, 1.0)
             tensors.append((layer, image_tensor, mask_value))
+            progress.update()
 
         if _scalar(use_first_layer_size, bool):
             ref_tensor = tensors[0][1]
@@ -194,6 +202,7 @@ class ImageOpsComp(io.ComfyNode):
                     output_mask = prepared
             if _scalar(invert_mask, bool):
                 output_mask = (1.0 - output_mask).clamp(0.0, 1.0)
+            progress.finish()
             return build_node_preview_result(result, (result, output_mask), prefix="imageops_comp")
 
         canvas = _make_comp_canvas(batch, out_h, out_w, device=device, dtype=dtype, background_color=background_color)
@@ -210,8 +219,10 @@ class ImageOpsComp(io.ComfyNode):
                 center_y=layer.get("center_y", 0.5),
                 scale=layer.get("scale", 1.0),
             )
+            progress.update()
 
         output_mask = canvas[..., 3].clamp(0.0, 1.0)
         if _scalar(invert_mask, bool):
             output_mask = (1.0 - output_mask).clamp(0.0, 1.0)
+        progress.finish()
         return build_node_preview_result(canvas, (canvas, output_mask), prefix="imageops_comp")

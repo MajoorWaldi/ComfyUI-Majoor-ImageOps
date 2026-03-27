@@ -42,7 +42,7 @@
 | **ImageOps Invert** | `ImageOpsInvert` | Invert colors and/or alpha channel |
 | **ImageOps Clamp** | `ImageOpsClamp` | Clamp pixel values to min/max range |
 | **ImageOps Merge** | `ImageOpsMerge` | Blend two images with multiple blend modes (over, add, subtract, multiply, screen, difference, max, min) |
-| **ImageOps Noise** | `ImageOpsNoise` | Procedural noise source with Perlin, value, FBM, turbulence, ridged, seed stepping, and color ramp output |
+| **ImageOps Noise** | `ImageOpsNoise` | Procedural noise source with Perlin, value, FBM, turbulence, ridged, seed stepping, frame length/FPS animation controls, and color ramp output |
 | **ImageOps Draw** | `ImageOpsDraw` | Digital painting with brush/eraser tools, opacity, and color controls |
 | **ImageOps Comp** | `ImageOpsComp` | Multi-layer compositor with blend modes, positioning, and opacity per layer |
 

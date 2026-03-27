@@ -60,21 +60,21 @@ export function imageOpsAdapter(): Adapter {
       }
       if (bypass && cls !== "ImageOpsDraw") return;
       if (cls === "ImageOpsColorAjust") {
-        return ops.colorAjust(ctx, canvasSize, node, inputs);
+        return ops.colorAjust(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsChannel") {
-        return ops.channel(ctx, canvasSize, node, outputSlot, inputs);
+        return ops.channel(ctx, canvasSize, node, outputSlot, inputs, tick ?? 0);
       } else if (cls === "ImageOpsCrop") {
-        return ops.crop(ctx, canvasSize, node, inputs);
+        return ops.crop(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsBlur") {
-        return ops.blur(ctx, canvasSize, node, inputs);
+        return ops.blur(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsTransform") {
-        return ops.transform(ctx, canvasSize, node, inputs);
+        return ops.transform(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsInvert") {
-        return ops.invert(ctx, canvasSize, node, inputs);
+        return ops.invert(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsClamp") {
-        return ops.clamp(ctx, canvasSize, node, inputs);
+        return ops.clamp(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsMerge") {
-        return ops.merge(ctx, canvasSize, node, inputs);
+        return ops.merge(ctx, canvasSize, node, inputs, undefined, tick ?? 0);
       } else if (cls === "ImageOpsComp") {
         return ops.comp(ctx, canvasSize, node, inputs);
       } else if (cls === "ImageOpsDistort") {

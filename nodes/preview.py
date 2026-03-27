@@ -1,6 +1,7 @@
 import torch
 
 from ._helpers import MEDIA_INPUT_TYPE, _alpha_mask_from_image, _coerce_mask_tensor, _mask_to_preview_image, _select_media_tensor
+from ._progress import start_progress
 from ._preview import save_temp_images, save_temp_animated, save_temp_strip
 
 
@@ -30,11 +31,13 @@ class ImageOpsPreview:
             "hidden": {
                 "prompt": "PROMPT",
                 "extra_pnginfo": "EXTRA_PNGINFO",
+                "unique_id": "UNIQUE_ID",
             },
         }
 
-    def preview(self, image=None, preview_target="auto", mode="images", mask=None, video=None, prompt=None, extra_pnginfo=None):
+    def preview(self, image=None, preview_target="auto", mode="images", mask=None, video=None, prompt=None, extra_pnginfo=None, unique_id=None):
         del prompt, extra_pnginfo
+        progress = start_progress(unique_id=unique_id)
         image_tensor = None
         if image is not None or video is not None:
             image_tensor = _select_media_tensor(image, video)
@@ -70,4 +73,5 @@ class ImageOpsPreview:
             ui = {"images": [item]} if item else {"images": save_temp_images(preview_image, prefix="imageops_preview")}
         else:
             ui = {"images": save_temp_images(preview_image, prefix="imageops_preview")}
+        progress.finish()
         return {"ui": ui, "result": (output_image, output_mask)}

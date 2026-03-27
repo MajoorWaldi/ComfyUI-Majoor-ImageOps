@@ -5,6 +5,7 @@ import math
 import torch
 
 from ._helpers import _hex_to_rgb01, _scalar
+from ._progress import start_progress
 from ._preview import build_node_preview_result
 
 _NOISE_BASIS = ["perlin", "value", "white"]
@@ -213,6 +214,8 @@ class ImageOpsNoise:
                 "width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 64}),
                 "height": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 64}),
                 "batch_size": ("INT", {"default": 1, "min": 1, "max": 256, "step": 1}),
+                "frame_length": ("INT", {"default": 0, "min": 0, "max": 256, "step": 1, "tooltip": "Animation length in frames. Set to 0 to use batch_size for backward compatibility."}),
+                "fps": ("FLOAT", {"default": 12.0, "min": 1.0, "max": 120.0, "step": 0.1, "round": 0.001}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 2147483647, "step": 1}),
                 "seed_step": ("INT", {"default": 1, "min": 0, "max": 1048576, "step": 1}),
                 "basis": (_NOISE_BASIS, {"default": "perlin"}),
@@ -229,7 +232,10 @@ class ImageOpsNoise:
                 "invert": ("BOOLEAN", {"default": False}),
                 "low_color": ("STRING", {"default": "#000000"}),
                 "high_color": ("STRING", {"default": "#FFFFFF"}),
-            }
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+            },
         }
 
     def generate(
@@ -237,6 +243,8 @@ class ImageOpsNoise:
         width=1024,
         height=1024,
         batch_size=1,
+        frame_length=0,
+        fps=12.0,
         seed=0,
         seed_step=1,
         basis="perlin",
@@ -253,18 +261,23 @@ class ImageOpsNoise:
         invert=False,
         low_color="#000000",
         high_color="#FFFFFF",
+        unique_id=None,
     ):
         target_w = max(1, _scalar(width, int))
         target_h = max(1, _scalar(height, int))
-        frame_count = max(1, _scalar(batch_size, int))
+        legacy_batch = max(1, _scalar(batch_size, int))
+        requested_frame_length = max(0, _scalar(frame_length, int))
+        frame_count = requested_frame_length if requested_frame_length > 0 else legacy_batch
+        preview_fps = max(1.0, _scalar(fps, float))
+        progress = start_progress(total=frame_count, unique_id=unique_id)
 
         masks = []
         images = []
         for frame_index in range(frame_count):
             frame_seed = _scalar(seed, int, index=frame_index) + frame_index * _scalar(seed_step, int, index=frame_index)
             frame_gray = _synthesize_noise(
-                basis=basis,
-                fractal_mode=fractal_mode,
+                basis=_scalar(basis, str, index=frame_index),
+                fractal_mode=_scalar(fractal_mode, str, index=frame_index),
                 width=target_w,
                 height=target_h,
                 scale=_scalar(scale, float, index=frame_index),
@@ -282,8 +295,16 @@ class ImageOpsNoise:
                 invert=_scalar(invert, bool, index=frame_index),
             )
             masks.append(frame_gray.unsqueeze(0))
-            images.append(_colorize(frame_gray, low_color=low_color, high_color=high_color).unsqueeze(0))
+            images.append(
+                _colorize(
+                    frame_gray,
+                    low_color=_scalar(low_color, str, index=frame_index),
+                    high_color=_scalar(high_color, str, index=frame_index),
+                ).unsqueeze(0)
+            )
+            progress.update()
 
         mask = torch.cat(masks, dim=0).clamp(0.0, 1.0)
         image = torch.cat(images, dim=0).clamp(0.0, 1.0)
-        return build_node_preview_result(image, (image, mask), prefix="imageops_noise")
+        progress.finish()
+        return build_node_preview_result(image, (image, mask), prefix="imageops_noise", fps=preview_fps)
