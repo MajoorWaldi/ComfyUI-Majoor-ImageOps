@@ -68,6 +68,9 @@ function ensureState(node: ComfyNode): NodeState {
     info: null,
     progressWrap: null,
     progressBar: null,
+    mediaWrap: null,
+    mediaVideo: null,
+    mediaImage: null,
     rafId: null,
     debounceTimer: null,
     lastKey: null,
@@ -248,6 +251,37 @@ function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canvasSize:
   canvas.style.background = "rgba(0,0,0,0.35)";
   canvas.style.border = "1px solid rgba(255,255,255,0.08)";
   canvas.style.touchAction = "none";
+
+  const mediaWrap = document.createElement("div");
+  mediaWrap.style.width = "100%";
+  mediaWrap.style.display = "none";
+  mediaWrap.style.borderRadius = "8px";
+  mediaWrap.style.overflow = "hidden";
+  mediaWrap.style.background = "rgba(0,0,0,0.35)";
+  mediaWrap.style.border = "1px solid rgba(255,255,255,0.08)";
+
+  const mediaVideo = document.createElement("video");
+  mediaVideo.controls = false;
+  mediaVideo.loop = true;
+  mediaVideo.muted = true;
+  mediaVideo.playsInline = true;
+  mediaVideo.autoplay = true;
+  mediaVideo.preload = "metadata";
+  mediaVideo.style.width = "100%";
+  mediaVideo.style.height = "auto";
+  mediaVideo.style.display = "block";
+  mediaVideo.style.background = "transparent";
+  mediaVideo.hidden = true;
+
+  const mediaImage = document.createElement("img");
+  mediaImage.style.width = "100%";
+  mediaImage.style.height = "auto";
+  mediaImage.style.display = "block";
+  mediaImage.style.background = "transparent";
+  mediaImage.hidden = true;
+
+  mediaWrap.appendChild(mediaVideo);
+  mediaWrap.appendChild(mediaImage);
 
   const metaRow = document.createElement("div");
   metaRow.style.marginTop = "6px";
@@ -520,6 +554,7 @@ function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canvasSize:
   progressBar.style.background = "rgba(255,255,255,0.55)";
   progressWrap.appendChild(progressBar);
 
+  root.appendChild(mediaWrap);
   root.appendChild(canvas);
   metaRow.appendChild(info);
   if (cropResetButton) metaRow.appendChild(cropResetButton);
@@ -549,6 +584,9 @@ function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canvasSize:
   st.info = info;
   st.progressWrap = progressWrap;
   st.progressBar = progressBar;
+  st.mediaWrap = mediaWrap;
+  st.mediaVideo = mediaVideo;
+  st.mediaImage = mediaImage;
   st.cropResetButton = cropResetButton;
   st.drawBrushButton = drawBrushButton;
   st.drawEraserButton = drawEraserButton;
@@ -673,6 +711,92 @@ function getNativePreviewImage(node: ComfyNode): HTMLImageElement | null {
   const index = typeof node.imageIndex === "number" ? node.imageIndex : imgs.length - 1;
   const candidate = imgs[Math.max(0, Math.min(imgs.length - 1, index))] ?? imgs[imgs.length - 1] ?? null;
   return candidate instanceof HTMLImageElement ? candidate : null;
+}
+
+function hideNativeMediaPreview(st: NodeState): void {
+  if (st.mediaVideo) {
+    st.mediaVideo.pause();
+    st.mediaVideo.hidden = true;
+    st.mediaVideo.removeAttribute("src");
+    st.mediaVideo.load();
+  }
+  if (st.mediaImage) {
+    st.mediaImage.hidden = true;
+    st.mediaImage.removeAttribute("src");
+  }
+  if (st.mediaWrap) st.mediaWrap.style.display = "none";
+  if (st.canvas) st.canvas.style.display = "block";
+}
+
+function parsePreviewSourceUrl(src: string): URL | null {
+  try {
+    return new URL(src, window.location.href);
+  } catch {
+    return null;
+  }
+}
+
+function nativePreviewFilename(node: ComfyNode): string | null {
+  const img = getNativePreviewImage(node);
+  const parsed = parsePreviewSourceUrl(img?.src ?? "");
+  return parsed?.searchParams.get("filename") ?? null;
+}
+
+function buildMediaPreviewUrl(node: ComfyNode, canvasSize: number): string | null {
+  const img = getNativePreviewImage(node);
+  const parsed = parsePreviewSourceUrl(img?.src ?? "");
+  if (!parsed) return null;
+  const filename = parsed.searchParams.get("filename");
+  const type = parsed.searchParams.get("type") ?? "temp";
+  const subfolder = parsed.searchParams.get("subfolder") ?? "";
+  if (!filename) return null;
+  const params = new URLSearchParams({
+    filename,
+    type,
+    subfolder,
+    force_size: `${Math.max(128, canvasSize * 2)}x?`,
+    deadline: "realtime",
+  });
+  return api.apiURL(`/imageops/viewmedia?${params.toString()}`);
+}
+
+function showNativeMediaPreview(node: ComfyNode, st: NodeState, canvasSize: number): boolean {
+  if (!st.nativeAnimated || !st.mediaWrap) return false;
+  const img = getNativePreviewImage(node);
+  if (!img) return false;
+  const filename = String(nativePreviewFilename(node) ?? "").toLowerCase();
+  const isAnimatedImage = filename.endsWith(".webp") || filename.endsWith(".gif");
+  if (isAnimatedImage && st.mediaImage) {
+    if (st.mediaVideo) {
+      st.mediaVideo.pause();
+      st.mediaVideo.hidden = true;
+      st.mediaVideo.removeAttribute("src");
+      st.mediaVideo.load();
+    }
+    st.mediaWrap.style.display = "block";
+    st.mediaImage.hidden = false;
+    if (st.mediaImage.src !== img.src) {
+      st.mediaImage.src = img.src;
+    }
+    if (st.canvas) st.canvas.style.display = "none";
+    return true;
+  }
+  if (!st.mediaVideo) return false;
+  const mediaUrl = buildMediaPreviewUrl(node, canvasSize);
+  if (!mediaUrl) return false;
+  if (st.mediaImage) {
+    st.mediaImage.hidden = true;
+    st.mediaImage.removeAttribute("src");
+  }
+  st.mediaWrap.style.display = "block";
+  st.mediaVideo.hidden = false;
+  if (st.mediaVideo.src !== mediaUrl) {
+    st.mediaVideo.src = mediaUrl;
+  }
+  st.mediaVideo.muted = true;
+  void st.mediaVideo.play().catch(() => {});
+  if (st.canvas) st.canvas.style.display = "none";
+  return true;
 }
 
 function findWidget(node: ComfyNode, name: string) {
@@ -1180,6 +1304,10 @@ function drawCompBounds(
 function tryRenderNativePreview(node: ComfyNode, st: NodeState, canvasSize: number): boolean {
   if (isCropNode(node) || isCompNode(node) || isDrawNode(node)) return false;
   if (st.nativeDirty) return false;
+  if (showNativeMediaPreview(node, st, canvasSize)) {
+    st.info!.textContent = "Node preview (media)";
+    return true;
+  }
   const img = getNativePreviewImage(node);
   if (!img) return false;
   if (!img.complete) {
@@ -1203,6 +1331,7 @@ function blit(
   sourceHeight?: number,
 ): void {
   if (!st.canvas) return;
+  hideNativeMediaPreview(st);
   const ctx = st.canvas.getContext("2d");
   if (!ctx) return;
   if (st.canvas.width !== canvasSize) st.canvas.width = canvasSize;

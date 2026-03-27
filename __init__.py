@@ -49,6 +49,7 @@ _ensure_pkg(_PKG, BASE_DIR, BASE_DIR / "__init__.py")
 _ensure_pkg(f"{_PKG}.nodes", BASE_DIR / "nodes", BASE_DIR / "nodes" / "__init__.py")
 
 _nodes_dir = BASE_DIR / "nodes"
+_load_module(f"{_PKG}.server", BASE_DIR / "server.py")
 
 ImageOpsBlur = _load_module(f"{_PKG}.nodes.blur", _nodes_dir / "blur.py").ImageOpsBlur
 ImageOpsChannel = _load_module(f"{_PKG}.nodes.channel", _nodes_dir / "channel.py").ImageOpsChannel

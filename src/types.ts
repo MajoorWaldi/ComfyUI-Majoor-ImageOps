@@ -149,6 +149,9 @@ export interface NodeState {
   info: HTMLDivElement | null;
   progressWrap: HTMLDivElement | null;
   progressBar: HTMLDivElement | null;
+  mediaWrap: HTMLDivElement | null;
+  mediaVideo: HTMLVideoElement | null;
+  mediaImage: HTMLImageElement | null;
   rafId: number | null;
   debounceTimer: ReturnType<typeof setTimeout> | null;
   lastKey: string | null;
