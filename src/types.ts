@@ -152,6 +152,7 @@ export interface NodeState {
   mediaWrap: HTMLDivElement | null;
   mediaVideo: HTMLVideoElement | null;
   mediaImage: HTMLImageElement | null;
+  interactionUntil: number;
   rafId: number | null;
   debounceTimer: ReturnType<typeof setTimeout> | null;
   lastKey: string | null;
@@ -292,6 +293,7 @@ export interface MediaState {
   animatedImageCanvas?: HTMLCanvasElement;
   videoCanvas?: HTMLCanvasElement;
   nativeCanvas?: HTMLCanvasElement;
+  staticRenderCache?: Map<string, HTMLCanvasElement>;
 }
 
 // ── Media / source ──
@@ -323,6 +325,8 @@ export interface OpsConstants {
 
 export interface PreviewConfig {
   canvasSize: number;
+  playbackCanvasSize: number;
+  interactionCanvasSize: number;
   debounceMs: number;
   maxGraphNodes: number;
 }
@@ -339,13 +343,13 @@ export interface ScopesOptions {
 
 export interface ScopesResult {
   hist: Uint32Array;
-  waveform: Uint16Array;
-  waveformR: Uint16Array;
-  waveformG: Uint16Array;
-  waveformB: Uint16Array;
+  waveform: Uint32Array;
+  waveformR: Uint32Array;
+  waveformG: Uint32Array;
+  waveformB: Uint32Array;
   waveW: number;
   waveH: number;
-  vectorscope: Uint16Array;
+  vectorscope: Uint32Array;
   vecSize: number;
 }
 

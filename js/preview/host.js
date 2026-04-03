@@ -50,6 +50,7 @@ function ensureState(node) {
     mediaWrap: null,
     mediaVideo: null,
     mediaImage: null,
+    interactionUntil: 0,
     rafId: null,
     debounceTimer: null,
     lastKey: null,
@@ -124,11 +125,12 @@ function serializePreviewValue(value) {
     return String(value);
   }
 }
-function buildPreviewRenderKey(node, tick, st) {
+function buildPreviewRenderKey(node, tick, st, renderCanvasSize) {
   const parts = [
     String(node.id),
     String(node.comfyClass ?? ""),
     `tick:${tick}`,
+    `canvas:${renderCanvasSize}`,
     `dirty:${st.nativeDirty ? 1 : 0}`,
     `anim:${st.nativeAnimated ? 1 : 0}`,
     `imageIndex:${typeof node.imageIndex === "number" ? node.imageIndex : -1}`,
@@ -531,6 +533,9 @@ function ensurePreviewWidget(node, progress, canvasSize) {
   }
   return st;
 }
+function setInfo(st, text) {
+  if (st.info) st.info.textContent = text;
+}
 function schedule(node, fn, delayMs = 120) {
   const st = ensureState(node);
   if (st.debounceTimer) clearTimeout(st.debounceTimer);
@@ -897,6 +902,17 @@ function markCanvasDirty() {
     app?.canvas?.setDirty?.(true, true);
   });
 }
+function markPreviewInteraction(node, holdMs = 180) {
+  const st = ensureState(node);
+  st.interactionUntil = Math.max(st.interactionUntil ?? 0, performance.now() + holdMs);
+}
+function getRenderCanvasSize(st) {
+  const cfg = getPreviewConfig();
+  const now = performance.now();
+  if ((st.interactionUntil ?? 0) > now) return cfg.interactionCanvasSize;
+  if (st.rafId != null) return cfg.playbackCanvasSize;
+  return cfg.canvasSize;
+}
 function syncCropWidgets(node, changedName) {
   if (!isCropNode(node)) return;
   const st = ensureState(node);
@@ -1108,7 +1124,7 @@ function tryRenderNativePreview(node, st, canvasSize) {
   if (isCropNode(node) || isCompNode(node) || isDrawNode(node)) return false;
   if (st.nativeDirty) return false;
   if (showNativeMediaPreview(node, st, canvasSize)) {
-    st.info.textContent = "Node preview (media)";
+    setInfo(st, "Node preview (media)");
     return true;
   }
   const img = getNativePreviewImage(node);
@@ -1121,7 +1137,7 @@ function tryRenderNativePreview(node, st, canvasSize) {
   const sourceWidth = img.naturalWidth || img.width || 1;
   const sourceHeight = img.naturalHeight || img.height || 1;
   blit(node, st, img, canvasSize, sourceWidth, sourceHeight);
-  st.info.textContent = st.nativeAnimated ? "Node preview (animated)" : "Node preview";
+  setInfo(st, st.nativeAnimated ? "Node preview (animated)" : "Node preview");
   return true;
 }
 function blit(node, st, source, canvasSize, sourceWidth, sourceHeight) {
@@ -1326,6 +1342,7 @@ function registerImageOpsLivePreview() {
   function refreshDrawInteraction(node) {
     const st = ensureState(node);
     st.nativeDirty = true;
+    markPreviewInteraction(node);
     markCanvasDirty();
     schedule(node, () => {
       startLoopIfVideo(node);
@@ -1381,17 +1398,18 @@ function registerImageOpsLivePreview() {
   async function renderDrawNode(node, tick) {
     const st = ensurePreviewWidget(node, progress, canvasSize);
     if (!st) return;
+    const renderCanvasSize = getRenderCanvasSize(st);
     const upstream = getUpstreamNode(node, 0);
     let baseCanvas = null;
     if (upstream) {
-      const rendered = await renderer.render(upstream, tick);
+      const rendered = await renderer.render(upstream, tick, null, renderCanvasSize);
       baseCanvas = rendered.canvas;
     }
     const previewCanvas = await renderDrawPreview(node, baseCanvas);
     st.drawBaseCanvas = baseCanvas;
-    blit(node, st, previewCanvas, canvasSize);
+    blit(node, st, previewCanvas, renderCanvasSize);
     syncDrawWidgets(node);
-    st.info.textContent = getDrawInfoText(node, previewCanvas.width || 1, previewCanvas.height || 1);
+    setInfo(st, getDrawInfoText(node, previewCanvas.width || 1, previewCanvas.height || 1));
   }
   function deriveMaskCanvasFromCanvas(source) {
     const output = document.createElement("canvas");
@@ -1419,7 +1437,7 @@ function registerImageOpsLivePreview() {
     let width = clampDrawDimension(widgetNumber(node, "width", 1024));
     let height = clampDrawDimension(widgetNumber(node, "height", 1024));
     if (upstream) {
-      const rendered = await renderer.render(upstream, tick);
+      const rendered = await renderer.render(upstream, tick, null, getRenderCanvasSize(ensureState(node)));
       if (rendered.canvas) {
         width = Math.max(1, rendered.canvas.width || width);
         height = Math.max(1, rendered.canvas.height || height);
@@ -1448,11 +1466,12 @@ function registerImageOpsLivePreview() {
     if (isDrawNode(upstream) && outputSlot === 1) {
       return await renderDrawMaskCanvas(upstream, tick);
     }
-    const rendered = await renderer.render(upstream, tick, outputSlot);
+    const renderCanvasSize = getRenderCanvasSize(ensureState(upstream));
+    const rendered = await renderer.render(upstream, tick, outputSlot, renderCanvasSize);
     if (rendered.canvas) {
       return rendered.canvas;
     }
-    const nodeStream = await resolveNodeStreamPreview(upstream, canvasSize);
+    const nodeStream = await resolveNodeStreamPreview(upstream, renderCanvasSize);
     if (!nodeStream?.canvas) return null;
     return deriveMaskCanvasFromCanvas(nodeStream.canvas);
   }
@@ -1466,6 +1485,7 @@ function registerImageOpsLivePreview() {
   async function renderPreviewBridgeNode(node, tick) {
     const st = ensurePreviewWidget(node, progress, canvasSize);
     if (!st) return;
+    const renderCanvasSize = getRenderCanvasSize(st);
     const imageIndex = getInputIndexByName(node, "image");
     const maskIndex = getInputIndexByName(node, "mask");
     const previewTarget = widgetString(node, "preview_target", "auto").toLowerCase();
@@ -1476,10 +1496,10 @@ function registerImageOpsLivePreview() {
     if (imageIndex >= 0) {
       const imageUpstream = getUpstreamNode(node, imageIndex);
       if (imageUpstream) {
-        const rendered = await renderer.render(imageUpstream, tick);
+        const rendered = await renderer.render(imageUpstream, tick, null, renderCanvasSize);
         imageCanvas = rendered.canvas;
         if (!imageCanvas) {
-          const nodeStream = await resolveNodeStreamPreview(imageUpstream, canvasSize);
+          const nodeStream = await resolveNodeStreamPreview(imageUpstream, renderCanvasSize);
           imageCanvas = nodeStream?.canvas ?? null;
           imageFromNodeStream = !!imageCanvas;
         }
@@ -1493,7 +1513,7 @@ function registerImageOpsLivePreview() {
         const directMask = await renderMaskCanvasFromNode(maskUpstream, tick, maskOutputSlot);
         maskCanvas = directMask;
         if (!maskCanvas) {
-          const nodeStream = await resolveNodeStreamPreview(maskUpstream, canvasSize);
+          const nodeStream = await resolveNodeStreamPreview(maskUpstream, renderCanvasSize);
           if (nodeStream?.canvas) {
             maskCanvas = deriveMaskCanvasFromCanvas(nodeStream.canvas);
             maskFromNodeStream = true;
@@ -1503,21 +1523,22 @@ function registerImageOpsLivePreview() {
     }
     const chosen = previewTarget === "mask" ? maskCanvas ?? imageCanvas : previewTarget === "image" ? imageCanvas ?? maskCanvas : imageCanvas ?? maskCanvas;
     if (!chosen) {
-      st.info.textContent = "Preview bridge: connect image or mask";
+      setInfo(st, "Preview bridge: connect image or mask");
       return;
     }
-    blit(node, st, chosen, canvasSize);
+    blit(node, st, chosen, renderCanvasSize);
     if (previewTarget === "mask" || !imageCanvas && maskCanvas) {
-      st.info.textContent = maskFromNodeStream ? "Preview bridge (mask, nodestream)" : "Preview bridge (mask)";
+      setInfo(st, maskFromNodeStream ? "Preview bridge (mask, nodestream)" : "Preview bridge (mask)");
     } else if (imageCanvas) {
-      st.info.textContent = imageFromNodeStream ? "Preview bridge (image, nodestream)" : "Preview bridge (image)";
+      setInfo(st, imageFromNodeStream ? "Preview bridge (image, nodestream)" : "Preview bridge (image)");
     } else {
-      st.info.textContent = "Preview bridge";
+      setInfo(st, "Preview bridge");
     }
   }
   function refreshCropInteraction(node) {
     const st = ensureState(node);
     st.nativeDirty = true;
+    markPreviewInteraction(node);
     markCanvasDirty();
     schedule(node, () => {
       startLoopIfVideo(node);
@@ -1608,6 +1629,7 @@ function registerImageOpsLivePreview() {
         lastY: mapped.y
       };
       paintDrawSegment(node, mapped.x, mapped.y, mapped.x, mapped.y);
+      markPreviewInteraction(node);
       markCanvasDirty();
       void renderDrawNode(node, 0);
     });
@@ -1622,6 +1644,7 @@ function registerImageOpsLivePreview() {
       paintDrawSegment(node, drag.lastX, drag.lastY, mapped.x, mapped.y);
       drag.lastX = mapped.x;
       drag.lastY = mapped.y;
+      markPreviewInteraction(node);
       markCanvasDirty();
       void renderDrawNode(node, 0);
     });
@@ -1756,6 +1779,7 @@ function registerImageOpsLivePreview() {
       const layers = ensureCompState(node);
       st.compSelectedSlot = layers[layers.length - 1]?.slot ?? st.compSelectedSlot;
       updateCompControls(node);
+      markPreviewInteraction(node);
       markCanvasDirty();
       schedule(node, () => {
         startLoopIfVideo(node);
@@ -1771,6 +1795,7 @@ function registerImageOpsLivePreview() {
         layer.opacity = 1;
         layer.mode = "over";
       });
+      markPreviewInteraction(node);
       markCanvasDirty();
       schedule(node, () => {
         startLoopIfVideo(node);
@@ -1781,6 +1806,7 @@ function registerImageOpsLivePreview() {
       updateSelectedCompLayer(node, (layer) => {
         layer.mode = st.compModeSelect?.value ?? "over";
       });
+      markPreviewInteraction(node);
       markCanvasDirty();
       schedule(node, () => {
         startLoopIfVideo(node);
@@ -1791,6 +1817,7 @@ function registerImageOpsLivePreview() {
       updateSelectedCompLayer(node, (layer) => {
         layer.opacity = Math.max(0, Math.min(1, Number(st.compOpacityInput?.value ?? 100) / 100));
       });
+      markPreviewInteraction(node);
       markCanvasDirty();
       schedule(node, () => {
         startLoopIfVideo(node);
@@ -1825,6 +1852,7 @@ function registerImageOpsLivePreview() {
         sourceHeight: hit.layer.sourceHeight
       };
       canvas.style.cursor = getCompCursor(hit.mode);
+      markPreviewInteraction(node);
       markCanvasDirty();
     });
     canvas.addEventListener("pointermove", (event) => {
@@ -1862,6 +1890,7 @@ function registerImageOpsLivePreview() {
         layer.centerX = clampCompCenter((rect.left + width / 2) / Math.max(1, st.compOutputWidth));
         layer.centerY = clampCompCenter((rect.top + height / 2) / Math.max(1, st.compOutputHeight));
       });
+      markPreviewInteraction(node);
       markCanvasDirty();
       schedule(node, () => {
         startLoopIfVideo(node);
@@ -1874,6 +1903,7 @@ function registerImageOpsLivePreview() {
       canvas.releasePointerCapture?.(event.pointerId);
       const point = getCanvasPointer(canvas, event);
       canvas.style.cursor = getCompCursor(getCompHit(node, canvas.width, canvas.height, point.x, point.y)?.mode ?? null);
+      markPreviewInteraction(node);
       markCanvasDirty();
       schedule(node, () => {
         startLoopIfVideo(node);
@@ -1891,7 +1921,8 @@ function registerImageOpsLivePreview() {
   function renderNode(node, tick = 0) {
     const st = ensurePreviewWidget(node, progress, canvasSize);
     if (!st) return;
-    const renderKey = buildPreviewRenderKey(node, tick, st);
+    const renderCanvasSize = getRenderCanvasSize(st);
+    const renderKey = buildPreviewRenderKey(node, tick, st, renderCanvasSize);
     if (!st.nativeDirty && st.lastKey === renderKey && st.lastRenderTick === tick) {
       return;
     }
@@ -1913,7 +1944,7 @@ function registerImageOpsLivePreview() {
       st.nativeDirty = false;
     };
     const failRender = (message, error) => {
-      st.info.textContent = message;
+      setInfo(st, message);
       console.warn("[ImageOps] render error", error);
       finishRender();
     };
@@ -1921,7 +1952,7 @@ function registerImageOpsLivePreview() {
     st.renderNonce += 1;
     if (isPreviewNode(node)) {
       if (isGraphTooLarge(node?.graph, cfg.maxGraphNodes)) {
-        st.info.textContent = "Live preview disabled: graph too large";
+        setInfo(st, "Live preview disabled: graph too large");
         stopRAF(st);
         finishRender();
         return;
@@ -1936,7 +1967,7 @@ function registerImageOpsLivePreview() {
     }
     if (isDrawNode(node)) {
       if (isGraphTooLarge(node?.graph, cfg.maxGraphNodes)) {
-        st.info.textContent = "Live preview disabled: graph too large";
+        setInfo(st, "Live preview disabled: graph too large");
         stopRAF(st);
         finishRender();
         return;
@@ -1951,7 +1982,7 @@ function registerImageOpsLivePreview() {
     }
     if (isCropNode(node)) {
       if (isGraphTooLarge(node?.graph, cfg.maxGraphNodes)) {
-        st.info.textContent = "Live preview disabled: graph too large";
+        setInfo(st, "Live preview disabled: graph too large");
         st.cropGeometry = null;
         stopRAF(st);
         finishRender();
@@ -1959,20 +1990,20 @@ function registerImageOpsLivePreview() {
       }
       const upstream = getUpstreamNode(node, 0);
       if (!upstream) {
-        st.info.textContent = "Live preview: connect a supported loader/chain";
+        setInfo(st, "Live preview: connect a supported loader/chain");
         st.cropGeometry = null;
         finishRender();
         return;
       }
-      renderer.render(upstream, tick).then((result) => {
+      renderer.render(upstream, tick, null, renderCanvasSize).then((result) => {
         if (!result?.canvas) {
-          st.info.textContent = "Live preview: connect a supported loader/chain";
+          setInfo(st, "Live preview: connect a supported loader/chain");
           st.cropGeometry = null;
           finishRender();
           return;
         }
-        blit(node, st, result.canvas, canvasSize);
-        st.info.textContent = getCropInfoText(node);
+        blit(node, st, result.canvas, renderCanvasSize);
+        setInfo(st, getCropInfoText(node));
         commitRender();
         finishRender();
       }).catch((err) => {
@@ -1983,7 +2014,7 @@ function registerImageOpsLivePreview() {
     }
     if (isCompNode(node)) {
       if (isGraphTooLarge(node?.graph, cfg.maxGraphNodes)) {
-        st.info.textContent = "Live preview disabled: graph too large";
+        setInfo(st, "Live preview disabled: graph too large");
         st.compLayers = [];
         stopRAF(st);
         finishRender();
@@ -1994,7 +2025,7 @@ function registerImageOpsLivePreview() {
       Promise.all(slots.map(async (slot) => {
         const upstream = getUpstreamNode(node, slot.inputIndex);
         if (!upstream) return null;
-        const result = await renderer.render(upstream, tick);
+        const result = await renderer.render(upstream, tick, null, renderCanvasSize);
         if (!result?.canvas) return null;
         let mask = null;
         if (slot.maskInputIndex != null && (node.inputs?.[slot.maskInputIndex]?.link ?? null) != null) {
@@ -2004,7 +2035,7 @@ function registerImageOpsLivePreview() {
       })).then((resolved) => {
         const ordered = resolved.filter((entry) => !!entry);
         if (ordered.length === 0) {
-          st.info.textContent = "Comp preview: connect at least one layer";
+          setInfo(st, "Comp preview: connect at least one layer");
           st.compLayers = [];
           st.compOutputWidth = Math.max(1, Math.round(widgetNumber(node, "width", 1024)));
           st.compOutputHeight = Math.max(1, Math.round(widgetNumber(node, "height", 1024)));
@@ -2016,46 +2047,46 @@ function registerImageOpsLivePreview() {
         st.compLayers = rendered.layers;
         st.compOutputWidth = rendered.canvas.width || 1;
         st.compOutputHeight = rendered.canvas.height || 1;
-        blit(node, st, rendered.canvas, canvasSize);
-        st.info.textContent = getCompInfoText(node, ordered.length, slots.length, st.compOutputWidth, st.compOutputHeight);
+        blit(node, st, rendered.canvas, renderCanvasSize);
+        setInfo(st, getCompInfoText(node, ordered.length, slots.length, st.compOutputWidth, st.compOutputHeight));
         updateCompControls(node);
         commitRender();
         finishRender();
       }).catch((err) => {
-        st.info.textContent = "Comp preview error (check console)";
+        setInfo(st, "Comp preview error (check console)");
         st.compLayers = [];
         console.warn("[ImageOps] comp render error", err);
         finishRender();
       });
       return;
     }
-    if (tryRenderNativePreview(node, st, canvasSize)) {
+    if (tryRenderNativePreview(node, st, renderCanvasSize)) {
       commitRender();
       finishRender();
       return;
     }
     if (isGraphTooLarge(node?.graph, cfg.maxGraphNodes)) {
-      st.info.textContent = "Live preview disabled: graph too large";
+      setInfo(st, "Live preview disabled: graph too large");
       stopRAF(st);
       finishRender();
       return;
     }
-    renderer.render(node, tick).then((result) => {
+    renderer.render(node, tick, null, renderCanvasSize).then((result) => {
       if (!result?.canvas) {
-        st.info.textContent = "Live preview: connect a supported loader/chain";
+        setInfo(st, "Live preview: connect a supported loader/chain");
         finishRender();
         return;
       }
-      blit(node, st, result.canvas, canvasSize);
+      blit(node, st, result.canvas, renderCanvasSize);
       const src = detectSourceUpstream(node);
       if (src?.kind === "video") {
-        st.info.textContent = "Live preview (video)";
+        setInfo(st, "Live preview (video)");
       } else if (src?.animated) {
-        st.info.textContent = "Live preview (animated image)";
+        setInfo(st, "Live preview (animated image)");
       } else if (src?.kind) {
-        st.info.textContent = `Live preview (${src.kind})`;
+        setInfo(st, `Live preview (${src.kind})`);
       } else {
-        st.info.textContent = "Live preview (no queue)";
+        setInfo(st, "Live preview (no queue)");
       }
       commitRender();
       finishRender();

@@ -348,8 +348,9 @@ def _prepare_mask_tensor(mask, batch, height, width, device, dtype):
             mode="bilinear",
             align_corners=False,
         ).squeeze(1)
-
-    return torch.clamp(m.to(dtype=dtype), 0.0, 1.0)
+    if m.device != device or m.dtype != dtype:
+        m = m.to(device=device, dtype=dtype)
+    return torch.clamp(m, 0.0, 1.0)
 
 
 def _coerce_mask_tensor(mask, device=None, dtype=torch.float32):
@@ -543,6 +544,8 @@ def _clamp_mask(mask: torch.Tensor, min_v: float, max_v: float):
 
 
 def _apply_mask_to_image(original, processed, mask):
+    if mask is None:
+        return processed
     if original.shape[0] != processed.shape[0]:
         if original.shape[0] == 1:
             original = original.expand(processed.shape[0], -1, -1, -1)
@@ -568,6 +571,8 @@ def _apply_mask_to_image(original, processed, mask):
         dtype=processed.dtype,
     )
     if mask_tensor is None:
+        return processed
+    if torch.all(mask_tensor >= 1.0 - EPSILON):
         return processed
 
     weight = mask_tensor.unsqueeze(-1)
@@ -896,6 +901,8 @@ def _apply_external_mask_to_rgba(image: torch.Tensor, mask: torch.Tensor | None)
         dtype=rgba.dtype,
     )
     if prepared_mask is None:
+        return rgba
+    if torch.all(prepared_mask >= 1.0 - EPSILON):
         return rgba
     matte = prepared_mask.unsqueeze(-1).clamp(0.0, 1.0)
     rgba[..., :3] = rgba[..., :3] * matte

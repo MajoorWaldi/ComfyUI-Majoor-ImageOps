@@ -169,9 +169,10 @@ export async function resolveNodeStreamPreview(node: ComfyNode | null, canvasSiz
   const visited = new Set<number>();
   const queue: Array<{ node: ComfyNode; depth: number }> = [{ node, depth: 0 }];
   let scanned = 0;
+  let head = 0; // Use index pointer instead of shift() to avoid O(n) cost
 
-  while (queue.length > 0 && scanned < MAX_DOWNSTREAM_NODES) {
-    const current = queue.shift();
+  while (head < queue.length && scanned < MAX_DOWNSTREAM_NODES) {
+    const current = queue[head++];
     if (!current?.node) continue;
     const currentId = Number(current.node.id);
     if (visited.has(currentId)) continue;

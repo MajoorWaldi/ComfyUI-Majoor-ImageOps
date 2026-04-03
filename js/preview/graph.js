@@ -66,8 +66,9 @@ function detectSourceUpstream(node, maxHops = MAX_RECURSION) {
   const seen = /* @__PURE__ */ new Set();
   let best = null;
   let steps = 0;
-  while (queue.length && steps < maxHops) {
-    const cur = queue.shift();
+  let head = 0;
+  while (head < queue.length && steps < maxHops && queue.length < 4096) {
+    const cur = queue[head++];
     if (!cur || seen.has(cur.id)) continue;
     seen.add(cur.id);
     steps++;
@@ -75,7 +76,9 @@ function detectSourceUpstream(node, maxHops = MAX_RECURSION) {
     if (source?.kind === "video") return source;
     if (source?.animated) best = source;
     else if (!best && source) best = source;
-    queue.push(...getUpstreamNodes(cur));
+    for (const upstream of getUpstreamNodes(cur)) {
+      queue.push(upstream);
+    }
   }
   return best;
 }

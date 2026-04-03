@@ -76,6 +76,19 @@ function makeCanvas(width: number, height: number): HTMLCanvasElement {
   return canvas;
 }
 
+type MaskCanvas = HTMLCanvasElement & { __imageopsPreparedMask?: boolean };
+const preparedMaskCache = new WeakMap<HTMLCanvasElement, Map<string, HTMLCanvasElement>>();
+const canvasFieldCache = new WeakMap<HTMLCanvasElement, Map<string, Float32Array>>();
+
+function markPreparedMaskCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  (canvas as MaskCanvas).__imageopsPreparedMask = true;
+  return canvas;
+}
+
+function isPreparedMaskCanvas(canvas: HTMLCanvasElement | null | undefined): canvas is MaskCanvas {
+  return !!canvas && (canvas as MaskCanvas).__imageopsPreparedMask === true;
+}
+
 function normalizeFilterName(filter: string): string {
   const value = String(filter || "bilinear").toLowerCase();
   if (value === "nearest") return "nearest-exact";
@@ -178,11 +191,17 @@ function resizeWithMode(
 }
 
 function fitCanvas(source: HTMLCanvasElement, width: number, height: number): HTMLCanvasElement {
+  if ((source.width || 1) === Math.max(1, Math.round(width)) && (source.height || 1) === Math.max(1, Math.round(height))) {
+    return source;
+  }
   const output = makeCanvas(width, height);
   const octx = output.getContext("2d")!;
   setResampleMode(octx, "bicubic");
   octx.clearRect(0, 0, output.width, output.height);
   octx.drawImage(source, 0, 0, output.width, output.height);
+  if (isPreparedMaskCanvas(source)) {
+    markPreparedMaskCanvas(output);
+  }
   return output;
 }
 
@@ -208,10 +227,6 @@ function rotateDiscrete(source: HTMLCanvasElement, quarterTurns: number): HTMLCa
   octx.rotate(turns * Math.PI / 2);
   octx.drawImage(source, -source.width / 2, -source.height / 2);
   return output;
-}
-
-function toMaskCanvas(input: HTMLCanvasElement, width: number, height: number): HTMLCanvasElement {
-  return buildMaskAlphaCanvas(input, width, height);
 }
 
 function computeMaskBounds(maskCanvas: HTMLCanvasElement): { x: number; y: number; width: number; height: number } | null {
@@ -514,12 +529,15 @@ function distortConnectedInputs(
 }
 
 function extractCanvasField(canvas: HTMLCanvasElement, width: number, height: number, channel: string): Float32Array {
+  const normalized = String(channel || "red").toLowerCase();
+  const cacheKey = `${Math.max(1, width)}x${Math.max(1, height)}:${normalized}`;
+  const cachedField = canvasFieldCache.get(canvas)?.get(cacheKey);
+  if (cachedField) return cachedField;
   const fitted = (canvas.width || 1) === width && (canvas.height || 1) === height
     ? canvas
     : fitCanvas(canvas, width, height);
   const data = fitted.getContext("2d")!.getImageData(0, 0, width, height).data;
   const field = new Float32Array(width * height);
-  const normalized = String(channel || "red").toLowerCase();
   const weights = getOpsConstants().luma_weights;
   for (let index = 0; index < field.length; index++) {
     const offset = index * 4;
@@ -531,8 +549,11 @@ function extractCanvasField(canvas: HTMLCanvasElement, width: number, height: nu
     else if (normalized === "blue") field[index] = b;
     else if (normalized === "alpha") field[index] = a;
     else if (normalized === "luma") field[index] = clamp01(luma01(r, g, b, weights));
-    else field[index] = r;
-  }
+      else field[index] = r;
+    }
+  const cache = canvasFieldCache.get(canvas) ?? new Map<string, Float32Array>();
+  cache.set(cacheKey, field);
+  canvasFieldCache.set(canvas, cache);
   return field;
 }
 
@@ -617,8 +638,12 @@ function renderDistortCanvas(
     }
   } else {
     const driver = mapSource === "displacement_channel" && displacement ? displacement : source;
-    xField = extractCanvasField(driver, width, height, strAny(node, ["x_channel"], "Red", frameIndex));
-    yField = extractCanvasField(driver, width, height, strAny(node, ["y_channel"], "Green", frameIndex));
+    const xChannel = strAny(node, ["x_channel"], "Red", frameIndex);
+    const yChannel = strAny(node, ["y_channel"], "Green", frameIndex);
+    xField = extractCanvasField(driver, width, height, xChannel);
+    yField = String(xChannel).toLowerCase() === String(yChannel).toLowerCase()
+      ? xField
+      : extractCanvasField(driver, width, height, yChannel);
   }
 
   const sourceCanvas = source;
@@ -1103,6 +1128,12 @@ function applyCrop(
 }
 
 function buildMaskAlphaCanvas(maskCanvas: HTMLCanvasElement, width: number, height: number): HTMLCanvasElement {
+  if (isPreparedMaskCanvas(maskCanvas) && (maskCanvas.width || 1) === width && (maskCanvas.height || 1) === height) {
+    return maskCanvas;
+  }
+  const cacheKey = `${Math.max(1, width)}x${Math.max(1, height)}`;
+  const cachedPrepared = preparedMaskCache.get(maskCanvas)?.get(cacheKey);
+  if (cachedPrepared) return cachedPrepared;
   const output = makeCanvas(width, height);
   const octx = output.getContext("2d")!;
   octx.clearRect(0, 0, width, height);
@@ -1122,7 +1153,11 @@ function buildMaskAlphaCanvas(maskCanvas: HTMLCanvasElement, width: number, heig
     data[index + 3] = matte;
   }
   octx.putImageData(image, 0, 0);
-  return output;
+  const prepared = markPreparedMaskCanvas(output);
+  const cache = preparedMaskCache.get(maskCanvas) ?? new Map<string, HTMLCanvasElement>();
+  cache.set(cacheKey, prepared);
+  preparedMaskCache.set(maskCanvas, cache);
+  return prepared;
 }
 
 function alphaMaskCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
@@ -1140,14 +1175,16 @@ function alphaMaskCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
     data[index + 3] = 255;
   }
   octx.putImageData(image, 0, 0);
-  return output;
+  return markPreparedMaskCanvas(output);
 }
 
 function applyEffectToCanvas(
   source: HTMLCanvasElement,
   effect: (ctx: CanvasRenderingContext2D, width: number, height: number) => HTMLCanvasElement | void,
 ): HTMLCanvasElement {
-  const output = fitCanvas(source, source.width || 1, source.height || 1);
+  const output = makeCanvas(source.width || 1, source.height || 1);
+  const copyCtx = output.getContext("2d")!;
+  copyCtx.drawImage(source, 0, 0, output.width, output.height);
   const octx = output.getContext("2d")!;
   const result = effect(octx, output.width, output.height);
   return result instanceof HTMLCanvasElement ? result : output;
@@ -1175,7 +1212,7 @@ function compositeProcessedWithMask(
   octx.imageSmoothingEnabled = true;
   octx.imageSmoothingQuality = "high";
   octx.drawImage(
-    premultLayerWithMask(processedCanvas, fitCanvas(maskCanvas, output.width, output.height)),
+    premultLayerWithMask(processedCanvas, maskCanvas),
     0,
     0,
     output.width,
@@ -1214,7 +1251,10 @@ function premultLayerWithMask(imageCanvas: HTMLCanvasElement, maskCanvas: HTMLCa
   octx.imageSmoothingQuality = "high";
   octx.drawImage(imageCanvas, 0, 0, output.width, output.height);
   octx.globalCompositeOperation = "destination-in";
-  octx.drawImage(buildMaskAlphaCanvas(maskCanvas, output.width, output.height), 0, 0, output.width, output.height);
+  const preparedMask = isPreparedMaskCanvas(maskCanvas) && (maskCanvas.width || 1) === output.width && (maskCanvas.height || 1) === output.height
+    ? maskCanvas
+    : buildMaskAlphaCanvas(maskCanvas, output.width, output.height);
+  octx.drawImage(preparedMask, 0, 0, output.width, output.height);
   octx.globalCompositeOperation = "source-over";
   return output;
 }
@@ -1232,7 +1272,7 @@ function invertMaskCanvas(maskCanvas: HTMLCanvasElement): HTMLCanvasElement {
     data[i + 3] = 255 - data[i + 3];
   }
   octx.putImageData(image, 0, 0);
-  return output;
+  return markPreparedMaskCanvas(output);
 }
 
 export function renderCompPreview(
@@ -1261,7 +1301,11 @@ export function renderCompPreview(
   const outputHeight = useFirst && firstInput ? Math.max(1, firstInput.height) : Math.max(1, Math.round(num(node, "height", firstInput?.height ?? 1024)));
   const output = makeCanvas(outputWidth, outputHeight);
   const octx = output.getContext("2d")!;
-  octx.clearRect(0, 0, outputWidth, outputHeight);
+  const alphaCanvas = makeCanvas(outputWidth, outputHeight);
+  const alphaCtx = alphaCanvas.getContext("2d")!;
+  octx.fillStyle = parseHexColor(str(node, "background_color", "#000000"));
+  octx.fillRect(0, 0, outputWidth, outputHeight);
+  alphaCtx.clearRect(0, 0, outputWidth, outputHeight);
 
   const geometries: Array<{
     slot: string;
@@ -1301,9 +1345,51 @@ export function renderCompPreview(
     octx.imageSmoothingQuality = "high";
     octx.drawImage(input, rect.left, rect.top, rect.width, rect.height);
     octx.restore();
+
+    alphaCtx.save();
+    alphaCtx.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
+    alphaCtx.globalCompositeOperation = "source-over";
+    alphaCtx.imageSmoothingEnabled = true;
+    alphaCtx.imageSmoothingQuality = "high";
+    alphaCtx.drawImage(input, rect.left, rect.top, rect.width, rect.height);
+    alphaCtx.restore();
   }
 
+  const image = octx.getImageData(0, 0, outputWidth, outputHeight);
+  const alphaImage = alphaCtx.getImageData(0, 0, outputWidth, outputHeight);
+  const data = image.data;
+  const alphaData = alphaImage.data;
+  for (let index = 0; index < data.length; index += 4) {
+    data[index + 3] = alphaData[index + 3];
+  }
+  octx.putImageData(image, 0, 0);
+
   return { canvas: output, layers: geometries };
+}
+
+function resolveCompPreviewInputs(
+  node: ComfyNode,
+  inputs: HTMLCanvasElement[],
+): Array<{ image: HTMLCanvasElement; mask?: HTMLCanvasElement | null; slot: string; layerNumber: number; inputIndex: number }> {
+  const connectedSlots = getCompSlots(node).filter((slot) => (node.inputs?.[slot.inputIndex]?.link ?? null) != null);
+  const resolved: Array<{ image: HTMLCanvasElement; mask?: HTMLCanvasElement | null; slot: string; layerNumber: number; inputIndex: number }> = [];
+  let cursor = 0;
+  for (const slot of connectedSlots) {
+    const image = inputs[cursor++] ?? null;
+    if (!image) continue;
+    let mask: HTMLCanvasElement | null = null;
+    if (slot.maskInputIndex != null && (node.inputs?.[slot.maskInputIndex]?.link ?? null) != null) {
+      mask = inputs[cursor++] ?? null;
+    }
+    resolved.push({
+      image,
+      mask,
+      slot: slot.slot,
+      layerNumber: slot.layerNumber,
+      inputIndex: slot.inputIndex,
+    });
+  }
+  return resolved;
 }
 
 export async function renderDrawNodePreview(node: ComfyNode, baseCanvas: HTMLCanvasElement | null = null): Promise<HTMLCanvasElement> {
@@ -1327,6 +1413,11 @@ function applyLumaKey(ctx: CanvasRenderingContext2D, W: number, H: number, low: 
     d[i+3]=Math.round(clamp01(a)*255);
   }
   putImageData(ctx,img);
+}
+
+// W3C composite spec D() helper for soft-light — matches Python's _soft_light_curve.
+function softLightD(a: number): number {
+  return a <= 0.25 ? ((16 * a - 12) * a + 4) * a : Math.sqrt(a);
 }
 
 function blend(ctx: CanvasRenderingContext2D, W: number, H: number, topCanvas: HTMLCanvasElement, mode: string, mix: number): void {
@@ -1384,9 +1475,11 @@ function blend(ctx: CanvasRenderingContext2D, W: number, H: number, topCanvas: H
       rg = ag <= 0.5 ? 2 * ag * bg : 1 - 2 * (1 - ag) * (1 - bg);
       rb = ab <= 0.5 ? 2 * ab * bb : 1 - 2 * (1 - ab) * (1 - bb);
     } else if (blendMode === "soft_light" || blendMode === "soft-light") {
-      rr = (1 - 2 * br) * ar * ar + 2 * br * ar;
-      rg = (1 - 2 * bg) * ag * ag + 2 * bg * ag;
-      rb = (1 - 2 * bb) * ab * ab + 2 * bb * ab;
+      // W3C composite spec (matches Python _soft_light_curve / Photoshop).
+      // Previous formula "(1-2b)*a²+2b*a" was only the b≤0.5 branch applied unconditionally.
+      rr = br <= 0.5 ? ar - (1 - 2 * br) * ar * (1 - ar) : ar + (2 * br - 1) * (softLightD(ar) - ar);
+      rg = bg <= 0.5 ? ag - (1 - 2 * bg) * ag * (1 - ag) : ag + (2 * bg - 1) * (softLightD(ag) - ag);
+      rb = bb <= 0.5 ? ab - (1 - 2 * bb) * ab * (1 - ab) : ab + (2 * bb - 1) * (softLightD(ab) - ab);
     } else if (blendMode === "difference") {
       rr = Math.abs(ar - br);
       rg = Math.abs(ag - bg);
@@ -1972,15 +2065,9 @@ export const ops = {
     return base;
   },
   comp(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, inputs: HTMLCanvasElement[]): HTMLCanvasElement {
-    const connectedSlots = getCompSlots(node).filter((slot) => (node.inputs?.[slot.inputIndex]?.link ?? null) != null);
     return renderCompPreview(
       node,
-      inputs.map((canvas, index) => ({
-        image: canvas,
-        slot: connectedSlots[index]?.slot ?? `image_${index + 1}`,
-        layerNumber: connectedSlots[index]?.layerNumber ?? (index + 1),
-        inputIndex: connectedSlots[index]?.inputIndex ?? index,
-      })),
+      resolveCompPreviewInputs(node, inputs),
     ).canvas;
   },
   distort(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, inputs: HTMLCanvasElement[], frameIndex: number = 0): HTMLCanvasElement {
@@ -2057,7 +2144,8 @@ export const ops = {
     }
 
     if (cls === "ImageOpsComp") {
-      return alphaMaskCanvas(ops.comp(ctx, W, node, inputs));
+      const mask = alphaMaskCanvas(ops.comp(ctx, W, node, inputs));
+      return boolAny(node, ["invert_mask"], false, frameIndex) ? invertMaskCanvas(mask) : mask;
     }
 
     if (cls === "ImageOpsColorAjust") {

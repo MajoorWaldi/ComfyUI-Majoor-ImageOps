@@ -1,5 +1,16 @@
 import { ops } from "../ops.js";
 import { getCompSlots } from "../comp.js";
+function getConnectedCompInputIndexes(node) {
+  const indexes = [];
+  for (const slot of getCompSlots(node)) {
+    if ((node.inputs?.[slot.inputIndex]?.link ?? null) == null) continue;
+    indexes.push(slot.inputIndex);
+    if (slot.maskInputIndex != null && (node.inputs?.[slot.maskInputIndex]?.link ?? null) != null) {
+      indexes.push(slot.maskInputIndex);
+    }
+  }
+  return indexes;
+}
 function imageOpsAdapter() {
   return {
     match(node) {
@@ -16,7 +27,7 @@ function imageOpsAdapter() {
         return 1 + Number(displacementConnected) + Number(effectMaskConnected);
       }
       if (cls === "ImageOpsMerge") return bypass ? 1 : maskConnected ? 3 : 2;
-      if (cls === "ImageOpsComp") return getCompSlots(node).filter((slot) => (node.inputs?.[slot.inputIndex]?.link ?? null) != null).length;
+      if (cls === "ImageOpsComp") return getConnectedCompInputIndexes(node).length;
       if (cls === "ImageOpsDraw") return (node.inputs?.[0]?.link ?? null) != null ? 1 : 0;
       if (cls === "ImageOpsPreview") {
         const imageConnected = (node.inputs?.[0]?.link ?? null) != null;
@@ -28,7 +39,7 @@ function imageOpsAdapter() {
     inputIndexes: (node) => {
       const cls = String(node?.comfyClass ?? "");
       if (cls === "ImageOpsComp") {
-        return getCompSlots(node).filter((slot) => (node.inputs?.[slot.inputIndex]?.link ?? null) != null).map((slot) => slot.inputIndex);
+        return getConnectedCompInputIndexes(node);
       }
       if (cls === "ImageOpsDistort") {
         const indexes = [0];

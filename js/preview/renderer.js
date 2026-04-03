@@ -54,8 +54,14 @@ function buildRenderer({ api, registry, canvasSize }) {
     canvas.height = 1;
     return canvas;
   }
-  async function render(node, tick = 0, outputSlot = null) {
-    const ctx = { api, canvasSize, tick, cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() };
+  function getPersistentStaticCache(node) {
+    var _a;
+    node.__imageops_media ?? (node.__imageops_media = {});
+    (_a = node.__imageops_media).staticRenderCache ?? (_a.staticRenderCache = /* @__PURE__ */ new Map());
+    return node.__imageops_media.staticRenderCache;
+  }
+  async function render(node, tick = 0, outputSlot = null, canvasSizeOverride) {
+    const ctx = { api, canvasSize: canvasSizeOverride ?? canvasSize, tick, cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() };
     const canvas = await renderNode(node, ctx, outputSlot);
     return { canvas };
   }
@@ -68,6 +74,15 @@ function buildRenderer({ api, registry, canvasSize }) {
     if (ctx.cache.has(sig)) {
       ctx.visited.delete(node.id);
       return ctx.cache.get(sig);
+    }
+    if (ctx.tick === 0) {
+      const persistent = getPersistentStaticCache(node);
+      const cached = persistent.get(sig);
+      if (cached) {
+        ctx.cache.set(sig, cached);
+        ctx.visited.delete(node.id);
+        return cached;
+      }
     }
     const src = detectSource(node);
     if (src) {
@@ -94,19 +109,29 @@ function buildRenderer({ api, registry, canvasSize }) {
         const dims = fitWithinMaxSize(bmp.width || 1, bmp.height || 1, ctx.canvasSize);
         c = renderImageSourceToCanvas(node, bmp, dims.width, dims.height, "imageCanvas");
       } else {
-        c = await ensureVideoFrameCanvas(node, url, ctx.canvasSize);
+        c = await ensureVideoFrameCanvas(node, url, ctx.canvasSize, ctx.tick);
       }
       if (!c) {
         ctx.visited.delete(node.id);
         return null;
       }
       ctx.cache.set(sig, c);
+      if (ctx.tick === 0) {
+        const persistent = getPersistentStaticCache(node);
+        persistent.clear();
+        persistent.set(sig, c);
+      }
       ctx.visited.delete(node.id);
       return c;
     }
     const nativePreview = await renderFromNativePreview(node);
     if (nativePreview) {
       ctx.cache.set(sig, nativePreview);
+      if (ctx.tick === 0) {
+        const persistent = getPersistentStaticCache(node);
+        persistent.clear();
+        persistent.set(sig, nativePreview);
+      }
       ctx.visited.delete(node.id);
       return nativePreview;
     }
@@ -132,6 +157,11 @@ function buildRenderer({ api, registry, canvasSize }) {
       const adapted2 = await adapter.apply({ node, ctx: octx2, canvasSize: ctx.canvasSize, inputs: [], tick: ctx.tick });
       const result2 = adapted2 instanceof HTMLCanvasElement ? adapted2 : out2;
       ctx.cache.set(sig, result2);
+      if (ctx.tick === 0) {
+        const persistent = getPersistentStaticCache(node);
+        persistent.clear();
+        persistent.set(sig, result2);
+      }
       ctx.visited.delete(node.id);
       return result2;
     }
@@ -190,6 +220,11 @@ function buildRenderer({ api, registry, canvasSize }) {
     const adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs, inputInfos, outputSlot, tick: ctx.tick });
     const result = adapted instanceof HTMLCanvasElement ? adapted : out;
     ctx.cache.set(sig, result);
+    if (ctx.tick === 0) {
+      const persistent = getPersistentStaticCache(node);
+      persistent.clear();
+      persistent.set(sig, result);
+    }
     ctx.visited.delete(node.id);
     return result;
   }

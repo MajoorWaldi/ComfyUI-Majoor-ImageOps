@@ -2,6 +2,15 @@ from ._helpers import MEDIA_INPUT_TYPE, _alpha_mask_from_image, _apply_merge, _a
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 
+
+def _all_zero_mix(mix) -> bool:
+    if isinstance(mix, (list, tuple)):
+        if len(mix) == 0:
+            return True
+        return all(_scalar(mix, index=i) <= 0.0 for i in range(len(mix)))
+    return _scalar(mix) <= 0.0
+
+
 class ImageOpsMerge:
     CATEGORY = "image/imageops"
     RETURN_TYPES = ("IMAGE", "MASK")
@@ -29,7 +38,6 @@ class ImageOpsMerge:
 
     def apply(self, A, B, bypass=False, mode="over", mix=1.0, invert_mask=False, mask=None, unique_id=None):
         A = _coerce_media_to_tensor(A, "A")
-        B = _coerce_media_to_tensor(B, "B")
         effect_mask = _prepare_effect_mask(mask, A, invert_mask=invert_mask)
         progress = start_progress(unique_id=unique_id)
         if _scalar(bypass, bool):
@@ -38,6 +46,13 @@ class ImageOpsMerge:
                 output_mask = (1.0 - output_mask).clamp(0.0, 1.0)
             progress.finish()
             return build_node_preview_result(A, (A, output_mask), prefix="imageops_merge")
+        if _all_zero_mix(mix):
+            output_mask = effect_mask if effect_mask is not None else _alpha_mask_from_image(A)
+            if effect_mask is None and _scalar(invert_mask, bool):
+                output_mask = (1.0 - output_mask).clamp(0.0, 1.0)
+            progress.finish()
+            return build_node_preview_result(A, (A, output_mask), prefix="imageops_merge")
+        B = _coerce_media_to_tensor(B, "B")
         out = _apply_merge(A, B, mode, mix)
         out = _apply_mask_to_image(A, out, effect_mask)
         output_mask = effect_mask if effect_mask is not None else _alpha_mask_from_image(out)

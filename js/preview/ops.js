@@ -77,6 +77,15 @@ function makeCanvas(width, height) {
   canvas.height = Math.max(1, Math.round(height));
   return canvas;
 }
+const preparedMaskCache = /* @__PURE__ */ new WeakMap();
+const canvasFieldCache = /* @__PURE__ */ new WeakMap();
+function markPreparedMaskCanvas(canvas) {
+  canvas.__imageopsPreparedMask = true;
+  return canvas;
+}
+function isPreparedMaskCanvas(canvas) {
+  return !!canvas && canvas.__imageopsPreparedMask === true;
+}
 function normalizeFilterName(filter) {
   const value = String(filter || "bilinear").toLowerCase();
   if (value === "nearest") return "nearest-exact";
@@ -156,11 +165,17 @@ function resizeWithMode(source, width, height, filter, mode, fillColor = "#00000
   return output;
 }
 function fitCanvas(source, width, height) {
+  if ((source.width || 1) === Math.max(1, Math.round(width)) && (source.height || 1) === Math.max(1, Math.round(height))) {
+    return source;
+  }
   const output = makeCanvas(width, height);
   const octx = output.getContext("2d");
   setResampleMode(octx, "bicubic");
   octx.clearRect(0, 0, output.width, output.height);
   octx.drawImage(source, 0, 0, output.width, output.height);
+  if (isPreparedMaskCanvas(source)) {
+    markPreparedMaskCanvas(output);
+  }
   return output;
 }
 function flipCanvas(source, horizontal, vertical) {
@@ -184,9 +199,6 @@ function rotateDiscrete(source, quarterTurns) {
   octx.rotate(turns * Math.PI / 2);
   octx.drawImage(source, -source.width / 2, -source.height / 2);
   return output;
-}
-function toMaskCanvas(input, width, height) {
-  return buildMaskAlphaCanvas(input, width, height);
 }
 function computeMaskBounds(maskCanvas) {
   const ctx = maskCanvas.getContext("2d");
@@ -421,10 +433,13 @@ function distortConnectedInputs(node, inputs) {
   return { source, displacement, mask };
 }
 function extractCanvasField(canvas, width, height, channel) {
+  const normalized = String(channel || "red").toLowerCase();
+  const cacheKey = `${Math.max(1, width)}x${Math.max(1, height)}:${normalized}`;
+  const cachedField = canvasFieldCache.get(canvas)?.get(cacheKey);
+  if (cachedField) return cachedField;
   const fitted = (canvas.width || 1) === width && (canvas.height || 1) === height ? canvas : fitCanvas(canvas, width, height);
   const data = fitted.getContext("2d").getImageData(0, 0, width, height).data;
   const field = new Float32Array(width * height);
-  const normalized = String(channel || "red").toLowerCase();
   const weights = getOpsConstants().luma_weights;
   for (let index = 0; index < field.length; index++) {
     const offset = index * 4;
@@ -438,6 +453,9 @@ function extractCanvasField(canvas, width, height, channel) {
     else if (normalized === "luma") field[index] = clamp01(luma01(r, g, b, weights));
     else field[index] = r;
   }
+  const cache = canvasFieldCache.get(canvas) ?? /* @__PURE__ */ new Map();
+  cache.set(cacheKey, field);
+  canvasFieldCache.set(canvas, cache);
   return field;
 }
 function neutralField(width, height, centered) {
@@ -512,8 +530,10 @@ function renderDistortCanvas(node, inputs, frameIndex = 0) {
     }
   } else {
     const driver = mapSource === "displacement_channel" && displacement ? displacement : source;
-    xField = extractCanvasField(driver, width, height, strAny(node, ["x_channel"], "Red", frameIndex));
-    yField = extractCanvasField(driver, width, height, strAny(node, ["y_channel"], "Green", frameIndex));
+    const xChannel = strAny(node, ["x_channel"], "Red", frameIndex);
+    const yChannel = strAny(node, ["y_channel"], "Green", frameIndex);
+    xField = extractCanvasField(driver, width, height, xChannel);
+    yField = String(xChannel).toLowerCase() === String(yChannel).toLowerCase() ? xField : extractCanvasField(driver, width, height, yChannel);
   }
   const sourceCanvas = source;
   const sourceCtx = sourceCanvas.getContext("2d");
@@ -962,6 +982,12 @@ function applyCrop(ctx, node, sourceWidth, sourceHeight, aspectRatio, outW, outH
   return output;
 }
 function buildMaskAlphaCanvas(maskCanvas, width, height) {
+  if (isPreparedMaskCanvas(maskCanvas) && (maskCanvas.width || 1) === width && (maskCanvas.height || 1) === height) {
+    return maskCanvas;
+  }
+  const cacheKey = `${Math.max(1, width)}x${Math.max(1, height)}`;
+  const cachedPrepared = preparedMaskCache.get(maskCanvas)?.get(cacheKey);
+  if (cachedPrepared) return cachedPrepared;
   const output = makeCanvas(width, height);
   const octx = output.getContext("2d");
   octx.clearRect(0, 0, width, height);
@@ -980,7 +1006,11 @@ function buildMaskAlphaCanvas(maskCanvas, width, height) {
     data[index + 3] = matte;
   }
   octx.putImageData(image, 0, 0);
-  return output;
+  const prepared = markPreparedMaskCanvas(output);
+  const cache = preparedMaskCache.get(maskCanvas) ?? /* @__PURE__ */ new Map();
+  cache.set(cacheKey, prepared);
+  preparedMaskCache.set(maskCanvas, cache);
+  return prepared;
 }
 function alphaMaskCanvas(source) {
   const output = makeCanvas(source.width || 1, source.height || 1);
@@ -997,10 +1027,12 @@ function alphaMaskCanvas(source) {
     data[index + 3] = 255;
   }
   octx.putImageData(image, 0, 0);
-  return output;
+  return markPreparedMaskCanvas(output);
 }
 function applyEffectToCanvas(source, effect) {
-  const output = fitCanvas(source, source.width || 1, source.height || 1);
+  const output = makeCanvas(source.width || 1, source.height || 1);
+  const copyCtx = output.getContext("2d");
+  copyCtx.drawImage(source, 0, 0, output.width, output.height);
   const octx = output.getContext("2d");
   const result = effect(octx, output.width, output.height);
   return result instanceof HTMLCanvasElement ? result : output;
@@ -1017,7 +1049,7 @@ function compositeProcessedWithMask(baseCanvas, processedCanvas, maskCanvas) {
   octx.imageSmoothingEnabled = true;
   octx.imageSmoothingQuality = "high";
   octx.drawImage(
-    premultLayerWithMask(processedCanvas, fitCanvas(maskCanvas, output.width, output.height)),
+    premultLayerWithMask(processedCanvas, maskCanvas),
     0,
     0,
     output.width,
@@ -1041,7 +1073,8 @@ function premultLayerWithMask(imageCanvas, maskCanvas) {
   octx.imageSmoothingQuality = "high";
   octx.drawImage(imageCanvas, 0, 0, output.width, output.height);
   octx.globalCompositeOperation = "destination-in";
-  octx.drawImage(buildMaskAlphaCanvas(maskCanvas, output.width, output.height), 0, 0, output.width, output.height);
+  const preparedMask = isPreparedMaskCanvas(maskCanvas) && (maskCanvas.width || 1) === output.width && (maskCanvas.height || 1) === output.height ? maskCanvas : buildMaskAlphaCanvas(maskCanvas, output.width, output.height);
+  octx.drawImage(preparedMask, 0, 0, output.width, output.height);
   octx.globalCompositeOperation = "source-over";
   return output;
 }
@@ -1058,7 +1091,7 @@ function invertMaskCanvas(maskCanvas) {
     data[i + 3] = 255 - data[i + 3];
   }
   octx.putImageData(image, 0, 0);
-  return output;
+  return markPreparedMaskCanvas(output);
 }
 function renderCompPreview(node, inputLayers) {
   const slots = getCompSlots(node);
@@ -1070,7 +1103,11 @@ function renderCompPreview(node, inputLayers) {
   const outputHeight = useFirst && firstInput ? Math.max(1, firstInput.height) : Math.max(1, Math.round(num(node, "height", firstInput?.height ?? 1024)));
   const output = makeCanvas(outputWidth, outputHeight);
   const octx = output.getContext("2d");
-  octx.clearRect(0, 0, outputWidth, outputHeight);
+  const alphaCanvas = makeCanvas(outputWidth, outputHeight);
+  const alphaCtx = alphaCanvas.getContext("2d");
+  octx.fillStyle = parseHexColor(str(node, "background_color", "#000000"));
+  octx.fillRect(0, 0, outputWidth, outputHeight);
+  alphaCtx.clearRect(0, 0, outputWidth, outputHeight);
   const geometries = [];
   for (let index = 0; index < inputLayers.length; index++) {
     const entry = inputLayers[index];
@@ -1096,8 +1133,44 @@ function renderCompPreview(node, inputLayers) {
     octx.imageSmoothingQuality = "high";
     octx.drawImage(input, rect.left, rect.top, rect.width, rect.height);
     octx.restore();
+    alphaCtx.save();
+    alphaCtx.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
+    alphaCtx.globalCompositeOperation = "source-over";
+    alphaCtx.imageSmoothingEnabled = true;
+    alphaCtx.imageSmoothingQuality = "high";
+    alphaCtx.drawImage(input, rect.left, rect.top, rect.width, rect.height);
+    alphaCtx.restore();
   }
+  const image = octx.getImageData(0, 0, outputWidth, outputHeight);
+  const alphaImage = alphaCtx.getImageData(0, 0, outputWidth, outputHeight);
+  const data = image.data;
+  const alphaData = alphaImage.data;
+  for (let index = 0; index < data.length; index += 4) {
+    data[index + 3] = alphaData[index + 3];
+  }
+  octx.putImageData(image, 0, 0);
   return { canvas: output, layers: geometries };
+}
+function resolveCompPreviewInputs(node, inputs) {
+  const connectedSlots = getCompSlots(node).filter((slot) => (node.inputs?.[slot.inputIndex]?.link ?? null) != null);
+  const resolved = [];
+  let cursor = 0;
+  for (const slot of connectedSlots) {
+    const image = inputs[cursor++] ?? null;
+    if (!image) continue;
+    let mask = null;
+    if (slot.maskInputIndex != null && (node.inputs?.[slot.maskInputIndex]?.link ?? null) != null) {
+      mask = inputs[cursor++] ?? null;
+    }
+    resolved.push({
+      image,
+      mask,
+      slot: slot.slot,
+      layerNumber: slot.layerNumber,
+      inputIndex: slot.inputIndex
+    });
+  }
+  return resolved;
 }
 async function renderDrawNodePreview(node, baseCanvas = null) {
   return await renderDrawPreview(node, baseCanvas);
@@ -1119,6 +1192,9 @@ function applyLumaKey(ctx, W, H, low, high, softness) {
     d[i + 3] = Math.round(clamp01(a) * 255);
   }
   putImageData(ctx, img);
+}
+function softLightD(a) {
+  return a <= 0.25 ? ((16 * a - 12) * a + 4) * a : Math.sqrt(a);
 }
 function blend(ctx, W, H, topCanvas, mode, mix) {
   const m = Math.max(0, Math.min(1, mix));
@@ -1170,9 +1246,9 @@ function blend(ctx, W, H, topCanvas, mode, mix) {
       rg = ag <= 0.5 ? 2 * ag * bg : 1 - 2 * (1 - ag) * (1 - bg);
       rb = ab <= 0.5 ? 2 * ab * bb : 1 - 2 * (1 - ab) * (1 - bb);
     } else if (blendMode === "soft_light" || blendMode === "soft-light") {
-      rr = (1 - 2 * br) * ar * ar + 2 * br * ar;
-      rg = (1 - 2 * bg) * ag * ag + 2 * bg * ag;
-      rb = (1 - 2 * bb) * ab * ab + 2 * bb * ab;
+      rr = br <= 0.5 ? ar - (1 - 2 * br) * ar * (1 - ar) : ar + (2 * br - 1) * (softLightD(ar) - ar);
+      rg = bg <= 0.5 ? ag - (1 - 2 * bg) * ag * (1 - ag) : ag + (2 * bg - 1) * (softLightD(ag) - ag);
+      rb = bb <= 0.5 ? ab - (1 - 2 * bb) * ab * (1 - ab) : ab + (2 * bb - 1) * (softLightD(ab) - ab);
     } else if (blendMode === "difference") {
       rr = Math.abs(ar - br);
       rg = Math.abs(ag - bg);
@@ -1737,15 +1813,9 @@ const ops = {
     return base;
   },
   comp(ctx, W, node, inputs) {
-    const connectedSlots = getCompSlots(node).filter((slot) => (node.inputs?.[slot.inputIndex]?.link ?? null) != null);
     return renderCompPreview(
       node,
-      inputs.map((canvas, index) => ({
-        image: canvas,
-        slot: connectedSlots[index]?.slot ?? `image_${index + 1}`,
-        layerNumber: connectedSlots[index]?.layerNumber ?? index + 1,
-        inputIndex: connectedSlots[index]?.inputIndex ?? index
-      }))
+      resolveCompPreviewInputs(node, inputs)
     ).canvas;
   },
   distort(ctx, W, node, inputs, frameIndex = 0) {
@@ -1812,7 +1882,8 @@ const ops = {
       return alphaMaskCanvas(merged);
     }
     if (cls === "ImageOpsComp") {
-      return alphaMaskCanvas(ops.comp(ctx, W, node, inputs));
+      const mask = alphaMaskCanvas(ops.comp(ctx, W, node, inputs));
+      return boolAny(node, ["invert_mask"], false, frameIndex) ? invertMaskCanvas(mask) : mask;
     }
     if (cls === "ImageOpsColorAjust") {
       return resolvedMask ?? alphaMaskCanvas(source);

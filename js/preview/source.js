@@ -50,6 +50,22 @@ function renderImageSourceToCanvas(node, source, width, height, slot) {
   st[slot] = canvas;
   return canvas;
 }
+function syncVideoToTick(video, tick) {
+  if (!Number.isFinite(tick) || tick < 0) return;
+  if (video.readyState < 1) return;
+  const duration = Number(video.duration);
+  if (!Number.isFinite(duration) || duration <= 0) return;
+  const previewFps = 30;
+  const targetTime = tick / previewFps % duration;
+  if (video.seeking) return;
+  if (Math.abs(video.currentTime - targetTime) > 0.1) {
+    try {
+      video.currentTime = targetTime;
+    } catch (e) {
+      console.warn("[ImageOps] video seek failed:", e);
+    }
+  }
+}
 async function ensureImageElement(node, url) {
   node.__imageops_media ?? (node.__imageops_media = {});
   const st = node.__imageops_media;
@@ -58,7 +74,8 @@ async function ensureImageElement(node, url) {
   img.src = url;
   try {
     await img.decode();
-  } catch {
+  } catch (e) {
+    console.warn("[ImageOps] image decode failed:", url, e);
     return null;
   }
   st.lastImageURL = url;
@@ -83,10 +100,15 @@ async function ensureBitmap(node, url) {
   st.lastBitmap = bmp;
   return bmp;
 }
-async function ensureVideoFrameCanvas(node, url, size) {
+async function ensureVideoFrameCanvas(node, url, size, tick = 0) {
   node.__imageops_media ?? (node.__imageops_media = {});
   const st = node.__imageops_media;
   if (!st.videoEl || st.lastVideoURL !== url) {
+    if (st.videoEl) {
+      st.videoEl.pause();
+      st.videoEl.removeAttribute("src");
+      st.videoEl.load();
+    }
     const v2 = document.createElement("video");
     v2.src = url;
     v2.muted = true;
@@ -95,12 +117,14 @@ async function ensureVideoFrameCanvas(node, url, size) {
     v2.autoplay = true;
     try {
       await v2.play();
-    } catch {
+    } catch (e) {
+      console.warn("[ImageOps] video play failed:", e);
     }
     st.videoEl = v2;
     st.lastVideoURL = url;
   }
   const v = st.videoEl;
+  syncVideoToTick(v, tick);
   const { width, height } = fitWithinMaxSize(v.videoWidth || size, v.videoHeight || size, size);
   const c = ensureCanvasSize(st.videoCanvas, width, height);
   const ctx = c.getContext("2d");

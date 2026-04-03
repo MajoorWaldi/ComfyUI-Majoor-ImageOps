@@ -35,8 +35,8 @@ class ImageOpsChannel:
             },
         }
 
-    def apply(self, image=None, bypass=False, channel="Red", invert_mask=False, mask=None, unique_id=None):
-        source = _select_media_tensor(image, None)
+    def apply(self, image=None, bypass=False, channel="Red", invert_mask=False, video=None, mask=None, unique_id=None):
+        source = _select_media_tensor(image, video)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         progress = start_progress(unique_id=unique_id)
         if _scalar(bypass, bool):

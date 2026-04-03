@@ -10,8 +10,12 @@ function clampInt(v: unknown, minV: number, maxV: number, fallback: number): num
 
 export function getPreviewConfig(): PreviewConfig {
   const canvasSize = clampInt(localStorage.getItem("imageops.preview.canvasSize"), 128, 2048, 512);
+  const playbackCanvasSize = clampInt(localStorage.getItem("imageops.preview.playbackCanvasSize"), 128, canvasSize, Math.min(canvasSize, 384));
+  const interactionCanvasSize = clampInt(localStorage.getItem("imageops.preview.interactionCanvasSize"), 128, playbackCanvasSize, Math.min(playbackCanvasSize, 320));
   return {
     canvasSize,
+    playbackCanvasSize,
+    interactionCanvasSize,
     debounceMs: 120,
     maxGraphNodes: 140,
   };

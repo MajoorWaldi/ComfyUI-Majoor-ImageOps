@@ -15,13 +15,15 @@ export function computeScopes(imageData: ImageData, opts?: ScopesOptions): Scope
   const hist = new Uint32Array(256);
   const waveW = Math.max(64, Math.floor(opts?.waveWidth ?? 256));
   const waveH = Math.max(64, Math.floor(opts?.waveHeight ?? 64));
-  const waveform = new Uint16Array(waveW * waveH);
-  const waveformR = new Uint16Array(waveW * waveH);
-  const waveformG = new Uint16Array(waveW * waveH);
-  const waveformB = new Uint16Array(waveW * waveH);
+  // Uint32Array prevents overflow: Uint16 saturates at 65535, which happens on
+  // images wider than ~65k pixels or with dense column coverage.
+  const waveform = new Uint32Array(waveW * waveH);
+  const waveformR = new Uint32Array(waveW * waveH);
+  const waveformG = new Uint32Array(waveW * waveH);
+  const waveformB = new Uint32Array(waveW * waveH);
 
   const vecSize = Math.max(64, Math.floor(opts?.vectorscopeSize ?? 96));
-  const vectorscope = new Uint16Array(vecSize * vecSize);
+  const vectorscope = new Uint32Array(vecSize * vecSize);
 
   for (let y = 0; y < H; y += step) {
     const wy = Math.floor((y / Math.max(1, H - 1)) * (waveW - 1));
@@ -79,7 +81,7 @@ export function drawHistogram(ctx: CanvasRenderingContext2D, W: number, H: numbe
   ctx.stroke();
 }
 
-export function drawWaveform(ctx: CanvasRenderingContext2D, W: number, H: number, wf: Uint16Array, wfW: number, wfH: number): void {
+export function drawWaveform(ctx: CanvasRenderingContext2D, W: number, H: number, wf: Uint32Array, wfW: number, wfH: number): void {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = "rgba(0,0,0,0.35)";
@@ -106,7 +108,7 @@ export function drawWaveform(ctx: CanvasRenderingContext2D, W: number, H: number
   ctx.putImageData(img, 0, 0);
 }
 
-export function drawRgbWaveform(ctx: CanvasRenderingContext2D, W: number, H: number, wr: Uint16Array, wg: Uint16Array, wb: Uint16Array, wfW: number, wfH: number): void {
+export function drawRgbWaveform(ctx: CanvasRenderingContext2D, W: number, H: number, wr: Uint32Array, wg: Uint32Array, wb: Uint32Array, wfW: number, wfH: number): void {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = "rgba(0,0,0,0.35)";
@@ -137,7 +139,7 @@ export function drawRgbWaveform(ctx: CanvasRenderingContext2D, W: number, H: num
   ctx.putImageData(img, 0, 0);
 }
 
-export function drawVectorscope(ctx: CanvasRenderingContext2D, S: number, data: Uint16Array, size: number): void {
+export function drawVectorscope(ctx: CanvasRenderingContext2D, S: number, data: Uint32Array, size: number): void {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, S, S);
   ctx.fillStyle = "rgba(0,0,0,0.35)";

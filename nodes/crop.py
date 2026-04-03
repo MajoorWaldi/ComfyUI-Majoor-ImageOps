@@ -12,6 +12,29 @@ from ._progress import start_progress
 from ._preview import build_node_preview_result
 
 
+def _list_param_length(*values):
+    lengths = [len(value) for value in values if isinstance(value, (list, tuple))]
+    return max(lengths) if lengths else 1
+
+
+def _is_noop_crop(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale):
+    if source is None or source.dim() != 4:
+        return False
+    count = _list_param_length(width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
+    for index in range(count):
+        target_w = max(1, _scalar(width, int, index=index))
+        target_h = max(1, _scalar(height, int, index=index))
+        if int(source.shape[2]) != target_w or int(source.shape[1]) != target_h:
+            return False
+        if abs(_scalar(crop_center_x, index=index) - 0.5) > 1e-6 or abs(_scalar(crop_center_y, index=index) - 0.5) > 1e-6:
+            return False
+        if abs(_scalar(crop_scale, index=index) - 1.0) > 1e-6:
+            return False
+        if str(_scalar(aspect_ratio, str, index=index)) not in ASPECT_RATIO_PRESETS:
+            return False
+    return True
+
+
 class ImageOpsCrop:
     CATEGORY = "image/imageops"
     RETURN_TYPES = ("IMAGE", "MASK")
@@ -43,14 +66,17 @@ class ImageOpsCrop:
         }
 
     def apply(self, image=None, bypass=False, aspect_ratio="1:1", width=1024, height=1024, sync_dimensions=True,
-              invert_mask=False, mask=None, crop_center_x=0.5, crop_center_y=0.5, crop_scale=1.0, unique_id=None):
+              invert_mask=False, video=None, mask=None, crop_center_x=0.5, crop_center_y=0.5, crop_scale=1.0, unique_id=None):
         del sync_dimensions
-        source = _select_media_tensor(image, None)
+        source = _select_media_tensor(image, video)
         input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         progress = start_progress(unique_id=unique_id)
 
         if _scalar(bypass, bool):
+            progress.finish()
+            return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_crop")
+        if _is_noop_crop(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale):
             progress.finish()
             return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_crop")
 

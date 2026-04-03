@@ -10,7 +10,7 @@ interface RendererConfig {
 }
 
 interface Renderer {
-  render(node: ComfyNode, tick?: number, outputSlot?: number | null): Promise<RenderResult>;
+  render(node: ComfyNode, tick?: number, outputSlot?: number | null, canvasSizeOverride?: number): Promise<RenderResult>;
 }
 
 export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Renderer {
@@ -71,8 +71,14 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
     return canvas;
   }
 
-  async function render(node: ComfyNode, tick: number = 0, outputSlot: number | null = null): Promise<RenderResult> {
-    const ctx: RenderContext = { api, canvasSize, tick, cache: new Map(), visited: new Set() };
+  function getPersistentStaticCache(node: ComfyNode): Map<string, HTMLCanvasElement> {
+    node.__imageops_media ??= {};
+    node.__imageops_media.staticRenderCache ??= new Map<string, HTMLCanvasElement>();
+    return node.__imageops_media.staticRenderCache;
+  }
+
+  async function render(node: ComfyNode, tick: number = 0, outputSlot: number | null = null, canvasSizeOverride?: number): Promise<RenderResult> {
+    const ctx: RenderContext = { api, canvasSize: canvasSizeOverride ?? canvasSize, tick, cache: new Map(), visited: new Set() };
     const canvas = await renderNode(node, ctx, outputSlot);
     return { canvas };
   }
@@ -87,6 +93,15 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
     if (ctx.cache.has(sig)) {
       ctx.visited.delete(node.id);
       return ctx.cache.get(sig)!;
+    }
+    if (ctx.tick === 0) {
+      const persistent = getPersistentStaticCache(node);
+      const cached = persistent.get(sig);
+      if (cached) {
+        ctx.cache.set(sig, cached);
+        ctx.visited.delete(node.id);
+        return cached;
+      }
     }
 
     // source node?
@@ -107,11 +122,16 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
         const dims = fitWithinMaxSize(bmp.width || 1, bmp.height || 1, ctx.canvasSize);
         c = renderImageSourceToCanvas(node, bmp, dims.width, dims.height, "imageCanvas");
       } else {
-        c = await ensureVideoFrameCanvas(node, url, ctx.canvasSize);
+        c = await ensureVideoFrameCanvas(node, url, ctx.canvasSize, ctx.tick);
       }
 
       if (!c) { ctx.visited.delete(node.id); return null; }
       ctx.cache.set(sig, c);
+      if (ctx.tick === 0) {
+        const persistent = getPersistentStaticCache(node);
+        persistent.clear();
+        persistent.set(sig, c);
+      }
       ctx.visited.delete(node.id);
       return c;
     }
@@ -119,6 +139,11 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
     const nativePreview = await renderFromNativePreview(node);
     if (nativePreview) {
       ctx.cache.set(sig, nativePreview);
+      if (ctx.tick === 0) {
+        const persistent = getPersistentStaticCache(node);
+        persistent.clear();
+        persistent.set(sig, nativePreview);
+      }
       ctx.visited.delete(node.id);
       return nativePreview;
     }
@@ -149,6 +174,11 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
       const adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs: [], tick: ctx.tick });
       const result = adapted instanceof HTMLCanvasElement ? adapted : out;
       ctx.cache.set(sig, result);
+      if (ctx.tick === 0) {
+        const persistent = getPersistentStaticCache(node);
+        persistent.clear();
+        persistent.set(sig, result);
+      }
       ctx.visited.delete(node.id);
       return result;
     }
@@ -209,6 +239,11 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
     const result = adapted instanceof HTMLCanvasElement ? adapted : out;
 
     ctx.cache.set(sig, result);
+    if (ctx.tick === 0) {
+      const persistent = getPersistentStaticCache(node);
+      persistent.clear();
+      persistent.set(sig, result);
+    }
     ctx.visited.delete(node.id);
     return result;
   }

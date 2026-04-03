@@ -74,9 +74,10 @@ export function detectSourceUpstream(node: ComfyNode, maxHops: number = MAX_RECU
   const seen = new Set<number>();
   let best: MediaSource | null = null;
   let steps = 0;
+  let head = 0; // Use index pointer instead of shift() to avoid O(n) cost
 
-  while (queue.length && steps < maxHops) {
-    const cur = queue.shift();
+  while (head < queue.length && steps < maxHops && queue.length < 4096) {
+    const cur = queue[head++];
     if (!cur || seen.has(cur.id)) continue;
     seen.add(cur.id);
     steps++;
@@ -86,7 +87,9 @@ export function detectSourceUpstream(node: ComfyNode, maxHops: number = MAX_RECU
     if (source?.animated) best = source;
     else if (!best && source) best = source;
 
-    queue.push(...getUpstreamNodes(cur));
+    for (const upstream of getUpstreamNodes(cur)) {
+      queue.push(upstream);
+    }
   }
   return best;
 }

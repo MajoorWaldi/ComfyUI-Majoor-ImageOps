@@ -12,6 +12,14 @@ from ._progress import start_progress
 from ._preview import build_node_preview_result
 
 
+def _all_zero_radius(radius) -> bool:
+    if isinstance(radius, (list, tuple)):
+        if len(radius) == 0:
+            return True
+        return all(_scalar(radius, int, index=i) <= 0 for i in range(len(radius)))
+    return _scalar(radius, int) <= 0
+
+
 class ImageOpsBlur:
     CATEGORY = "image/imageops"
     RETURN_TYPES = ("IMAGE", "MASK")
@@ -42,6 +50,9 @@ class ImageOpsBlur:
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         progress = start_progress(unique_id=unique_id)
         if _scalar(bypass, bool):
+            progress.finish()
+            return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_blur")
+        if _all_zero_radius(radius):
             progress.finish()
             return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_blur")
         if input_mask is not None:

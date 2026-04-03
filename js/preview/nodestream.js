@@ -152,8 +152,9 @@ async function resolveNodeStreamPreview(node, canvasSize) {
   const visited = /* @__PURE__ */ new Set();
   const queue = [{ node, depth: 0 }];
   let scanned = 0;
-  while (queue.length > 0 && scanned < MAX_DOWNSTREAM_NODES) {
-    const current = queue.shift();
+  let head = 0;
+  while (head < queue.length && scanned < MAX_DOWNSTREAM_NODES) {
+    const current = queue[head++];
     if (!current?.node) continue;
     const currentId = Number(current.node.id);
     if (visited.has(currentId)) continue;

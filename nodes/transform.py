@@ -22,11 +22,14 @@ from ._preview import build_node_preview_result
 
 def _resample_from_filter(filter_mode, index: int = 0):
     normalized = _scalar(filter_mode, str, index=index).strip().lower()
-    return {
+    _RESAMPLE_MAP = {
         "nearest": Image.NEAREST,
         "bilinear": Image.BILINEAR,
         "bicubic": Image.BICUBIC,
-    }.get(normalized, Image.BILINEAR)
+    }
+    if normalized not in _RESAMPLE_MAP:
+        logger.warning(f"ImageOpsTransform: unknown filter mode '{normalized}', falling back to bilinear")
+    return _RESAMPLE_MAP.get(normalized, Image.BILINEAR)
 
 
 def _mask_to_pil(mask_frame: torch.Tensor) -> Image.Image:
@@ -40,6 +43,11 @@ def _pil_to_mask(pil: Image.Image, device: torch.device, dtype: torch.dtype) -> 
 
 
 def _transform_masked_source(source, input_mask, filter_mode, translate_x, translate_y, rotate_deg, scale, expand, progress=None):
+    if source.shape[0] != input_mask.shape[0]:
+        raise ValueError(
+            f"ImageOpsTransform: source batch ({source.shape[0]}) and mask batch ({input_mask.shape[0]}) "
+            f"must match. Broadcasting would produce incorrect per-frame transforms."
+        )
     premult_rgb = source[..., :3].float().clamp(0.0, 1.0) * input_mask.unsqueeze(-1)
     processed_rgb = []
     processed_mask = []
@@ -173,6 +181,35 @@ class ImageOpsTransform:
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         progress = start_progress(unique_id=unique_id)
         if _scalar(bypass, bool):
+            progress.finish()
+            return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_transform")
+
+        def _is_noop_param(value, kind="float"):
+            if isinstance(value, (list, tuple)):
+                for idx in range(len(value)):
+                    current = _scalar(value, bool if kind == "bool" else float, index=idx) if kind == "bool" else _scalar(value, index=idx)
+                    if kind == "bool":
+                        if bool(current):
+                            return False
+                    elif kind == "int":
+                        if abs(int(round(float(current)))) > 0:
+                            return False
+                    else:
+                        if abs(float(current)) > EPSILON:
+                            return False
+                return True
+            current = _scalar(value, bool) if kind == "bool" else _scalar(value)
+            if kind == "bool":
+                return not bool(current)
+            if kind == "int":
+                return abs(int(round(float(current)))) == 0
+            return abs(float(current)) <= EPSILON
+
+        no_translate = _is_noop_param(translate_x, "int") and _is_noop_param(translate_y, "int")
+        no_rotate = _is_noop_param(rotate_deg, "float")
+        unit_scale = _is_noop_param(_scalar(scale) - 1.0 if not isinstance(scale, (list, tuple)) else [(_scalar(scale, index=i) - 1.0) for i in range(len(scale))], "float")
+        no_expand = _is_noop_param(expand, "bool")
+        if no_translate and no_rotate and unit_scale and no_expand:
             progress.finish()
             return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_transform")
 

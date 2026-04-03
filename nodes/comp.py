@@ -182,6 +182,7 @@ class ImageOpsComp(io.ComfyNode):
         batch = max(int(image.shape[0]) for _, image, _ in tensors)
         device = tensors[0][1].device
         dtype = tensors[0][1].dtype
+        enabled_layers = [(layer, image_tensor, mask_value) for layer, image_tensor, mask_value in tensors if bool(layer.get("enabled", True))]
 
         if _scalar(bypass, bool):
             _, first_image, first_mask = tensors[0]
@@ -206,12 +207,10 @@ class ImageOpsComp(io.ComfyNode):
             return build_node_preview_result(result, (result, output_mask), prefix="imageops_comp")
 
         canvas = _make_comp_canvas(batch, out_h, out_w, device=device, dtype=dtype, background_color=background_color)
-        for layer, image_tensor, mask_value in tensors:
-            if not bool(layer.get("enabled", True)):
-                continue
+        for layer, image_tensor, mask_value in enabled_layers:
             canvas = _composite_comp_layer(
                 canvas,
-                image_tensor.to(device=device, dtype=dtype),
+                image_tensor,
                 mask_value,
                 mode=layer.get("mode", "over"),
                 opacity=layer.get("opacity", 1.0),

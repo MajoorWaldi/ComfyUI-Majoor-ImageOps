@@ -11,12 +11,12 @@ function computeScopes(imageData, opts) {
   const hist = new Uint32Array(256);
   const waveW = Math.max(64, Math.floor(opts?.waveWidth ?? 256));
   const waveH = Math.max(64, Math.floor(opts?.waveHeight ?? 64));
-  const waveform = new Uint16Array(waveW * waveH);
-  const waveformR = new Uint16Array(waveW * waveH);
-  const waveformG = new Uint16Array(waveW * waveH);
-  const waveformB = new Uint16Array(waveW * waveH);
+  const waveform = new Uint32Array(waveW * waveH);
+  const waveformR = new Uint32Array(waveW * waveH);
+  const waveformG = new Uint32Array(waveW * waveH);
+  const waveformB = new Uint32Array(waveW * waveH);
   const vecSize = Math.max(64, Math.floor(opts?.vectorscopeSize ?? 96));
-  const vectorscope = new Uint16Array(vecSize * vecSize);
+  const vectorscope = new Uint32Array(vecSize * vecSize);
   for (let y = 0; y < H; y += step) {
     const wy = Math.floor(y / Math.max(1, H - 1) * (waveW - 1));
     for (let x = 0; x < W; x += step) {
