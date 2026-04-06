@@ -1,4 +1,5 @@
 from ._helpers import (
+    _alpha_mask_from_image,
     MEDIA_INPUT_TYPE,
     _apply_invert,
     _resolve_mask_output_source,
@@ -40,6 +41,6 @@ class ImageOpsInvert:
             return build_node_preview_result(src, (src, output_mask), prefix="imageops_invert")
         out = _apply_invert(src, invert_alpha=_scalar(invert_alpha, bool))
         if mask is None and src.shape[-1] >= 4 and _scalar(invert_alpha, bool):
-            output_mask = (1.0 - output_mask).clamp(0.0, 1.0)
+            output_mask = _alpha_mask_from_image(out)
         progress.finish()
         return build_node_preview_result(out, (out, output_mask), prefix="imageops_invert")

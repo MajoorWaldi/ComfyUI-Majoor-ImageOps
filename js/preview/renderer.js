@@ -1,4 +1,4 @@
-import { getInputLink, getUpstreamNode, detectSource } from "./graph.js";
+import { getInputOriginSlot, getUpstreamNode, detectSource } from "./graph.js";
 import { makeViewUrl, ensureBitmap, ensureImageElement, ensureVideoFrameCanvas, fitWithinMaxSize, renderImageSourceToCanvas } from "./source.js";
 function buildRenderer({ api, registry, canvasSize }) {
   const MAX_RECURSION = 64;
@@ -140,8 +140,7 @@ function buildRenderer({ api, registry, canvasSize }) {
     const resolvedIndexes = adapterInputIndexes.length > 0 ? adapterInputIndexes : [...Array(adapter ? typeof adapter.inputs === "function" ? adapter.inputs(node) : adapter.inputs ?? 1 : 1).keys()];
     if (!adapter) {
       const primaryInputIndex2 = resolvedIndexes[0] ?? 0;
-      const link = getInputLink(node, primaryInputIndex2);
-      const primary2 = await renderNode(getUpstreamNode(node, primaryInputIndex2), ctx, link?.origin_slot ?? link?.originSlot ?? null);
+      const primary2 = await renderNode(getUpstreamNode(node, primaryInputIndex2), ctx, getInputOriginSlot(node, primaryInputIndex2));
       ctx.visited.delete(node.id);
       return primary2;
     }
@@ -166,8 +165,7 @@ function buildRenderer({ api, registry, canvasSize }) {
       return result2;
     }
     const primaryInputIndex = resolvedIndexes[0] ?? 0;
-    const primaryLink = getInputLink(node, primaryInputIndex);
-    const primary = await renderNode(getUpstreamNode(node, primaryInputIndex), ctx, primaryLink?.origin_slot ?? primaryLink?.originSlot ?? null);
+    const primary = await renderNode(getUpstreamNode(node, primaryInputIndex), ctx, getInputOriginSlot(node, primaryInputIndex));
     if (!primary) {
       ctx.visited.delete(node.id);
       return null;
@@ -177,8 +175,7 @@ function buildRenderer({ api, registry, canvasSize }) {
     for (let i = 0; i < resolvedIndexes.length; i++) {
       const inputIndex = resolvedIndexes[i];
       const up = getUpstreamNode(node, inputIndex);
-      const link = getInputLink(node, inputIndex);
-      const originSlot = link?.origin_slot ?? link?.originSlot ?? null;
+      const originSlot = getInputOriginSlot(node, inputIndex);
       if (i === 0 && !up) {
         ctx.visited.delete(node.id);
         return primary;

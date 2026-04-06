@@ -40,6 +40,7 @@ def _default_layer(slot: str, index: int) -> dict[str, Any]:
         "center_x": 0.5 + offset,
         "center_y": 0.5 + offset,
         "scale": 1.0 if index == 0 else 0.5,
+        "rotate_deg": 0.0,
         "opacity": 1.0,
         "mode": "over",
         "enabled": True,
@@ -53,6 +54,12 @@ def _normalize_layer(entry: dict[str, Any], slot: str, index: int) -> dict[str, 
     data["center_x"] = _scalar(data.get("center_x", default["center_x"]))
     data["center_y"] = _scalar(data.get("center_y", default["center_y"]))
     data["scale"] = _scalar(max(0.05, min(8.0, _scalar(data.get("scale", default["scale"])))))
+    data["rotate_deg"] = _scalar(
+        data.get(
+            "rotate_deg",
+            data.get("rotation_deg", data.get("rotation", default["rotate_deg"])),
+        )
+    )
     data["opacity"] = _scalar(max(0.0, min(1.0, _scalar(data.get("opacity", default["opacity"])))))
     mode = str(data.get("mode", default["mode"]) or "over").strip().lower()
     data["mode"] = mode if mode in COMP_BLEND_MODES else "over"
@@ -217,6 +224,7 @@ class ImageOpsComp(io.ComfyNode):
                 center_x=layer.get("center_x", 0.5),
                 center_y=layer.get("center_y", 0.5),
                 scale=layer.get("scale", 1.0),
+                rotate_deg=layer.get("rotate_deg", 0.0),
             )
             progress.update()
 

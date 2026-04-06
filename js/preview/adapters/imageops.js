@@ -1,5 +1,6 @@
 import { ops } from "../ops.js";
 import { getCompSlots } from "../comp.js";
+import { clampDrawDimension, makeSolidBackgroundCanvas } from "../draw.js";
 function getConnectedCompInputIndexes(node) {
   const indexes = [];
   for (const slot of getCompSlots(node)) {
@@ -21,6 +22,12 @@ function imageOpsAdapter() {
       const bypass = !!(node?.widgets ?? []).find((w) => w?.name === "bypass")?.value;
       const maskConnected = (node.inputs ?? []).some((input, index) => String(input?.name ?? "").toLowerCase() === "mask" && (node.inputs?.[index]?.link ?? null) != null);
       if (cls === "ImageOpsNoise") return 0;
+      if (cls === "ImageOpsMaskConvert") {
+        const reverse = !!(node?.widgets ?? []).find((widget) => widget?.name === "reverse")?.value;
+        const imageConnected = (node.inputs?.[0]?.link ?? null) != null;
+        const maskConnected2 = (node.inputs?.[1]?.link ?? null) != null;
+        return reverse ? Number(imageConnected) : Number(maskConnected2);
+      }
       if (cls === "ImageOpsDistort") {
         const displacementConnected = (node.inputs?.[1]?.link ?? null) != null;
         const effectMaskConnected = (node.inputs?.[2]?.link ?? null) != null;
@@ -38,6 +45,11 @@ function imageOpsAdapter() {
     },
     inputIndexes: (node) => {
       const cls = String(node?.comfyClass ?? "");
+      if (cls === "ImageOpsMaskConvert") {
+        const reverse = !!(node?.widgets ?? []).find((widget) => widget?.name === "reverse")?.value;
+        if (reverse) return (node.inputs?.[0]?.link ?? null) != null ? [0] : [];
+        return (node.inputs?.[1]?.link ?? null) != null ? [1] : [];
+      }
       if (cls === "ImageOpsComp") {
         return getConnectedCompInputIndexes(node);
       }
@@ -58,10 +70,19 @@ function imageOpsAdapter() {
     async apply({ node, ctx, canvasSize, inputs, outputSlot, tick }) {
       const cls = String(node?.comfyClass ?? "");
       const bypass = !!(node?.widgets ?? []).find((w) => w?.name === "bypass")?.value;
-      if (outputSlot === 1 && cls !== "ImageOpsPreview") {
-        if (cls === "ImageOpsDraw") {
-          return await ops.drawMask(ctx, canvasSize, node, inputs);
-        }
+      if (cls === "ImageOpsMaskConvert") {
+        return ops.imageOpsMask(ctx, canvasSize, node, cls, inputs, tick ?? 0) ?? inputs[0];
+      }
+      if (cls === "ImageOpsDraw" && outputSlot === 2) {
+        return await ops.drawMask(ctx, canvasSize, node, inputs);
+      }
+      if (cls === "ImageOpsDraw" && outputSlot === 1) {
+        const width = clampDrawDimension(Number((node?.widgets ?? []).find((widget) => widget?.name === "width")?.value ?? 1024), 1024);
+        const height = clampDrawDimension(Number((node?.widgets ?? []).find((widget) => widget?.name === "height")?.value ?? 1024), 1024);
+        const bgColor = String((node?.widgets ?? []).find((widget) => widget?.name === "bg_color")?.value ?? "#000000");
+        return inputs[0] ?? makeSolidBackgroundCanvas(width, height, bgColor);
+      }
+      if (outputSlot === 1 && cls !== "ImageOpsPreview" && cls !== "ImageOpsDraw") {
         return ops.imageOpsMask(ctx, canvasSize, node, cls, inputs, tick ?? 0) ?? inputs[0];
       }
       if (bypass && cls !== "ImageOpsDraw") return;

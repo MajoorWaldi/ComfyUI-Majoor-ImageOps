@@ -20,6 +20,11 @@ function clampCompScale(value) {
   if (!Number.isFinite(value)) return 1;
   return Math.max(0.05, Math.min(8, value));
 }
+function clampCompRotation(value) {
+  if (!Number.isFinite(value)) return 0;
+  const normalized = ((value + 180) % 360 + 360) % 360 - 180;
+  return Math.max(-180, Math.min(180, normalized));
+}
 function defaultCompLayer(slot, index) {
   const offset = Math.min(index, 4) * 0.04;
   return {
@@ -27,6 +32,7 @@ function defaultCompLayer(slot, index) {
     centerX: 0.5 + offset,
     centerY: 0.5 + offset,
     scale: index === 0 ? 1 : 0.5,
+    rotationDeg: 0,
     opacity: 1,
     mode: "over",
     enabled: true
@@ -41,6 +47,7 @@ function normalizeCompLayer(slot, index, layer) {
     centerX: clampCompCenter(Number(anyLayer.centerX ?? anyLayer.center_x ?? fallback.centerX)),
     centerY: clampCompCenter(Number(anyLayer.centerY ?? anyLayer.center_y ?? fallback.centerY)),
     scale: clampCompScale(Number(anyLayer.scale ?? fallback.scale)),
+    rotationDeg: clampCompRotation(Number(anyLayer.rotationDeg ?? anyLayer.rotate_deg ?? anyLayer.rotation_deg ?? anyLayer.rotation ?? fallback.rotationDeg)),
     opacity: Math.max(0, Math.min(1, Number(anyLayer.opacity ?? fallback.opacity))),
     mode: COMP_BLEND_MODES.includes(mode) ? mode : "over",
     enabled: anyLayer.enabled !== false
@@ -116,6 +123,7 @@ function serializeCompLayers(layers) {
       center_x: layer.centerX,
       center_y: layer.centerY,
       scale: layer.scale,
+      rotate_deg: layer.rotationDeg,
       opacity: layer.opacity,
       mode: layer.mode,
       enabled: layer.enabled
@@ -123,22 +131,35 @@ function serializeCompLayers(layers) {
   });
 }
 function computeCompRect(outputWidth, outputHeight, sourceWidth, sourceHeight, layer) {
-  const width = Math.max(1, Math.round(Math.max(1, sourceWidth) * clampCompScale(layer.scale)));
-  const height = Math.max(1, Math.round(Math.max(1, sourceHeight) * clampCompScale(layer.scale)));
-  const left = Math.round(clampCompCenter(layer.centerX) * Math.max(1, outputWidth) - width / 2);
-  const top = Math.round(clampCompCenter(layer.centerY) * Math.max(1, outputHeight) - height / 2);
+  const drawWidth = Math.max(1, Math.round(Math.max(1, sourceWidth) * clampCompScale(layer.scale)));
+  const drawHeight = Math.max(1, Math.round(Math.max(1, sourceHeight) * clampCompScale(layer.scale)));
+  const centerX = clampCompCenter(layer.centerX) * Math.max(1, outputWidth);
+  const centerY = clampCompCenter(layer.centerY) * Math.max(1, outputHeight);
+  const rad = clampCompRotation(layer.rotationDeg) * Math.PI / 180;
+  const absCos = Math.abs(Math.cos(rad));
+  const absSin = Math.abs(Math.sin(rad));
+  const width = Math.max(1, Math.round(drawWidth * absCos + drawHeight * absSin));
+  const height = Math.max(1, Math.round(drawWidth * absSin + drawHeight * absCos));
+  const left = Math.round(centerX - width / 2);
+  const top = Math.round(centerY - height / 2);
   return {
     left,
     top,
     width,
     height,
     right: left + width,
-    bottom: top + height
+    bottom: top + height,
+    drawWidth,
+    drawHeight,
+    centerX,
+    centerY,
+    rotationDeg: clampCompRotation(layer.rotationDeg)
   };
 }
 export {
   COMP_BLEND_MODES,
   clampCompCenter,
+  clampCompRotation,
   clampCompScale,
   computeCompRect,
   getCompSlots,

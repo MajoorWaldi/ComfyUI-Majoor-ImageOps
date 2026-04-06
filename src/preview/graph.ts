@@ -11,6 +11,11 @@ export function getInputLink(node: ComfyNode, inputIndex: number = 0): ComfyLink
   try { return node?.getInputLink?.(inputIndex) ?? null; } catch { return null; }
 }
 
+export function getInputOriginSlot(node: ComfyNode, inputIndex: number = 0, fallback: number | null = null): number | null {
+  const link = getInputLink(node, inputIndex);
+  return link?.origin_slot ?? link?.originSlot ?? fallback;
+}
+
 export function getInputCount(node: ComfyNode, fallback: number = DEFAULT_INPUT_SCAN): number {
   const count = Array.isArray(node?.inputs) ? node.inputs.length : 0;
   return count > 0 ? count : fallback;

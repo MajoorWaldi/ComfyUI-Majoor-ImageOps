@@ -62,6 +62,7 @@ ImageOpsColorAjust = _load_module(f"{_PKG}.nodes.color_ajust", _nodes_dir / "col
 ImageOpsInvert = _load_module(f"{_PKG}.nodes.invert", _nodes_dir / "invert.py").ImageOpsInvert
 ImageOpsClamp = _load_module(f"{_PKG}.nodes.clamp", _nodes_dir / "clamp.py").ImageOpsClamp
 ImageOpsMerge = _load_module(f"{_PKG}.nodes.merge", _nodes_dir / "merge.py").ImageOpsMerge
+ImageOpsMaskConvert = _load_module(f"{_PKG}.nodes.mask_convert", _nodes_dir / "mask_convert.py").ImageOpsMaskConvert
 ImageOpsNoise = _load_module(f"{_PKG}.nodes.noise", _nodes_dir / "noise.py").ImageOpsNoise
 ImageOpsPreview = _load_module(f"{_PKG}.nodes.preview", _nodes_dir / "preview.py").ImageOpsPreview
 
@@ -77,6 +78,7 @@ NODE_CLASS_MAPPINGS = {
     "ImageOpsInvert": ImageOpsInvert,
     "ImageOpsClamp": ImageOpsClamp,
     "ImageOpsMerge": ImageOpsMerge,
+    "ImageOpsMaskConvert": ImageOpsMaskConvert,
     "ImageOpsNoise": ImageOpsNoise,
     "ImageOpsPreview": ImageOpsPreview,
 }
@@ -87,7 +89,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageOpsComp": "ImageOps Comp",
     "ImageOpsCrop": "ImageOps Resize/Crop",
     "ImageOpsDistort": "ImageOps Distort",
-    "ImageOpsDraw": "ImageOps Draw",
+    "ImageOpsDraw": "ImageOps Paint",
     "ImageOpsTransform": "ImageOps Transform",
     # Keep the legacy class key for workflow compatibility, but expose the
     # corrected node name in the UI.
@@ -95,6 +97,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageOpsInvert": "ImageOps Invert",
     "ImageOpsClamp": "ImageOps Clamp",
     "ImageOpsMerge": "ImageOps Merge",
+    "ImageOpsMaskConvert": "ImageOps Mask Convert",
     "ImageOpsNoise": "ImageOps Noise",
     "ImageOpsPreview": "ImageOps Preview",
 }

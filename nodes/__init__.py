@@ -10,6 +10,7 @@ from .color_ajust import ImageOpsColorAjust
 from .invert import ImageOpsInvert
 from .clamp import ImageOpsClamp
 from .merge import ImageOpsMerge
+from .mask_convert import ImageOpsMaskConvert
 from .noise import ImageOpsNoise
 from .preview import ImageOpsPreview
 
@@ -25,6 +26,7 @@ __all__ = [
     "ImageOpsInvert",
     "ImageOpsClamp",
     "ImageOpsMerge",
+    "ImageOpsMaskConvert",
     "ImageOpsNoise",
     "ImageOpsPreview",
 ]

@@ -43,7 +43,7 @@
 | **ImageOps Clamp** | `ImageOpsClamp` | Clamp pixel values to min/max range |
 | **ImageOps Merge** | `ImageOpsMerge` | Blend two images with multiple blend modes (over, add, subtract, multiply, screen, difference, max, min) |
 | **ImageOps Noise** | `ImageOpsNoise` | Procedural noise source with Perlin, value, FBM, turbulence, ridged, seed stepping, frame length/FPS animation controls, and color ramp output |
-| **ImageOps Draw** | `ImageOpsDraw` | Digital painting with brush/eraser tools, opacity, and color controls |
+| **ImageOps Paint** | `ImageOpsDraw` | Digital painting with brush/eraser tools, opacity, and color controls |
 | **ImageOps Comp** | `ImageOpsComp` | Multi-layer compositor with blend modes, positioning, and opacity per layer |
 
 ### 📤 Output Nodes
@@ -65,7 +65,7 @@ Professional color grading with reference-based correction.
 
 **Parameters:**
 - `temperature` (-100 to 100): Color temperature adjustment
-- `hue` (-90 to 90): Hue rotation in degrees
+- `hue` (-180 to 180): Hue rotation in degrees
 - `brightness` (-100 to 100): Brightness adjustment
 - `contrast` (-100 to 100): Contrast adjustment
 - `saturation` (-100 to 100): Saturation adjustment
@@ -245,7 +245,7 @@ Procedural texture generator for masks and grayscale or color noise plates.
 
 ---
 
-### 🖌️ ImageOps Draw
+### 🖌️ ImageOps Paint
 Digital painting and drawing tool.
 
 **Inputs:**

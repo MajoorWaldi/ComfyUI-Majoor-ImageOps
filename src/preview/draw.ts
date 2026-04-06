@@ -1,6 +1,7 @@
 import type { ComfyNode, ComfyWidget } from "../types.js";
 
 export type DrawTool = "brush" | "eraser";
+export type DrawEdgeMode = "hard" | "soft";
 
 function widget(node: ComfyNode, name: string): ComfyWidget | null {
   return node?.widgets?.find((entry) => entry?.name === name) ?? null;
@@ -53,6 +54,10 @@ export function normalizeDrawColor(value: string, fallback: string = "#ffffff"):
 
 export function normalizeDrawTool(value: string): DrawTool {
   return String(value || "brush").toLowerCase() === "eraser" ? "eraser" : "brush";
+}
+
+export function normalizeDrawEdge(value: string): DrawEdgeMode {
+  return String(value || "hard").toLowerCase() === "soft" ? "soft" : "hard";
 }
 
 export function makeCanvas(width: number, height: number): HTMLCanvasElement {

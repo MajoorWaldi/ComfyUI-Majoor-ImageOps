@@ -88,8 +88,8 @@ def _composite_overlay(base: torch.Tensor, overlay_rgba: torch.Tensor) -> tuple[
 
 class ImageOpsDraw:
     CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("image", "mask")
+    RETURN_TYPES = ("IMAGE", "IMAGE", "MASK")
+    RETURN_NAMES = ("image", "source_image", "mask")
     FUNCTION = "apply"
 
     @classmethod
@@ -102,6 +102,7 @@ class ImageOpsDraw:
                 "sync_dimensions": ("BOOLEAN", {"default": True, "label_on": "Linked", "label_off": "Free"}),
                 "bg_color": ("STRING", {"default": "#000000"}),
                 "tool": (["brush", "eraser"], {"default": "brush"}),
+                "brush_edge": (["hard", "soft"], {"default": "hard"}),
                 "brush_color": ("STRING", {"default": "#FFFFFF"}),
                 "brush_opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001}),
                 "brush_size": ("INT", {"default": 10, "min": 1, "max": 256, "step": 1, "display": "slider"}),
@@ -125,6 +126,7 @@ class ImageOpsDraw:
         sync_dimensions=True,
         bg_color="#000000",
         tool="brush",
+        brush_edge="hard",
         brush_color="#FFFFFF",
         brush_opacity=1.0,
         brush_size=10,
@@ -133,7 +135,7 @@ class ImageOpsDraw:
         video=None,
         unique_id=None,
     ):
-        del sync_dimensions, tool, brush_color, brush_opacity, brush_size
+        del sync_dimensions, tool, brush_edge, brush_color, brush_opacity, brush_size
         progress = start_progress(unique_id=unique_id)
 
         source = None
@@ -159,10 +161,10 @@ class ImageOpsDraw:
             if _scalar(invert_mask, bool):
                 mask = 1.0 - mask
             progress.finish()
-            return build_node_preview_result(source, (source, mask), prefix="imageops_draw")
+            return build_node_preview_result(source, (source, source, mask), prefix="imageops_draw")
 
         result, mask = _composite_overlay(source, overlay)
         if _scalar(invert_mask, bool):
             mask = 1.0 - mask
         progress.finish()
-        return build_node_preview_result(result, (result, mask.clamp(0.0, 1.0)), prefix="imageops_draw")
+        return build_node_preview_result(result, (result, source, mask.clamp(0.0, 1.0)), prefix="imageops_draw")

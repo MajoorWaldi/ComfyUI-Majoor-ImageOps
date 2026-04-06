@@ -1,4 +1,4 @@
-from ._helpers import MEDIA_INPUT_TYPE, _alpha_mask_from_image, _apply_merge, _apply_mask_to_image, _coerce_media_to_tensor, _prepare_effect_mask, _scalar
+from ._helpers import MEDIA_INPUT_TYPE, _apply_merge, _apply_mask_to_image, _coerce_media_to_tensor, _prepare_effect_mask, _resolve_mask_output_source, _scalar
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 
@@ -39,24 +39,19 @@ class ImageOpsMerge:
     def apply(self, A, B, bypass=False, mode="over", mix=1.0, invert_mask=False, mask=None, unique_id=None):
         A = _coerce_media_to_tensor(A, "A")
         effect_mask = _prepare_effect_mask(mask, A, invert_mask=invert_mask)
+        output_mask_source = _resolve_mask_output_source(mask, A, invert_mask=invert_mask)
         progress = start_progress(unique_id=unique_id)
         if _scalar(bypass, bool):
-            output_mask = effect_mask if effect_mask is not None else _alpha_mask_from_image(A)
-            if effect_mask is None and _scalar(invert_mask, bool):
-                output_mask = (1.0 - output_mask).clamp(0.0, 1.0)
+            output_mask = effect_mask if effect_mask is not None else output_mask_source
             progress.finish()
             return build_node_preview_result(A, (A, output_mask), prefix="imageops_merge")
         if _all_zero_mix(mix):
-            output_mask = effect_mask if effect_mask is not None else _alpha_mask_from_image(A)
-            if effect_mask is None and _scalar(invert_mask, bool):
-                output_mask = (1.0 - output_mask).clamp(0.0, 1.0)
+            output_mask = effect_mask if effect_mask is not None else output_mask_source
             progress.finish()
             return build_node_preview_result(A, (A, output_mask), prefix="imageops_merge")
         B = _coerce_media_to_tensor(B, "B")
         out = _apply_merge(A, B, mode, mix)
         out = _apply_mask_to_image(A, out, effect_mask)
-        output_mask = effect_mask if effect_mask is not None else _alpha_mask_from_image(out)
-        if effect_mask is None and _scalar(invert_mask, bool):
-            output_mask = (1.0 - output_mask).clamp(0.0, 1.0)
+        output_mask = effect_mask if effect_mask is not None else _resolve_mask_output_source(mask, out, invert_mask=invert_mask)
         progress.finish()
         return build_node_preview_result(out, (out, output_mask), prefix="imageops_merge")

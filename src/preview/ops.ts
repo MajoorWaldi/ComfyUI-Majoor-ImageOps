@@ -1178,6 +1178,33 @@ function alphaMaskCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
   return markPreparedMaskCanvas(output);
 }
 
+function imageToMaskPreviewCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
+  const output = fitCanvas(source, source.width || 1, source.height || 1);
+  const octx = output.getContext("2d")!;
+  const image = octx.getImageData(0, 0, output.width, output.height);
+  const data = image.data;
+  let minAlpha = 255;
+  let maxAlpha = 255;
+  for (let index = 0; index < data.length; index += 4) {
+    const alpha = data[index + 3];
+    if (alpha < minAlpha) minAlpha = alpha;
+    if (alpha > maxAlpha) maxAlpha = alpha;
+  }
+  const useAlpha = (maxAlpha - minAlpha) > 0 || minAlpha < 255;
+  const lw = getOpsConstants().luma_weights;
+  for (let index = 0; index < data.length; index += 4) {
+    const matte = useAlpha
+      ? data[index + 3]
+      : Math.round(clamp01(luma01(data[index] / 255, data[index + 1] / 255, data[index + 2] / 255, lw)) * 255);
+    data[index] = matte;
+    data[index + 1] = matte;
+    data[index + 2] = matte;
+    data[index + 3] = 255;
+  }
+  octx.putImageData(image, 0, 0);
+  return markPreparedMaskCanvas(output);
+}
+
 function applyEffectToCanvas(
   source: HTMLCanvasElement,
   effect: (ctx: CanvasRenderingContext2D, width: number, height: number) => HTMLCanvasElement | void,
@@ -1290,6 +1317,11 @@ export function renderCompPreview(
     top: number;
     width: number;
     height: number;
+    centerX: number;
+    centerY: number;
+    drawWidth: number;
+    drawHeight: number;
+    rotationDeg: number;
   }>;
 } {
   const slots = getCompSlots(node);
@@ -1317,6 +1349,11 @@ export function renderCompPreview(
     top: number;
     width: number;
     height: number;
+    centerX: number;
+    centerY: number;
+    drawWidth: number;
+    drawHeight: number;
+    rotationDeg: number;
   }> = [];
 
   for (let index = 0; index < inputLayers.length; index++) {
@@ -1336,6 +1373,11 @@ export function renderCompPreview(
       top: rect.top,
       width: rect.width,
       height: rect.height,
+      centerX: rect.centerX,
+      centerY: rect.centerY,
+      drawWidth: rect.drawWidth,
+      drawHeight: rect.drawHeight,
+      rotationDeg: rect.rotationDeg,
     });
 
     octx.save();
@@ -1343,7 +1385,9 @@ export function renderCompPreview(
     octx.globalCompositeOperation = compModeToCanvasOp(layer.mode);
     octx.imageSmoothingEnabled = true;
     octx.imageSmoothingQuality = "high";
-    octx.drawImage(input, rect.left, rect.top, rect.width, rect.height);
+    octx.translate(rect.centerX, rect.centerY);
+    octx.rotate(rect.rotationDeg * Math.PI / 180);
+    octx.drawImage(input, -rect.drawWidth / 2, -rect.drawHeight / 2, rect.drawWidth, rect.drawHeight);
     octx.restore();
 
     alphaCtx.save();
@@ -1351,7 +1395,9 @@ export function renderCompPreview(
     alphaCtx.globalCompositeOperation = "source-over";
     alphaCtx.imageSmoothingEnabled = true;
     alphaCtx.imageSmoothingQuality = "high";
-    alphaCtx.drawImage(input, rect.left, rect.top, rect.width, rect.height);
+    alphaCtx.translate(rect.centerX, rect.centerY);
+    alphaCtx.rotate(rect.rotationDeg * Math.PI / 180);
+    alphaCtx.drawImage(input, -rect.drawWidth / 2, -rect.drawHeight / 2, rect.drawWidth, rect.drawHeight);
     alphaCtx.restore();
   }
 
@@ -2090,6 +2136,12 @@ export const ops = {
     const source = inputs[0] ?? ctx.canvas;
     const rawMask = inputs[1] ?? null;
     const resolvedMask = resolvePreviewMaskCanvas(node, source, rawMask, frameIndex);
+
+    if (cls === "ImageOpsMaskConvert") {
+      return boolAny(node, ["reverse"], false, frameIndex)
+        ? imageToMaskPreviewCanvas(source)
+        : source;
+    }
 
     if (cls === "ImageOpsNoise") {
       return renderNoiseCanvas(node, true, frameIndex);

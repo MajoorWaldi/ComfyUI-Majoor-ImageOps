@@ -17,14 +17,16 @@ import type {
 } from "../types.js";
 import { buildRenderer } from "./renderer.js";
 import { buildAdapterRegistry } from "./registry.js";
-import { detectSourceUpstream, getInputLink, getUpstreamNode, isGraphTooLarge, findDependents } from "./graph.js";
+import { detectSourceUpstream, getInputLink, getInputOriginSlot, getUpstreamNode, isGraphTooLarge, findDependents } from "./graph.js";
 import { resolveNodeStreamPreview } from "./nodestream.js";
 import { attachProgressBus } from "./progress.js";
 import { getPreviewConfig } from "./config.js";
 import { initOpsConstants } from "./constants.js";
+import { colorWheelPointToValues, drawColorWheel, getColorWheelSwatchCss } from "./color.js";
 import { clampCropCenter, clampCropScale, computeCropRect, resolveCropAspectRatio } from "./crop.js";
-import { COMP_BLEND_MODES, clampCompCenter, clampCompScale, computeCompRect, getCompSlots, serializeCompLayers, syncCompLayers } from "./comp.js";
-import { canvasToOverlayData, clampDrawDimension, clampDrawOpacity, clampDrawSize, normalizeDrawColor, normalizeDrawTool, renderDrawPreview, resolveDrawOverlayCanvas, resizeCanvasPreserve } from "./draw.js";
+import type { CropRect } from "./crop.js";
+import { COMP_BLEND_MODES, clampCompCenter, clampCompRotation, clampCompScale, computeCompRect, getCompSlots, serializeCompLayers, syncCompLayers } from "./comp.js";
+import { canvasToOverlayData, clampDrawDimension, clampDrawOpacity, clampDrawSize, normalizeDrawColor, normalizeDrawEdge, normalizeDrawTool, renderDrawPreview, resolveDrawOverlayCanvas, resizeCanvasPreserve } from "./draw.js";
 import { renderCompPreview } from "./ops.js";
 
 console.info("[ImageOps] LivePreview v6 loaded");
@@ -44,6 +46,7 @@ const IMAGEOPS_CLASSES = new Set([
   "ImageOpsInvert",
   "ImageOpsClamp",
   "ImageOpsMerge",
+  "ImageOpsMaskConvert",
   "ImageOpsNoise",
   "ImageOpsPreview",
 ]);
@@ -89,14 +92,18 @@ function ensureState(node: ComfyNode): NodeState {
     cropInteractiveHooked: false,
     drawAspectRatio: null,
     drawGeometry: null,
+    drawHover: null,
+    drawSizeHintUntil: 0,
     drawStroke: null,
     drawCanvas: null,
     drawBaseCanvas: null,
+    drawUndoStack: [],
     drawOverlayKey: null,
     drawBrushButton: null,
     drawEraserButton: null,
     drawClearButton: null,
     drawColorInput: null,
+    drawEdgeSelect: null,
     drawOpacityInput: null,
     drawOpacityLabel: null,
     drawSizeInput: null,
@@ -106,6 +113,12 @@ function ensureState(node: ComfyNode): NodeState {
     drawLinkButton: null,
     drawBgColorInput: null,
     drawInteractiveHooked: false,
+    colorWheelCanvas: null,
+    colorHueLabel: null,
+    colorSatLabel: null,
+    colorSwatch: null,
+    colorResetButton: null,
+    colorInteractiveHooked: false,
     compLayers: [],
     compOutputWidth: 1,
     compOutputHeight: 1,
@@ -234,6 +247,8 @@ function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canvasSize:
   if (!IMAGEOPS_CLASSES.has(node.comfyClass)) return null;
   const st = ensureState(node);
   if (st.canvas) return st;
+  const previewNode = isPreviewNode(node);
+  const colorCorrectNode = isColorCorrectNode(node);
   const cropNode = isCropNode(node);
   const drawNode = isDrawNode(node);
   const compNode = isCompNode(node);
@@ -253,6 +268,7 @@ function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canvasSize:
   canvas.style.background = "rgba(0,0,0,0.35)";
   canvas.style.border = "1px solid rgba(255,255,255,0.08)";
   canvas.style.touchAction = "none";
+  canvas.tabIndex = 0;
 
   const mediaWrap = document.createElement("div");
   mediaWrap.style.width = "100%";
@@ -305,6 +321,126 @@ function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canvasSize:
     cropResetButton.textContent = "Reset";
     styleInlineAction(cropResetButton);
     cropResetButton.style.opacity = "0.85";
+  }
+
+  let previewControls: HTMLDivElement | null = null;
+  if (previewNode) {
+    previewControls = document.createElement("div");
+    previewControls.style.marginTop = "8px";
+    previewControls.style.display = "grid";
+    previewControls.style.gap = "6px";
+
+    const targetRow = document.createElement("div");
+    targetRow.style.display = "grid";
+    targetRow.style.gridTemplateColumns = "auto auto auto minmax(0,1fr)";
+    targetRow.style.gap = "6px";
+    targetRow.style.alignItems = "center";
+
+    for (const [value, label] of [["auto", "Auto"], ["image", "Image"], ["mask", "Mask"]] as const) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.dataset.previewTarget = value;
+      styleSoftButton(button, value === "auto");
+      targetRow.appendChild(button);
+    }
+
+    const modeSelect = document.createElement("select");
+    modeSelect.dataset.previewMode = "1";
+    modeSelect.title = "Preview export mode";
+    styleSoftField(modeSelect);
+    modeSelect.style.width = "100%";
+    for (const mode of ["images", "strip", "animated_webp", "animated_gif"]) {
+      const option = document.createElement("option");
+      option.value = mode;
+      option.textContent = mode.replace(/_/g, " ");
+      modeSelect.appendChild(option);
+    }
+    targetRow.appendChild(modeSelect);
+    previewControls.appendChild(targetRow);
+  }
+
+  let colorWheelCanvas: HTMLCanvasElement | null = null;
+  let colorHueLabel: HTMLDivElement | null = null;
+  let colorSatLabel: HTMLDivElement | null = null;
+  let colorSwatch: HTMLDivElement | null = null;
+  let colorResetButton: HTMLButtonElement | null = null;
+  let colorControls: HTMLDivElement | null = null;
+  if (colorCorrectNode) {
+    colorControls = document.createElement("div");
+    colorControls.style.marginTop = "8px";
+    colorControls.style.display = "grid";
+    colorControls.style.gridTemplateColumns = "minmax(132px, 152px) minmax(0,1fr)";
+    colorControls.style.gap = "10px";
+    colorControls.style.alignItems = "stretch";
+
+    colorWheelCanvas = document.createElement("canvas");
+    colorWheelCanvas.width = 152;
+    colorWheelCanvas.height = 152;
+    colorWheelCanvas.style.width = "100%";
+    colorWheelCanvas.style.aspectRatio = "1";
+    colorWheelCanvas.style.borderRadius = "999px";
+    colorWheelCanvas.style.cursor = "crosshair";
+    colorWheelCanvas.style.background = "radial-gradient(circle at center, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.18) 100%)";
+    colorWheelCanvas.style.border = "1px solid rgba(255,255,255,0.1)";
+    colorWheelCanvas.style.boxSizing = "border-box";
+
+    const colorMeta = document.createElement("div");
+    colorMeta.style.display = "grid";
+    colorMeta.style.gap = "6px";
+    colorMeta.style.alignContent = "start";
+
+    const colorTitle = document.createElement("div");
+    colorTitle.textContent = "Color wheel";
+    colorTitle.style.fontSize = "12px";
+    colorTitle.style.fontWeight = "600";
+    colorTitle.style.letterSpacing = "0.02em";
+
+    const colorHint = document.createElement("div");
+    colorHint.textContent = "Drag for hue and chroma. Use the saturation slider below for desat or negative fine tuning.";
+    colorHint.style.fontSize = "11px";
+    colorHint.style.opacity = "0.72";
+    colorHint.style.lineHeight = "1.35";
+
+    colorSwatch = document.createElement("div");
+    colorSwatch.style.height = "34px";
+    colorSwatch.style.borderRadius = "10px";
+    colorSwatch.style.border = "1px solid rgba(255,255,255,0.12)";
+    colorSwatch.style.background = "linear-gradient(135deg, rgba(255,255,255,0.18), rgba(255,255,255,0.02))";
+
+    const readoutRow = document.createElement("div");
+    readoutRow.style.display = "grid";
+    readoutRow.style.gridTemplateColumns = "minmax(0,1fr) minmax(0,1fr)";
+    readoutRow.style.gap = "6px";
+
+    colorHueLabel = document.createElement("div");
+    colorHueLabel.style.fontSize = "11px";
+    colorHueLabel.style.opacity = "0.86";
+    colorHueLabel.textContent = "Hue 0°";
+
+    colorSatLabel = document.createElement("div");
+    colorSatLabel.style.fontSize = "11px";
+    colorSatLabel.style.opacity = "0.86";
+    colorSatLabel.style.textAlign = "right";
+    colorSatLabel.textContent = "Sat 0%";
+
+    readoutRow.appendChild(colorHueLabel);
+    readoutRow.appendChild(colorSatLabel);
+
+    colorResetButton = document.createElement("button");
+    colorResetButton.type = "button";
+    colorResetButton.textContent = "Reset wheel";
+    styleSoftButton(colorResetButton, false);
+    colorResetButton.style.justifySelf = "start";
+
+    colorMeta.appendChild(colorTitle);
+    colorMeta.appendChild(colorHint);
+    colorMeta.appendChild(colorSwatch);
+    colorMeta.appendChild(readoutRow);
+    colorMeta.appendChild(colorResetButton);
+
+    colorControls.appendChild(colorWheelCanvas);
+    colorControls.appendChild(colorMeta);
   }
 
   let compAddButton: HTMLButtonElement | null = null;
@@ -383,6 +519,7 @@ function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canvasSize:
   let drawEraserButton: HTMLButtonElement | null = null;
   let drawClearButton: HTMLButtonElement | null = null;
   let drawColorInput: HTMLInputElement | null = null;
+  let drawEdgeSelect: HTMLSelectElement | null = null;
   let drawOpacityInput: HTMLInputElement | null = null;
   let drawOpacityLabel: HTMLDivElement | null = null;
   let drawSizeInput: HTMLInputElement | null = null;
@@ -431,7 +568,7 @@ function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canvasSize:
 
     const strokeRow = document.createElement("div");
     strokeRow.style.display = "grid";
-    strokeRow.style.gridTemplateColumns = "auto minmax(0,1fr) auto minmax(0,1fr)";
+    strokeRow.style.gridTemplateColumns = "auto minmax(0,1fr) auto auto auto minmax(0,1fr)";
     strokeRow.style.alignItems = "center";
     strokeRow.style.gap = "6px";
 
@@ -447,6 +584,16 @@ function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canvasSize:
     drawColorInput.style.height = "30px";
     drawColorInput.style.padding = "2px";
     styleSoftField(drawColorInput);
+
+    drawEdgeSelect = document.createElement("select");
+    styleSoftField(drawEdgeSelect);
+    drawEdgeSelect.title = "Brush edge";
+    for (const edge of ["hard", "soft"]) {
+      const option = document.createElement("option");
+      option.value = edge;
+      option.textContent = edge === "hard" ? "Hard edge" : "Soft edge";
+      drawEdgeSelect.appendChild(option);
+    }
 
     drawOpacityLabel = document.createElement("div");
     drawOpacityLabel.textContent = "100%";
@@ -465,6 +612,7 @@ function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canvasSize:
 
     strokeRow.appendChild(colorLabel);
     strokeRow.appendChild(drawColorInput);
+    strokeRow.appendChild(drawEdgeSelect);
     strokeRow.appendChild(drawOpacityLabel);
     strokeRow.appendChild(drawOpacityInput);
 
@@ -561,6 +709,8 @@ function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canvasSize:
   metaRow.appendChild(info);
   if (cropResetButton) metaRow.appendChild(cropResetButton);
   root.appendChild(metaRow);
+  if (previewControls) root.appendChild(previewControls);
+  if (colorControls) root.appendChild(colorControls);
   if (drawControls) root.appendChild(drawControls);
   if (compControls) root.appendChild(compControls);
   root.appendChild(progressWrap);
@@ -589,11 +739,13 @@ function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canvasSize:
   st.mediaWrap = mediaWrap;
   st.mediaVideo = mediaVideo;
   st.mediaImage = mediaImage;
+  st.scopes = null;
   st.cropResetButton = cropResetButton;
   st.drawBrushButton = drawBrushButton;
   st.drawEraserButton = drawEraserButton;
   st.drawClearButton = drawClearButton;
   st.drawColorInput = drawColorInput;
+  st.drawEdgeSelect = drawEdgeSelect;
   st.drawOpacityInput = drawOpacityInput;
   st.drawOpacityLabel = drawOpacityLabel;
   st.drawSizeInput = drawSizeInput;
@@ -602,6 +754,11 @@ function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canvasSize:
   st.drawHeightInput = drawHeightInput;
   st.drawLinkButton = drawLinkButton;
   st.drawBgColorInput = drawBgColorInput;
+  st.colorWheelCanvas = colorWheelCanvas;
+  st.colorHueLabel = colorHueLabel;
+  st.colorSatLabel = colorSatLabel;
+  st.colorSwatch = colorSwatch;
+  st.colorResetButton = colorResetButton;
   st.compAddButton = compAddButton;
   st.compResetButton = compResetButton;
   st.compModeSelect = compModeSelect;
@@ -638,6 +795,10 @@ function isCropNode(node: ComfyNode): boolean {
 
 function isDrawNode(node: ComfyNode): boolean {
   return String(node?.comfyClass ?? "") === "ImageOpsDraw";
+}
+
+function isColorCorrectNode(node: ComfyNode): boolean {
+  return String(node?.comfyClass ?? "") === "ImageOpsColorAjust";
 }
 
 function isCompNode(node: ComfyNode): boolean {
@@ -859,6 +1020,11 @@ function hideCompWidgets(node: ComfyNode): void {
   hideWidgetForGood(node, findWidget(node, "layers_json"));
 }
 
+function hidePreviewWidgets(node: ComfyNode): void {
+  hideWidgetForGood(node, findWidget(node, "preview_target"));
+  hideWidgetForGood(node, findWidget(node, "mode"));
+}
+
 function hideDrawWidgets(node: ComfyNode): void {
   hideWidgetForGood(node, findWidget(node, "width"));
   hideWidgetForGood(node, findWidget(node, "height"));
@@ -866,6 +1032,7 @@ function hideDrawWidgets(node: ComfyNode): void {
   hideWidgetForGood(node, findWidget(node, "bg_color"));
   hideWidgetForGood(node, findWidget(node, "tool"));
   hideWidgetForGood(node, findWidget(node, "brush_color"));
+  hideWidgetForGood(node, findWidget(node, "brush_edge"));
   hideWidgetForGood(node, findWidget(node, "brush_opacity"));
   hideWidgetForGood(node, findWidget(node, "brush_size"));
   hideWidgetForGood(node, findWidget(node, "overlay_data"));
@@ -947,6 +1114,58 @@ function resetCropControlState(node: ComfyNode): void {
   setCropControlState(node, 0.5, 0.5, 1);
 }
 
+function isFreeCropResizeEnabled(node: ComfyNode): boolean {
+  return widgetString(node, "aspect_ratio", "custom") === "custom" && !widgetBoolean(node, "sync_dimensions", true);
+}
+
+function setCropOutputDimensions(node: ComfyNode, width: number, height: number): void {
+  setWidgetValue(findWidget(node, "width"), Math.max(1, Math.round(width)));
+  setWidgetValue(findWidget(node, "height"), Math.max(1, Math.round(height)));
+  syncCropWidgets(node);
+}
+
+function syncPreviewWidgets(node: ComfyNode): void {
+  if (!isPreviewNode(node)) return;
+  const st = ensureState(node);
+  const root = st.canvas?.parentElement;
+  if (!root) return;
+
+  const previewTarget = widgetString(node, "preview_target", "auto").toLowerCase();
+  const mode = widgetString(node, "mode", "images").toLowerCase();
+  for (const button of Array.from(root.querySelectorAll<HTMLButtonElement>("button[data-preview-target]"))) {
+    styleSoftButton(button, button.dataset.previewTarget === previewTarget);
+  }
+  const modeSelect = root.querySelector<HTMLSelectElement>("select[data-preview-mode]");
+  if (modeSelect) modeSelect.value = mode;
+}
+
+function syncColorCorrectWidgets(node: ComfyNode): void {
+  if (!isColorCorrectNode(node)) return;
+  const st = ensureState(node);
+  const hue = widgetNumber(node, "hue", 0);
+  const saturation = widgetNumber(node, "saturation", 0);
+  if (st.colorWheelCanvas) {
+    drawColorWheel(st.colorWheelCanvas, hue, saturation);
+  }
+  if (st.colorHueLabel) {
+    st.colorHueLabel.textContent = `Hue ${Math.round(hue)}°`;
+  }
+  if (st.colorSatLabel) {
+    const prefix = saturation > 0 ? "+" : "";
+    st.colorSatLabel.textContent = `Sat ${prefix}${Math.round(saturation)}%`;
+  }
+  if (st.colorSwatch) {
+    const tint = getColorWheelSwatchCss(hue, saturation);
+    const desat = clampDrawOpacity(1 + saturation / 100, 0);
+    st.colorSwatch.style.background = saturation < 0
+      ? `linear-gradient(135deg, rgba(255,255,255,${0.12 + desat * 0.18}), rgba(255,255,255,0.04))`
+      : `linear-gradient(135deg, ${tint}, rgba(12,12,16,0.22))`;
+  }
+  if (st.colorResetButton) {
+    styleSoftButton(st.colorResetButton, Math.abs(hue) > 0.01 || Math.abs(saturation) > 0.01);
+  }
+}
+
 function updateDrawToolButtons(node: ComfyNode): void {
   const st = ensureState(node);
   const tool = normalizeDrawTool(widgetString(node, "tool", "brush"));
@@ -962,6 +1181,7 @@ function syncDrawWidgets(node: ComfyNode, changedName?: string): void {
   const linkWidget = findWidget(node, "sync_dimensions");
   const bgWidget = findWidget(node, "bg_color");
   const colorWidget = findWidget(node, "brush_color");
+  const edgeWidget = findWidget(node, "brush_edge");
   const opacityWidget = findWidget(node, "brush_opacity");
   const sizeWidget = findWidget(node, "brush_size");
   if (!widthWidget || !heightWidget) return;
@@ -1008,6 +1228,9 @@ function syncDrawWidgets(node: ComfyNode, changedName?: string): void {
   if (st.drawColorInput) {
     st.drawColorInput.value = normalizeDrawColor(widgetString(node, "brush_color", "#FFFFFF"), "#FFFFFF");
   }
+  if (st.drawEdgeSelect) {
+    st.drawEdgeSelect.value = normalizeDrawEdge(widgetString(node, "brush_edge", "hard"));
+  }
   if (st.drawOpacityInput) {
     const opacity = Math.round(clampDrawOpacity(widgetNumber(node, "brush_opacity", 1), 1) * 100);
     st.drawOpacityInput.value = String(opacity);
@@ -1023,6 +1246,7 @@ function syncDrawWidgets(node: ComfyNode, changedName?: string): void {
   if (linkWidget) linkWidget.value = linked;
   if (bgWidget && st.drawBgColorInput && !inputConnected) bgWidget.value = st.drawBgColorInput.value;
   if (colorWidget && st.drawColorInput) colorWidget.value = st.drawColorInput.value;
+  if (edgeWidget && st.drawEdgeSelect) edgeWidget.value = st.drawEdgeSelect.value;
   if (opacityWidget && st.drawOpacityInput) opacityWidget.value = Number(st.drawOpacityInput.value) / 100;
   if (sizeWidget && st.drawSizeInput) sizeWidget.value = Number(st.drawSizeInput.value);
   updateDrawToolButtons(node);
@@ -1215,6 +1439,7 @@ function drawCropBounds(
   const top = fit.dy + crop.y * scaleY;
   const cropWidth = crop.cropWidth * scaleX;
   const cropHeight = crop.cropHeight * scaleY;
+  const metrics = getCropCanvasMetrics(left, top, cropWidth, cropHeight);
 
   ctx.save();
   ctx.fillStyle = "rgba(0,0,0,0.35)";
@@ -1262,6 +1487,11 @@ function drawCropBounds(
   drawCorner(left + cropWidth, top, -1, 1);
   drawCorner(left, top + cropHeight, 1, -1);
   drawCorner(left + cropWidth, top + cropHeight, -1, -1);
+
+  ctx.fillStyle = "rgba(235, 239, 140, 0.92)";
+  for (const point of [metrics.topMid, metrics.rightMid, metrics.bottomMid, metrics.leftMid]) {
+    ctx.fillRect(point.x - 3, point.y - 3, 6, 6);
+  }
   ctx.restore();
 
   return {
@@ -1278,6 +1508,150 @@ function drawCropBounds(
   };
 }
 
+function getCropCanvasMetrics(left: number, top: number, width: number, height: number): {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  topMid: { x: number; y: number };
+  rightMid: { x: number; y: number };
+  bottomMid: { x: number; y: number };
+  leftMid: { x: number; y: number };
+  handleThreshold: number;
+} {
+  const right = left + width;
+  const bottom = top + height;
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    topMid: { x: left + width / 2, y: top },
+    rightMid: { x: right, y: top + height / 2 },
+    bottomMid: { x: left + width / 2, y: bottom },
+    leftMid: { x: left, y: top + height / 2 },
+    handleThreshold: Math.max(10, Math.min(18, Math.floor(Math.min(width, height) * 0.16))),
+  };
+}
+
+function projectedCropWidth(deltaX: number, deltaY: number, targetRatio: number): number {
+  const ratio = Math.max(0.0001, targetRatio);
+  return (deltaX + deltaY / ratio) / (1 + 1 / (ratio * ratio));
+}
+
+function cropRectFromAnchor(
+  anchor: { x: number; y: number },
+  mode: Exclude<CropDragMode, "move">,
+  targetRatio: number,
+  pointerSource: { x: number; y: number },
+  maxRect: CropRect,
+  sourceWidth: number,
+  sourceHeight: number,
+): { centerX: number; centerY: number; scale: number } {
+  const ratio = Math.max(0.0001, targetRatio);
+  const minWidth = Math.max(1, maxRect.cropWidth * 0.05);
+  let cropWidth = minWidth;
+  let cropHeight = minWidth / ratio;
+  let rectX = anchor.x;
+  let rectY = anchor.y;
+
+  if (mode === "n" || mode === "s") {
+    const deltaY = Math.abs(anchor.y - pointerSource.y);
+    cropHeight = Math.max(1, Math.min(maxRect.cropHeight, deltaY));
+    cropWidth = cropHeight * ratio;
+    if (cropWidth > maxRect.cropWidth) {
+      cropWidth = maxRect.cropWidth;
+      cropHeight = cropWidth / ratio;
+    }
+    rectX = anchor.x - cropWidth / 2;
+    rectY = mode === "n" ? anchor.y - cropHeight : anchor.y;
+  } else if (mode === "e" || mode === "w") {
+    const deltaX = Math.abs(anchor.x - pointerSource.x);
+    cropWidth = Math.max(minWidth, Math.min(maxRect.cropWidth, deltaX));
+    cropHeight = cropWidth / ratio;
+    if (cropHeight > maxRect.cropHeight) {
+      cropHeight = maxRect.cropHeight;
+      cropWidth = cropHeight * ratio;
+    }
+    rectX = mode === "w" ? anchor.x - cropWidth : anchor.x;
+    rectY = anchor.y - cropHeight / 2;
+  } else {
+    const deltaX = Math.abs(anchor.x - pointerSource.x);
+    const deltaY = Math.abs(anchor.y - pointerSource.y);
+    cropWidth = Math.max(minWidth, Math.min(maxRect.cropWidth, projectedCropWidth(deltaX, deltaY, ratio)));
+    cropHeight = cropWidth / ratio;
+    if (cropHeight > maxRect.cropHeight) {
+      cropHeight = maxRect.cropHeight;
+      cropWidth = cropHeight * ratio;
+    }
+    if (mode === "nw") {
+      rectX = anchor.x - cropWidth;
+      rectY = anchor.y - cropHeight;
+    } else if (mode === "ne") {
+      rectX = anchor.x;
+      rectY = anchor.y - cropHeight;
+    } else if (mode === "sw") {
+      rectX = anchor.x - cropWidth;
+      rectY = anchor.y;
+    } else {
+      rectX = anchor.x;
+      rectY = anchor.y;
+    }
+  }
+
+  const centerPx = rectX + cropWidth / 2;
+  const centerPy = rectY + cropHeight / 2;
+  return {
+    centerX: clampCropCenter(centerPx / Math.max(1, sourceWidth)),
+    centerY: clampCropCenter(centerPy / Math.max(1, sourceHeight)),
+    scale: clampCropScale(cropWidth / Math.max(1, maxRect.cropWidth)),
+  };
+}
+
+function freeCropRectFromAnchor(
+  anchor: { x: number; y: number },
+  mode: Exclude<CropDragMode, "move">,
+  pointerSource: { x: number; y: number },
+  startRect: { x: number; y: number; cropWidth: number; cropHeight: number },
+  sourceWidth: number,
+  sourceHeight: number,
+): { x: number; y: number; cropWidth: number; cropHeight: number } {
+  const safeSourceWidth = Math.max(1, sourceWidth);
+  const safeSourceHeight = Math.max(1, sourceHeight);
+  const minWidth = Math.max(1, safeSourceWidth * 0.05);
+  const minHeight = Math.max(1, safeSourceHeight * 0.05);
+
+  let left = startRect.x;
+  let top = startRect.y;
+  let right = startRect.x + startRect.cropWidth;
+  let bottom = startRect.y + startRect.cropHeight;
+
+  if (mode === "n" || mode === "nw" || mode === "ne") {
+    top = Math.max(0, Math.min(pointerSource.y, anchor.y - minHeight));
+  }
+
+  if (mode === "s" || mode === "sw" || mode === "se") {
+    bottom = Math.min(safeSourceHeight, Math.max(pointerSource.y, anchor.y + minHeight));
+  }
+
+  if (mode === "w" || mode === "nw" || mode === "sw") {
+    left = Math.max(0, Math.min(pointerSource.x, anchor.x - minWidth));
+  }
+
+  if (mode === "e" || mode === "ne" || mode === "se") {
+    right = Math.min(safeSourceWidth, Math.max(pointerSource.x, anchor.x + minWidth));
+  }
+
+  const cropWidth = Math.max(1, Math.min(safeSourceWidth, right - left));
+  const cropHeight = Math.max(1, Math.min(safeSourceHeight, bottom - top));
+  return {
+    x: Math.max(0, Math.min(safeSourceWidth - cropWidth, left)),
+    y: Math.max(0, Math.min(safeSourceHeight - cropHeight, top)),
+    cropWidth,
+    cropHeight,
+  };
+}
+
 function drawCompBounds(
   node: ComfyNode,
   ctx: CanvasRenderingContext2D,
@@ -1290,34 +1664,115 @@ function drawCompBounds(
   if (!isCompNode(node) || layers.length === 0) return;
   const st = ensureState(node);
   const fit = getFitPlacement(width, height, sourceWidth, sourceHeight);
-  const scaleX = fit.drawWidth / Math.max(1, sourceWidth);
-  const scaleY = fit.drawHeight / Math.max(1, sourceHeight);
 
   ctx.save();
   for (const layer of layers) {
     const selected = layer.slot === st.compSelectedSlot;
-    const left = fit.dx + layer.left * scaleX;
-    const top = fit.dy + layer.top * scaleY;
-    const drawWidth = layer.width * scaleX;
-    const drawHeight = layer.height * scaleY;
+    const metrics = getCompCanvasMetrics(layer, fit, sourceWidth, sourceHeight);
+    const corners = [metrics.topLeft, metrics.topRight, metrics.bottomRight, metrics.bottomLeft];
 
     ctx.strokeStyle = selected ? "rgba(235, 239, 140, 0.98)" : "rgba(255,255,255,0.35)";
     ctx.lineWidth = selected ? 1.6 : 1;
     ctx.setLineDash(selected ? [] : [4, 4]);
-    ctx.strokeRect(left + 0.5, top + 0.5, drawWidth, drawHeight);
+    ctx.beginPath();
+    ctx.moveTo(corners[0].x, corners[0].y);
+    for (let index = 1; index < corners.length; index++) {
+      ctx.lineTo(corners[index].x, corners[index].y);
+    }
+    ctx.closePath();
+    ctx.stroke();
 
     if (!selected) continue;
     ctx.fillStyle = "rgba(235, 239, 140, 0.95)";
-    for (const point of [
-      { x: left, y: top },
-      { x: left + drawWidth, y: top },
-      { x: left, y: top + drawHeight },
-      { x: left + drawWidth, y: top + drawHeight },
-    ]) {
+    for (const point of corners) {
       ctx.fillRect(point.x - 3, point.y - 3, 6, 6);
     }
+    ctx.strokeStyle = "rgba(235, 239, 140, 0.8)";
+    ctx.lineWidth = 1.25;
+    ctx.beginPath();
+    ctx.moveTo(metrics.topMid.x, metrics.topMid.y);
+    ctx.lineTo(metrics.rotationHandle.x, metrics.rotationHandle.y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(metrics.rotationHandle.x, metrics.rotationHandle.y, 5, 0, Math.PI * 2);
+    ctx.fill();
   }
   ctx.restore();
+}
+
+function rotatePoint(x: number, y: number, angleRad: number): { x: number; y: number } {
+  const cos = Math.cos(angleRad);
+  const sin = Math.sin(angleRad);
+  return {
+    x: x * cos - y * sin,
+    y: x * sin + y * cos,
+  };
+}
+
+function pointInCompPolygon(point: { x: number; y: number }, corners: Array<{ x: number; y: number }>): boolean {
+  let sign = 0;
+  for (let index = 0; index < corners.length; index++) {
+    const a = corners[index];
+    const b = corners[(index + 1) % corners.length];
+    const cross = (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x);
+    if (Math.abs(cross) <= 0.01) continue;
+    const currentSign = cross > 0 ? 1 : -1;
+    if (sign === 0) {
+      sign = currentSign;
+    } else if (sign !== currentSign) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function getCompCanvasMetrics(
+  layer: CompLayerPreviewGeometry,
+  fit: FitPlacement,
+  outputWidth: number,
+  outputHeight: number,
+): {
+  center: { x: number; y: number };
+  topLeft: { x: number; y: number };
+  topRight: { x: number; y: number };
+  bottomRight: { x: number; y: number };
+  bottomLeft: { x: number; y: number };
+  topMid: { x: number; y: number };
+  rotationHandle: { x: number; y: number };
+  handleRadius: number;
+} {
+  const scaleX = fit.drawWidth / Math.max(1, outputWidth);
+  const scaleY = fit.drawHeight / Math.max(1, outputHeight);
+  const center = {
+    x: fit.dx + layer.centerX * scaleX,
+    y: fit.dy + layer.centerY * scaleY,
+  };
+  const halfWidth = layer.drawWidth * scaleX / 2;
+  const halfHeight = layer.drawHeight * scaleY / 2;
+  const angleRad = layer.rotationDeg * Math.PI / 180;
+  const makeCorner = (localX: number, localY: number) => {
+    const rotated = rotatePoint(localX, localY, angleRad);
+    return { x: center.x + rotated.x, y: center.y + rotated.y };
+  };
+  const topLeft = makeCorner(-halfWidth, -halfHeight);
+  const topRight = makeCorner(halfWidth, -halfHeight);
+  const bottomRight = makeCorner(halfWidth, halfHeight);
+  const bottomLeft = makeCorner(-halfWidth, halfHeight);
+  const topMidOffset = rotatePoint(0, -halfHeight, angleRad);
+  const topMid = { x: center.x + topMidOffset.x, y: center.y + topMidOffset.y };
+  const handleDistance = Math.max(16, Math.min(28, Math.min(halfWidth, halfHeight) * 0.55));
+  const handleOffset = rotatePoint(0, -(halfHeight + handleDistance), angleRad);
+  const rotationHandle = { x: center.x + handleOffset.x, y: center.y + handleOffset.y };
+  return {
+    center,
+    topLeft,
+    topRight,
+    bottomRight,
+    bottomLeft,
+    topMid,
+    rotationHandle,
+    handleRadius: 10,
+  };
 }
 
 function tryRenderNativePreview(node: ComfyNode, st: NodeState, canvasSize: number): boolean {
@@ -1409,8 +1864,8 @@ function getCompInfoText(node: ComfyNode, connectedLayers: number, totalLayers: 
 function getDrawInfoText(node: ComfyNode, width: number, height: number): string {
   const inputConnected = (node.inputs?.[0]?.link ?? null) != null;
   return inputConnected
-    ? `Draw preview (paint over input, ${width}x${height})`
-    : `Draw preview (${width}x${height})`;
+    ? `Paint preview (paint over input, ${width}x${height})`
+    : `Paint preview (${width}x${height})`;
 }
 
 function getCanvasPointer(canvas: HTMLCanvasElement, event: PointerEvent): { x: number; y: number } {
@@ -1429,22 +1884,31 @@ function getCropInteractionMode(geometry: CropPreviewGeometry | null, x: number,
   const top = geometry.fitDy + geometry.cropY * (geometry.fitDrawHeight / Math.max(1, geometry.sourceHeight));
   const width = geometry.cropWidth * (geometry.fitDrawWidth / Math.max(1, geometry.sourceWidth));
   const height = geometry.cropHeight * (geometry.fitDrawHeight / Math.max(1, geometry.sourceHeight));
-  const right = left + width;
-  const bottom = top + height;
-  const threshold = Math.max(10, Math.min(18, Math.floor(Math.min(width, height) * 0.16)));
+  const metrics = getCropCanvasMetrics(left, top, width, height);
+  const threshold = metrics.handleThreshold;
 
   const near = (px: number, py: number) => Math.abs(x - px) <= threshold && Math.abs(y - py) <= threshold;
-  if (near(left, top)) return "nw";
-  if (near(right, top)) return "ne";
-  if (near(left, bottom)) return "sw";
-  if (near(right, bottom)) return "se";
-  if (x >= left && x <= right && y >= top && y <= bottom) return "move";
+  if (near(metrics.left, metrics.top)) return "nw";
+  if (near(metrics.right, metrics.top)) return "ne";
+  if (near(metrics.left, metrics.bottom)) return "sw";
+  if (near(metrics.right, metrics.bottom)) return "se";
+  if (near(metrics.topMid.x, metrics.topMid.y)) return "n";
+  if (near(metrics.rightMid.x, metrics.rightMid.y)) return "e";
+  if (near(metrics.bottomMid.x, metrics.bottomMid.y)) return "s";
+  if (near(metrics.leftMid.x, metrics.leftMid.y)) return "w";
+  if (x >= metrics.left && x <= metrics.right && y >= metrics.top && y <= metrics.bottom) return "move";
   return null;
 }
 
 function getCropCursor(mode: CropDragMode | "move" | null): string {
   switch (mode) {
     case "move": return "move";
+    case "n":
+    case "s":
+      return "ns-resize";
+    case "e":
+    case "w":
+      return "ew-resize";
     case "nw":
     case "se":
       return "nwse-resize";
@@ -1534,18 +1998,16 @@ function getCompHit(node: ComfyNode, canvasWidth: number, canvasHeight: number, 
   const ordered = [...st.compLayers].reverse();
 
   for (const layer of ordered) {
-    const left = fit.dx + layer.left * fit.drawWidth / Math.max(1, st.compOutputWidth || 1);
-    const top = fit.dy + layer.top * fit.drawHeight / Math.max(1, st.compOutputHeight || 1);
-    const width = layer.width * fit.drawWidth / Math.max(1, st.compOutputWidth || 1);
-    const height = layer.height * fit.drawHeight / Math.max(1, st.compOutputHeight || 1);
-    const right = left + width;
-    const bottom = top + height;
+    const metrics = getCompCanvasMetrics(layer, fit, st.compOutputWidth || 1, st.compOutputHeight || 1);
     const near = (px: number, py: number) => Math.abs(x - px) <= threshold && Math.abs(y - py) <= threshold;
-    if (near(left, top)) return { layer, mode: "nw" };
-    if (near(right, top)) return { layer, mode: "ne" };
-    if (near(left, bottom)) return { layer, mode: "sw" };
-    if (near(right, bottom)) return { layer, mode: "se" };
-    if (x >= left && x <= right && y >= top && y <= bottom) return { layer, mode: "move" };
+    const handleDx = x - metrics.rotationHandle.x;
+    const handleDy = y - metrics.rotationHandle.y;
+    if (handleDx * handleDx + handleDy * handleDy <= metrics.handleRadius * metrics.handleRadius) return { layer, mode: "rotate" };
+    if (near(metrics.topLeft.x, metrics.topLeft.y)) return { layer, mode: "nw" };
+    if (near(metrics.topRight.x, metrics.topRight.y)) return { layer, mode: "ne" };
+    if (near(metrics.bottomLeft.x, metrics.bottomLeft.y)) return { layer, mode: "sw" };
+    if (near(metrics.bottomRight.x, metrics.bottomRight.y)) return { layer, mode: "se" };
+    if (pointInCompPolygon({ x, y }, [metrics.topLeft, metrics.topRight, metrics.bottomRight, metrics.bottomLeft])) return { layer, mode: "move" };
   }
   return null;
 }
@@ -1553,6 +2015,7 @@ function getCompHit(node: ComfyNode, canvasWidth: number, canvasHeight: number, 
 function getCompCursor(mode: CompDragMode | "move" | null): string {
   switch (mode) {
     case "move": return "move";
+    case "rotate": return "crosshair";
     case "nw":
     case "se":
       return "nwse-resize";
@@ -1594,6 +2057,50 @@ export function registerImageOpsLivePreview(): void {
   function setDrawTool(node: ComfyNode, tool: "brush" | "eraser"): void {
     setWidgetStringValue(findWidget(node, "tool"), tool);
     updateDrawToolButtons(node);
+    void renderDrawNode(node, 0);
+  }
+
+  function cloneCanvas(source: HTMLCanvasElement | null): HTMLCanvasElement | null {
+    if (!source) return null;
+    const copy = document.createElement("canvas");
+    copy.width = Math.max(1, source.width || 1);
+    copy.height = Math.max(1, source.height || 1);
+    const ctx = copy.getContext("2d");
+    if (!ctx) return null;
+    ctx.clearRect(0, 0, copy.width, copy.height);
+    ctx.drawImage(source, 0, 0, copy.width, copy.height);
+    return copy;
+  }
+
+  function restoreCanvas(target: HTMLCanvasElement | null, snapshot: HTMLCanvasElement | null): void {
+    if (!target || !snapshot) return;
+    const ctx = target.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, target.width, target.height);
+    ctx.drawImage(snapshot, 0, 0, target.width, target.height);
+  }
+
+  function pushDrawUndoSnapshot(node: ComfyNode, snapshot: HTMLCanvasElement | null): void {
+    if (!snapshot) return;
+    const st = ensureState(node);
+    st.drawUndoStack.push(snapshot);
+    if (st.drawUndoStack.length > 20) {
+      st.drawUndoStack.splice(0, st.drawUndoStack.length - 20);
+    }
+  }
+
+  function popDrawUndoSnapshot(node: ComfyNode): HTMLCanvasElement | null {
+    const st = ensureState(node);
+    return st.drawUndoStack.pop() ?? null;
+  }
+
+  function setDrawBrushSize(node: ComfyNode, size: number): void {
+    const nextSize = clampDrawSize(size, widgetNumber(node, "brush_size", 10));
+    setWidgetValue(findWidget(node, "brush_size"), nextSize);
+    const st = ensureState(node);
+    if (st.drawSizeInput) st.drawSizeInput.value = String(nextSize);
+    if (st.drawSizeLabel) st.drawSizeLabel.textContent = String(nextSize);
+    st.drawSizeHintUntil = performance.now() + 900;
   }
 
   function strokeStyle(color: string, opacity: number): string {
@@ -1612,24 +2119,97 @@ export function registerImageOpsLivePreview(): void {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const tool = normalizeDrawTool(widgetString(node, "tool", "brush"));
+    const edge = normalizeDrawEdge(widgetString(node, "brush_edge", "hard"));
+    const brushSize = clampDrawSize(widgetNumber(node, "brush_size", 10));
+    const brushOpacity = widgetNumber(node, "brush_opacity", 1);
+    const brushColor = widgetString(node, "brush_color", "#FFFFFF");
     ctx.save();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.lineWidth = clampDrawSize(widgetNumber(node, "brush_size", 10));
+    ctx.lineWidth = brushSize;
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
     if (tool === "eraser") {
       ctx.globalCompositeOperation = "destination-out";
       ctx.strokeStyle = "rgba(0,0,0,1)";
     } else {
       ctx.globalCompositeOperation = "source-over";
-      ctx.strokeStyle = strokeStyle(
-        widgetString(node, "brush_color", "#FFFFFF"),
-        widgetNumber(node, "brush_opacity", 1),
-      );
+      ctx.strokeStyle = strokeStyle(brushColor, brushOpacity);
+    }
+    if (edge === "soft") {
+      ctx.shadowColor = tool === "eraser"
+        ? `rgba(0,0,0,${clampDrawOpacity(brushOpacity * 0.75)})`
+        : strokeStyle(brushColor, clampDrawOpacity(brushOpacity * 0.75));
+      ctx.shadowBlur = Math.max(2, brushSize * 0.4);
     }
     ctx.beginPath();
     ctx.moveTo(fromX, fromY);
     ctx.lineTo(toX, toY);
     ctx.stroke();
+    if (edge === "soft" && tool !== "eraser") {
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.lineWidth = Math.max(1, brushSize * 0.55);
+      ctx.strokeStyle = strokeStyle(brushColor, clampDrawOpacity(brushOpacity * 0.45));
+      ctx.beginPath();
+      ctx.moveTo(fromX, fromY);
+      ctx.lineTo(toX, toY);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawBrushCursorOverlay(node: ComfyNode, ctx: CanvasRenderingContext2D): void {
+    const st = ensureState(node);
+    const hover = st.drawHover;
+    const geometry = st.drawGeometry;
+    if (!isDrawNode(node) || !hover?.inside || !geometry) return;
+    const sourceRadius = clampDrawSize(widgetNumber(node, "brush_size", 10)) / 2;
+    const radius = Math.max(2, sourceRadius * geometry.fitDrawWidth / Math.max(1, geometry.sourceWidth));
+    const tool = normalizeDrawTool(widgetString(node, "tool", "brush"));
+    const edge = normalizeDrawEdge(widgetString(node, "brush_edge", "hard"));
+    const color = normalizeDrawColor(widgetString(node, "brush_color", "#FFFFFF"), "#FFFFFF");
+    const opacity = clampDrawOpacity(widgetNumber(node, "brush_opacity", 1), 1);
+    ctx.save();
+    ctx.setLineDash(tool === "eraser" ? [5, 3] : []);
+    if (edge === "soft") {
+      ctx.shadowColor = tool === "eraser" ? "rgba(255,120,120,0.35)" : strokeStyle(color, Math.max(0.4, opacity * 0.85));
+      ctx.shadowBlur = Math.max(4, radius * 0.45);
+    }
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = tool === "eraser" ? "rgba(255,120,120,0.95)" : strokeStyle(color, Math.max(0.45, opacity));
+    ctx.fillStyle = tool === "eraser" ? "rgba(255,80,80,0.16)" : strokeStyle(color, Math.max(0.16, opacity * 0.4));
+    ctx.beginPath();
+    ctx.arc(hover.canvasX, hover.canvasY, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = tool === "eraser" ? "rgba(255,120,120,0.9)" : strokeStyle(color, Math.max(0.7, opacity));
+    ctx.fillRect(hover.canvasX - 1.5, hover.canvasY - 1.5, 3, 3);
+
+    if (st.drawSizeHintUntil > performance.now()) {
+      const size = clampDrawSize(widgetNumber(node, "brush_size", 10));
+      const text = `Size ${size}`;
+      ctx.font = "11px sans-serif";
+      const metrics = ctx.measureText(text);
+      const paddingX = 6;
+      const paddingY = 4;
+      const bubbleWidth = Math.ceil(metrics.width) + paddingX * 2;
+      const bubbleHeight = 20;
+      const bubbleX = hover.canvasX + radius + 10;
+      const bubbleY = hover.canvasY - bubbleHeight - 10;
+      ctx.fillStyle = "rgba(0,0,0,0.7)";
+      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight, 6);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,0.92)";
+      ctx.fillText(text, bubbleX + paddingX, bubbleY + bubbleHeight - 7);
+    }
     ctx.restore();
   }
 
@@ -1640,12 +2220,16 @@ export function registerImageOpsLivePreview(): void {
     const upstream = getUpstreamNode(node, 0);
     let baseCanvas: HTMLCanvasElement | null = null;
     if (upstream) {
-      const rendered = await renderer.render(upstream, tick, null, renderCanvasSize);
+      const rendered = await renderer.render(upstream, tick, getInputOriginSlot(node, 0), renderCanvasSize);
       baseCanvas = rendered.canvas;
     }
     const previewCanvas = await renderDrawPreview(node, baseCanvas);
     st.drawBaseCanvas = baseCanvas;
     blit(node, st, previewCanvas, renderCanvasSize);
+    const previewCtx = st.canvas?.getContext("2d");
+    if (previewCtx) {
+      drawBrushCursorOverlay(node, previewCtx);
+    }
     syncDrawWidgets(node);
     setInfo(st, getDrawInfoText(node, previewCanvas.width || 1, previewCanvas.height || 1));
   }
@@ -1677,7 +2261,7 @@ export function registerImageOpsLivePreview(): void {
     let width = clampDrawDimension(widgetNumber(node, "width", 1024));
     let height = clampDrawDimension(widgetNumber(node, "height", 1024));
     if (upstream) {
-      const rendered = await renderer.render(upstream, tick, null, getRenderCanvasSize(ensureState(node)));
+      const rendered = await renderer.render(upstream, tick, getInputOriginSlot(node, 0), getRenderCanvasSize(ensureState(node)));
       if (rendered.canvas) {
         width = Math.max(1, rendered.canvas.width || width);
         height = Math.max(1, rendered.canvas.height || height);
@@ -1704,7 +2288,7 @@ export function registerImageOpsLivePreview(): void {
   }
 
   async function renderMaskCanvasFromNode(upstream: ComfyNode, tick: number, outputSlot: number | null = 1): Promise<HTMLCanvasElement | null> {
-    if (isDrawNode(upstream) && outputSlot === 1) {
+    if (isDrawNode(upstream) && outputSlot === 2) {
       return await renderDrawMaskCanvas(upstream, tick);
     }
     const renderCanvasSize = getRenderCanvasSize(ensureState(upstream));
@@ -1720,8 +2304,7 @@ export function registerImageOpsLivePreview(): void {
   async function renderMaskInputForComp(node: ComfyNode, inputIndex: number, tick: number): Promise<HTMLCanvasElement | null> {
     const upstream = getUpstreamNode(node, inputIndex);
     if (!upstream) return null;
-    const link = getInputLink(node, inputIndex);
-    const outputSlot = link?.origin_slot ?? link?.originSlot ?? 1;
+    const outputSlot = getInputOriginSlot(node, inputIndex, 1);
     return await renderMaskCanvasFromNode(upstream, tick, outputSlot);
   }
 
@@ -1742,7 +2325,7 @@ export function registerImageOpsLivePreview(): void {
     if (imageIndex >= 0) {
       const imageUpstream = getUpstreamNode(node, imageIndex);
       if (imageUpstream) {
-        const rendered = await renderer.render(imageUpstream, tick, null, renderCanvasSize);
+        const rendered = await renderer.render(imageUpstream, tick, getInputOriginSlot(node, imageIndex), renderCanvasSize);
         imageCanvas = rendered.canvas;
         if (!imageCanvas) {
           const nodeStream = await resolveNodeStreamPreview(imageUpstream, renderCanvasSize);
@@ -1754,8 +2337,7 @@ export function registerImageOpsLivePreview(): void {
     if (maskIndex >= 0) {
       const maskUpstream = getUpstreamNode(node, maskIndex);
       if (maskUpstream) {
-        const maskLink = getInputLink(node, maskIndex);
-        const maskOutputSlot = maskLink?.origin_slot ?? maskLink?.originSlot ?? 1;
+        const maskOutputSlot = getInputOriginSlot(node, maskIndex, 1);
         const directMask = await renderMaskCanvasFromNode(maskUpstream, tick, maskOutputSlot);
         maskCanvas = directMask;
         if (!maskCanvas) {
@@ -1780,6 +2362,7 @@ export function registerImageOpsLivePreview(): void {
     }
 
     blit(node, st, chosen, renderCanvasSize);
+    syncPreviewWidgets(node);
     if (previewTarget === "mask" || (!imageCanvas && maskCanvas)) {
       setInfo(st, maskFromNodeStream ? "Preview bridge (mask, nodestream)" : "Preview bridge (mask)");
     } else if (imageCanvas) {
@@ -1798,6 +2381,97 @@ export function registerImageOpsLivePreview(): void {
       startLoopIfVideo(node);
       refreshDependents(node);
     }, 0);
+  }
+
+  function attachPreviewInteractions(node: ComfyNode): void {
+    if (!isPreviewNode(node)) return;
+    const st = ensurePreviewWidget(node, progress, canvasSize);
+    const root = st?.canvas?.parentElement as HTMLElement | null;
+    if (!st || !root || root.dataset.previewInteractiveHooked === "1") return;
+    root.dataset.previewInteractiveHooked = "1";
+
+    for (const button of Array.from(root.querySelectorAll<HTMLButtonElement>("button[data-preview-target]"))) {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        const target = String(button.dataset.previewTarget ?? "auto");
+        setWidgetStringValue(findWidget(node, "preview_target"), target);
+        syncPreviewWidgets(node);
+        st.nativeDirty = true;
+        markCanvasDirty();
+        schedule(node, () => startLoopIfVideo(node), 0);
+      });
+    }
+
+    const modeSelect = root.querySelector<HTMLSelectElement>("select[data-preview-mode]");
+    modeSelect?.addEventListener("change", () => {
+      setWidgetStringValue(findWidget(node, "mode"), modeSelect.value);
+      syncPreviewWidgets(node);
+      st.nativeDirty = true;
+      schedule(node, () => startLoopIfVideo(node), 0);
+    });
+
+    syncPreviewWidgets(node);
+  }
+
+  function attachColorCorrectInteractions(node: ComfyNode): void {
+    if (!isColorCorrectNode(node)) return;
+    const st = ensurePreviewWidget(node, progress, canvasSize);
+    const canvas = st?.colorWheelCanvas;
+    if (!st || !canvas || st.colorInteractiveHooked) return;
+    st.colorInteractiveHooked = true;
+
+    let activePointerId: number | null = null;
+
+    const commitWheelPoint = (event: PointerEvent): void => {
+      const point = getCanvasPointer(canvas, event);
+      const values = colorWheelPointToValues(point.x, point.y, canvas);
+      setWidgetValue(findWidget(node, "hue"), values.hueDeg);
+      setWidgetValue(findWidget(node, "saturation"), values.saturation);
+      syncColorCorrectWidgets(node);
+      st.nativeDirty = true;
+      markCanvasDirty();
+      schedule(node, () => {
+        startLoopIfVideo(node);
+        refreshDependents(node);
+      }, 0);
+    };
+
+    canvas.addEventListener("pointerdown", (event: PointerEvent) => {
+      activePointerId = event.pointerId;
+      canvas.setPointerCapture?.(event.pointerId);
+      commitWheelPoint(event);
+    });
+
+    canvas.addEventListener("pointermove", (event: PointerEvent) => {
+      if (activePointerId !== event.pointerId) return;
+      commitWheelPoint(event);
+    });
+
+    const release = (event: PointerEvent): void => {
+      if (activePointerId !== event.pointerId) return;
+      activePointerId = null;
+      canvas.releasePointerCapture?.(event.pointerId);
+    };
+
+    canvas.addEventListener("pointerup", release);
+    canvas.addEventListener("pointercancel", release);
+
+    const resetWheel = (): void => {
+      setWidgetValue(findWidget(node, "hue"), 0);
+      setWidgetValue(findWidget(node, "saturation"), 0);
+      syncColorCorrectWidgets(node);
+      st.nativeDirty = true;
+      markCanvasDirty();
+      schedule(node, () => {
+        startLoopIfVideo(node);
+        refreshDependents(node);
+      }, 0);
+    };
+
+    canvas.addEventListener("dblclick", resetWheel);
+    st.colorResetButton?.addEventListener("click", resetWheel);
+
+    syncColorCorrectWidgets(node);
   }
 
   function attachDrawInteractions(node: ComfyNode): void {
@@ -1823,6 +2497,7 @@ export function registerImageOpsLivePreview(): void {
       ensureDrawCanvasSize(node, st.drawCanvas?.width ?? widgetNumber(node, "width", 1024), st.drawCanvas?.height ?? widgetNumber(node, "height", 1024), false);
       const ctx = st.drawCanvas?.getContext("2d");
       ctx?.clearRect(0, 0, st.drawCanvas?.width ?? 0, st.drawCanvas?.height ?? 0);
+      st.drawUndoStack = [];
       updateDrawOverlayWidget(node);
       refreshDrawInteraction(node);
     });
@@ -1831,18 +2506,27 @@ export function registerImageOpsLivePreview(): void {
       const color = normalizeDrawColor(st.drawColorInput?.value ?? "#FFFFFF", "#FFFFFF");
       setWidgetStringValue(findWidget(node, "brush_color"), color);
       if (st.drawColorInput) st.drawColorInput.value = color;
+      void renderDrawNode(node, 0);
+    });
+
+    st.drawEdgeSelect?.addEventListener("change", () => {
+      const edge = normalizeDrawEdge(st.drawEdgeSelect?.value ?? "hard");
+      setWidgetStringValue(findWidget(node, "brush_edge"), edge);
+      if (st.drawEdgeSelect) st.drawEdgeSelect.value = edge;
+      void renderDrawNode(node, 0);
     });
 
     st.drawOpacityInput?.addEventListener("input", () => {
       const opacity = clampDrawOpacity(Number(st.drawOpacityInput?.value ?? 100) / 100, 1);
       setWidgetValue(findWidget(node, "brush_opacity"), opacity);
       if (st.drawOpacityLabel) st.drawOpacityLabel.textContent = `${Math.round(opacity * 100)}%`;
+      void renderDrawNode(node, 0);
     });
 
     st.drawSizeInput?.addEventListener("input", () => {
       const size = clampDrawSize(Number(st.drawSizeInput?.value ?? 10), 10);
-      setWidgetValue(findWidget(node, "brush_size"), size);
-      if (st.drawSizeLabel) st.drawSizeLabel.textContent = String(size);
+      setDrawBrushSize(node, size);
+      void renderDrawNode(node, 0);
     });
 
     st.drawWidthInput?.addEventListener("change", () => {
@@ -1880,21 +2564,52 @@ export function registerImageOpsLivePreview(): void {
       refreshDrawInteraction(node);
     });
 
+    canvas.addEventListener("wheel", (event: WheelEvent) => {
+      if (!st.drawGeometry) return;
+      const point = getCanvasPointer(canvas, event as unknown as PointerEvent);
+      const hover = canvasToDrawSourcePoint(st.drawGeometry, point.x, point.y);
+      if (!hover.inside) return;
+      event.preventDefault();
+      const current = widgetNumber(node, "brush_size", 10);
+      const step = event.shiftKey ? 8 : 2;
+      const direction = event.deltaY > 0 ? -step : step;
+      setDrawBrushSize(node, current + direction);
+      void renderDrawNode(node, 0);
+    }, { passive: false });
+
+    canvas.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
+      event.preventDefault();
+      const snapshot = popDrawUndoSnapshot(node);
+      if (!snapshot) return;
+      ensureDrawCanvasSize(node, snapshot.width, snapshot.height, false);
+      restoreCanvas(st.drawCanvas, snapshot);
+      updateDrawOverlayWidget(node);
+      refreshDrawInteraction(node);
+    });
+
     canvas.addEventListener("pointerdown", async (event: PointerEvent) => {
       if (!st.drawGeometry) return;
       const point = getCanvasPointer(canvas, event);
       const mapped = canvasToDrawSourcePoint(st.drawGeometry, point.x, point.y);
       if (!mapped.inside) return;
       event.preventDefault();
+      canvas.focus();
       canvas.setPointerCapture?.(event.pointerId);
       if (!st.drawCanvas) {
         await renderDrawNode(node, 0);
       }
+      const snapshot = cloneCanvas(st.drawCanvas);
+      pushDrawUndoSnapshot(node, snapshot);
       st.drawStroke = {
         pointerId: event.pointerId,
+        startX: mapped.x,
+        startY: mapped.y,
         lastX: mapped.x,
         lastY: mapped.y,
+        snapshot,
       };
+      st.drawHover = { canvasX: point.x, canvasY: point.y, inside: true };
       paintDrawSegment(node, mapped.x, mapped.y, mapped.x, mapped.y);
       markPreviewInteraction(node);
       markCanvasDirty();
@@ -1902,14 +2617,28 @@ export function registerImageOpsLivePreview(): void {
     });
 
     canvas.addEventListener("pointermove", (event: PointerEvent) => {
-      const drag = st.drawStroke;
-      if (!drag || drag.pointerId !== event.pointerId) return;
-      if (!st.drawGeometry) return;
       const point = getCanvasPointer(canvas, event);
+      if (st.drawGeometry) {
+        const hoverMapped = canvasToDrawSourcePoint(st.drawGeometry, point.x, point.y);
+        st.drawHover = { canvasX: point.x, canvasY: point.y, inside: hoverMapped.inside };
+      } else {
+        st.drawHover = null;
+      }
+      const drag = st.drawStroke;
+      if (!drag || drag.pointerId !== event.pointerId) {
+        void renderDrawNode(node, 0);
+        return;
+      }
+      if (!st.drawGeometry) return;
       const mapped = canvasToDrawSourcePoint(st.drawGeometry, point.x, point.y);
       if (!mapped.inside) return;
       event.preventDefault();
-      paintDrawSegment(node, drag.lastX, drag.lastY, mapped.x, mapped.y);
+      if (event.shiftKey) {
+        restoreCanvas(st.drawCanvas, drag.snapshot);
+        paintDrawSegment(node, drag.startX, drag.startY, mapped.x, mapped.y);
+      } else {
+        paintDrawSegment(node, drag.lastX, drag.lastY, mapped.x, mapped.y);
+      }
       drag.lastX = mapped.x;
       drag.lastY = mapped.y;
       markPreviewInteraction(node);
@@ -1927,6 +2656,16 @@ export function registerImageOpsLivePreview(): void {
 
     canvas.addEventListener("pointerup", releaseStroke);
     canvas.addEventListener("pointercancel", releaseStroke);
+    canvas.addEventListener("pointerleave", () => {
+      if (!st.drawStroke) {
+        st.drawHover = null;
+        void renderDrawNode(node, 0);
+      }
+    });
+
+    canvas.addEventListener("pointerenter", () => {
+      canvas.focus();
+    });
   }
 
   function attachCropInteractions(node: ComfyNode): void {
@@ -1966,6 +2705,8 @@ export function registerImageOpsLivePreview(): void {
         startCropY: geometry.cropY,
         startCropWidth: geometry.cropWidth,
         startCropHeight: geometry.cropHeight,
+        startOutputWidth: Math.max(1, Math.round(widgetNumber(node, "width", geometry.cropWidth))),
+        startOutputHeight: Math.max(1, Math.round(widgetNumber(node, "height", geometry.cropHeight))),
       };
       canvas.style.cursor = getCropCursor(mode);
     });
@@ -1998,36 +2739,55 @@ export function registerImageOpsLivePreview(): void {
         nextCenterY = clampCropCenter(centerPy / Math.max(1, geometry.sourceHeight));
       } else {
         const pointerSource = canvasToSourcePoint(geometry, point.x, point.y);
+        const freeResize = isFreeCropResizeEnabled(node);
         const anchor = (() => {
+          if (drag.mode === "n") return { x: drag.startCropX + drag.startCropWidth / 2, y: drag.startCropY + drag.startCropHeight };
+          if (drag.mode === "e") return { x: drag.startCropX, y: drag.startCropY + drag.startCropHeight / 2 };
+          if (drag.mode === "s") return { x: drag.startCropX + drag.startCropWidth / 2, y: drag.startCropY };
+          if (drag.mode === "w") return { x: drag.startCropX + drag.startCropWidth, y: drag.startCropY + drag.startCropHeight / 2 };
           if (drag.mode === "nw") return { x: drag.startCropX + drag.startCropWidth, y: drag.startCropY + drag.startCropHeight };
           if (drag.mode === "ne") return { x: drag.startCropX, y: drag.startCropY + drag.startCropHeight };
           if (drag.mode === "sw") return { x: drag.startCropX + drag.startCropWidth, y: drag.startCropY };
           return { x: drag.startCropX, y: drag.startCropY };
         })();
-
-        const deltaX = Math.abs(anchor.x - pointerSource.x);
-        const deltaY = Math.abs(anchor.y - pointerSource.y);
-        const fittedWidth = Math.min(deltaX, deltaY * targetRatio);
-        const minWidth = Math.max(1, maxRect.cropWidth * 0.05);
-        let cropWidth = Math.max(minWidth, Math.min(maxRect.cropWidth, fittedWidth));
-        let cropHeight = cropWidth / Math.max(0.0001, targetRatio);
-        if (cropHeight > maxRect.cropHeight) {
-          cropHeight = maxRect.cropHeight;
-          cropWidth = cropHeight * targetRatio;
+        if (freeResize) {
+          const nextRect = freeCropRectFromAnchor(
+            anchor,
+            drag.mode,
+            pointerSource,
+            {
+              x: drag.startCropX,
+              y: drag.startCropY,
+              cropWidth: drag.startCropWidth,
+              cropHeight: drag.startCropHeight,
+            },
+            geometry.sourceWidth,
+            geometry.sourceHeight,
+          );
+          const cropWidth = nextRect.cropWidth;
+          const cropHeight = nextRect.cropHeight;
+          const centerPx = nextRect.x + cropWidth / 2;
+          const centerPy = nextRect.y + cropHeight / 2;
+          const widthDensity = drag.startOutputWidth / Math.max(1, drag.startCropWidth);
+          const heightDensity = drag.startOutputHeight / Math.max(1, drag.startCropHeight);
+          const uniformDensity = Math.max(0.0001, Math.sqrt(Math.max(0.0001, widthDensity * heightDensity)));
+          const outputWidth = Math.max(1, Math.round(cropWidth * uniformDensity));
+          const outputHeight = Math.max(1, Math.round(cropHeight * uniformDensity));
+          setCropOutputDimensions(node, outputWidth, outputHeight);
+          const freeRatio = Math.max(0.0001, outputWidth / Math.max(1, outputHeight));
+          const freeMaxRect = computeCropRect(geometry.sourceWidth, geometry.sourceHeight, freeRatio, 0.5, 0.5, 1);
+          nextCenterX = clampCropCenter(centerPx / Math.max(1, geometry.sourceWidth));
+          nextCenterY = clampCropCenter(centerPy / Math.max(1, geometry.sourceHeight));
+          nextScale = clampCropScale(Math.min(
+            cropWidth / Math.max(1, freeMaxRect.cropWidth),
+            cropHeight / Math.max(1, freeMaxRect.cropHeight),
+          ));
+        } else {
+          const next = cropRectFromAnchor(anchor, drag.mode, targetRatio, pointerSource, maxRect, geometry.sourceWidth, geometry.sourceHeight);
+          nextCenterX = next.centerX;
+          nextCenterY = next.centerY;
+          nextScale = next.scale;
         }
-
-        const rect = (() => {
-          if (drag.mode === "nw") return { x: anchor.x - cropWidth, y: anchor.y - cropHeight };
-          if (drag.mode === "ne") return { x: anchor.x, y: anchor.y - cropHeight };
-          if (drag.mode === "sw") return { x: anchor.x - cropWidth, y: anchor.y };
-          return { x: anchor.x, y: anchor.y };
-        })();
-
-        const centerPx = rect.x + cropWidth / 2;
-        const centerPy = rect.y + cropHeight / 2;
-        nextCenterX = clampCropCenter(centerPx / Math.max(1, geometry.sourceWidth));
-        nextCenterY = clampCropCenter(centerPy / Math.max(1, geometry.sourceHeight));
-        nextScale = clampCropScale(cropWidth / Math.max(1, maxRect.cropWidth));
       }
 
       setCropControlState(node, nextCenterX, nextCenterY, nextScale);
@@ -2079,6 +2839,7 @@ export function registerImageOpsLivePreview(): void {
         layer.centerX = 0.5;
         layer.centerY = 0.5;
         layer.scale = 1;
+        layer.rotationDeg = 0;
         layer.opacity = 1;
         layer.mode = "over";
       });
@@ -2134,10 +2895,16 @@ export function registerImageOpsLivePreview(): void {
         startCenterX: layer.centerX,
         startCenterY: layer.centerY,
         startScale: layer.scale,
+        startRotationDeg: layer.rotationDeg,
+        startPointerAngle: Math.atan2(point.y - hit.layer.centerY * canvas.height / Math.max(1, st.compOutputHeight || canvas.height), point.x - hit.layer.centerX * canvas.width / Math.max(1, st.compOutputWidth || canvas.width)),
         startLeft: hit.layer.left,
         startTop: hit.layer.top,
         startWidth: hit.layer.width,
         startHeight: hit.layer.height,
+        startOutputCenterX: hit.layer.centerX,
+        startOutputCenterY: hit.layer.centerY,
+        startDrawWidth: hit.layer.drawWidth,
+        startDrawHeight: hit.layer.drawHeight,
         sourceWidth: hit.layer.sourceWidth,
         sourceHeight: hit.layer.sourceHeight,
       };
@@ -2157,6 +2924,12 @@ export function registerImageOpsLivePreview(): void {
       const outputPoint = compCanvasToOutputPoint(node, canvas.width, canvas.height, point.x, point.y);
       const startOutputPoint = compCanvasToOutputPoint(node, canvas.width, canvas.height, drag.startCanvasX, drag.startCanvasY);
       updateSelectedCompLayer(node, (layer) => {
+        if (drag.mode === "rotate") {
+          const currentAngle = Math.atan2(outputPoint.y - drag.startOutputCenterY, outputPoint.x - drag.startOutputCenterX);
+          const startAngle = Math.atan2(startOutputPoint.y - drag.startOutputCenterY, startOutputPoint.x - drag.startOutputCenterX);
+          layer.rotationDeg = clampCompRotation(drag.startRotationDeg + (currentAngle - startAngle) * 180 / Math.PI);
+          return;
+        }
         if (drag.mode === "move") {
           const deltaX = outputPoint.x - startOutputPoint.x;
           const deltaY = outputPoint.y - startOutputPoint.y;
@@ -2165,17 +2938,25 @@ export function registerImageOpsLivePreview(): void {
           return;
         }
 
-        const startRight = drag.startLeft + drag.startWidth;
-        const startBottom = drag.startTop + drag.startHeight;
-        const anchor = drag.mode === "nw"
-          ? { x: startRight, y: startBottom }
+        const halfWidth = drag.startDrawWidth / 2;
+        const halfHeight = drag.startDrawHeight / 2;
+        const angleRad = drag.startRotationDeg * Math.PI / 180;
+        const anchorOffset = drag.mode === "nw"
+          ? { x: halfWidth, y: halfHeight }
           : drag.mode === "ne"
-            ? { x: drag.startLeft, y: startBottom }
+            ? { x: -halfWidth, y: halfHeight }
             : drag.mode === "sw"
-              ? { x: startRight, y: drag.startTop }
-              : { x: drag.startLeft, y: drag.startTop };
-        const deltaX = Math.abs(anchor.x - outputPoint.x);
-        const deltaY = Math.abs(anchor.y - outputPoint.y);
+              ? { x: halfWidth, y: -halfHeight }
+              : { x: -halfWidth, y: -halfHeight };
+        const rotatedAnchor = rotatePoint(anchorOffset.x, anchorOffset.y, angleRad);
+        const anchor = {
+          x: drag.startOutputCenterX + rotatedAnchor.x,
+          y: drag.startOutputCenterY + rotatedAnchor.y,
+        };
+        const localAnchor = rotatePoint(anchor.x, anchor.y, -angleRad);
+        const localPointer = rotatePoint(outputPoint.x, outputPoint.y, -angleRad);
+        const deltaX = Math.abs(localAnchor.x - localPointer.x);
+        const deltaY = Math.abs(localAnchor.y - localPointer.y);
         const aspect = Math.max(0.0001, drag.sourceWidth / Math.max(1, drag.sourceHeight));
         let width = Math.max(1, Math.min(deltaX, deltaY * aspect));
         let height = width / aspect;
@@ -2183,16 +2964,21 @@ export function registerImageOpsLivePreview(): void {
           height = 1;
           width = aspect;
         }
-        const rect = drag.mode === "nw"
-          ? { left: anchor.x - width, top: anchor.y - height }
+        const corner = drag.mode === "nw"
+          ? { x: localAnchor.x - width, y: localAnchor.y - height }
           : drag.mode === "ne"
-            ? { left: anchor.x, top: anchor.y - height }
+            ? { x: localAnchor.x + width, y: localAnchor.y - height }
             : drag.mode === "sw"
-              ? { left: anchor.x - width, top: anchor.y }
-              : { left: anchor.x, top: anchor.y };
+              ? { x: localAnchor.x - width, y: localAnchor.y + height }
+              : { x: localAnchor.x + width, y: localAnchor.y + height };
+        const centerLocal = {
+          x: (localAnchor.x + corner.x) / 2,
+          y: (localAnchor.y + corner.y) / 2,
+        };
+        const centerOutput = rotatePoint(centerLocal.x, centerLocal.y, angleRad);
         layer.scale = clampCompScale(width / Math.max(1, drag.sourceWidth));
-        layer.centerX = clampCompCenter((rect.left + width / 2) / Math.max(1, st.compOutputWidth));
-        layer.centerY = clampCompCenter((rect.top + height / 2) / Math.max(1, st.compOutputHeight));
+        layer.centerX = clampCompCenter(centerOutput.x / Math.max(1, st.compOutputWidth));
+        layer.centerY = clampCompCenter(centerOutput.y / Math.max(1, st.compOutputHeight));
       });
       markPreviewInteraction(node);
       markCanvasDirty();
@@ -2292,7 +3078,7 @@ export function registerImageOpsLivePreview(): void {
         commitRender();
         finishRender();
       }).catch((err) => {
-        failRender("Draw preview error (check console)", err);
+        failRender("Paint preview error (check console)", err);
       });
       return;
     }
@@ -2314,7 +3100,7 @@ export function registerImageOpsLivePreview(): void {
         return;
       }
 
-      renderer.render(upstream, tick, null, renderCanvasSize).then(result => {
+      renderer.render(upstream, tick, getInputOriginSlot(node, 0), renderCanvasSize).then(result => {
         if (!result?.canvas) {
           setInfo(st, "Live preview: connect a supported loader/chain");
           st.cropGeometry = null;
@@ -2346,7 +3132,7 @@ export function registerImageOpsLivePreview(): void {
       Promise.all(slots.map(async (slot) => {
         const upstream = getUpstreamNode(node, slot.inputIndex);
         if (!upstream) return null;
-        const result = await renderer.render(upstream, tick, null, renderCanvasSize);
+        const result = await renderer.render(upstream, tick, getInputOriginSlot(node, slot.inputIndex), renderCanvasSize);
         if (!result?.canvas) return null;
         let mask: HTMLCanvasElement | null = null;
         if (slot.maskInputIndex != null && (node.inputs?.[slot.maskInputIndex]?.link ?? null) != null) {
@@ -2480,17 +3266,30 @@ export function registerImageOpsLivePreview(): void {
       hideDrawWidgets(node);
       syncDrawWidgets(node);
     }
+    if (isColorCorrectNode(node)) {
+      syncColorCorrectWidgets(node);
+    }
     if (isCompNode(node)) {
       hideCompWidgets(node);
       ensureCompState(node);
       updateCompControls(node);
     }
+    if (isPreviewNode(node)) {
+      hidePreviewWidgets(node);
+      syncPreviewWidgets(node);
+    }
 
     if (IMAGEOPS_CLASSES.has(node.comfyClass)) {
       node.previewMediaType = "image";
       ensurePreviewWidget(node, progress, canvasSize);
+      if (isPreviewNode(node)) {
+        attachPreviewInteractions(node);
+      }
       if (isDrawNode(node)) {
         attachDrawInteractions(node);
+      }
+      if (isColorCorrectNode(node)) {
+        attachColorCorrectInteractions(node);
       }
       if (isCropNode(node)) {
         attachCropInteractions(node);
@@ -2512,9 +3311,15 @@ export function registerImageOpsLivePreview(): void {
         if (isDrawNode(node)) {
           syncDrawWidgets(node, w.name);
         }
+        if (isColorCorrectNode(node)) {
+          syncColorCorrectWidgets(node);
+        }
         if (isCompNode(node)) {
           ensureCompState(node);
           updateCompControls(node);
+        }
+        if (isPreviewNode(node)) {
+          syncPreviewWidgets(node);
         }
         st.nativeDirty = true;
         schedule(node, () => {
@@ -2539,6 +3344,10 @@ export function registerImageOpsLivePreview(): void {
           hideDrawWidgets(node);
           attachDrawInteractions(node);
         }
+        if (isColorCorrectNode(node) && prop === "onConfigure") {
+          attachColorCorrectInteractions(node);
+          syncColorCorrectWidgets(node);
+        }
         if (isDrawNode(node)) {
           syncDrawWidgets(node);
         }
@@ -2547,6 +3356,11 @@ export function registerImageOpsLivePreview(): void {
           ensureCompState(node);
           attachCompInteractions(node);
           updateCompControls(node);
+        }
+        if (isPreviewNode(node) && prop === "onConfigure") {
+          hidePreviewWidgets(node);
+          attachPreviewInteractions(node);
+          syncPreviewWidgets(node);
         }
         st.nativeDirty = true;
         if (IMAGEOPS_CLASSES.has(node.comfyClass)) startLoopIfVideo(node);

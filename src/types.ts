@@ -170,14 +170,18 @@ export interface NodeState {
   cropInteractiveHooked: boolean;
   drawAspectRatio: number | null;
   drawGeometry: DrawPreviewGeometry | null;
+  drawHover: { canvasX: number; canvasY: number; inside: boolean } | null;
+  drawSizeHintUntil: number;
   drawStroke: DrawStrokeState | null;
   drawCanvas: HTMLCanvasElement | null;
   drawBaseCanvas: HTMLCanvasElement | null;
+  drawUndoStack: HTMLCanvasElement[];
   drawOverlayKey: string | null;
   drawBrushButton: HTMLButtonElement | null;
   drawEraserButton: HTMLButtonElement | null;
   drawClearButton: HTMLButtonElement | null;
   drawColorInput: HTMLInputElement | null;
+  drawEdgeSelect: HTMLSelectElement | null;
   drawOpacityInput: HTMLInputElement | null;
   drawOpacityLabel: HTMLDivElement | null;
   drawSizeInput: HTMLInputElement | null;
@@ -187,6 +191,12 @@ export interface NodeState {
   drawLinkButton: HTMLButtonElement | null;
   drawBgColorInput: HTMLInputElement | null;
   drawInteractiveHooked: boolean;
+  colorWheelCanvas: HTMLCanvasElement | null;
+  colorHueLabel: HTMLDivElement | null;
+  colorSatLabel: HTMLDivElement | null;
+  colorSwatch: HTMLDivElement | null;
+  colorResetButton: HTMLButtonElement | null;
+  colorInteractiveHooked: boolean;
   compLayers: CompLayerPreviewGeometry[];
   compOutputWidth: number;
   compOutputHeight: number;
@@ -214,7 +224,7 @@ export interface CropPreviewGeometry {
   cropHeight: number;
 }
 
-export type CropDragMode = "move" | "nw" | "ne" | "sw" | "se";
+export type CropDragMode = "move" | "n" | "e" | "s" | "w" | "nw" | "ne" | "sw" | "se";
 
 export interface CropDragState {
   pointerId: number;
@@ -228,6 +238,8 @@ export interface CropDragState {
   startCropY: number;
   startCropWidth: number;
   startCropHeight: number;
+  startOutputWidth: number;
+  startOutputHeight: number;
 }
 
 export interface DrawPreviewGeometry {
@@ -241,8 +253,11 @@ export interface DrawPreviewGeometry {
 
 export interface DrawStrokeState {
   pointerId: number;
+  startX: number;
+  startY: number;
   lastX: number;
   lastY: number;
+  snapshot: HTMLCanvasElement | null;
 }
 
 export interface CompLayerPreviewGeometry {
@@ -255,9 +270,14 @@ export interface CompLayerPreviewGeometry {
   top: number;
   width: number;
   height: number;
+  centerX: number;
+  centerY: number;
+  drawWidth: number;
+  drawHeight: number;
+  rotationDeg: number;
 }
 
-export type CompDragMode = "move" | "nw" | "ne" | "sw" | "se";
+export type CompDragMode = "move" | "nw" | "ne" | "sw" | "se" | "rotate";
 
 export interface CompDragState {
   pointerId: number;
@@ -268,10 +288,16 @@ export interface CompDragState {
   startCenterX: number;
   startCenterY: number;
   startScale: number;
+  startRotationDeg: number;
+  startPointerAngle: number;
   startLeft: number;
   startTop: number;
   startWidth: number;
   startHeight: number;
+  startOutputCenterX: number;
+  startOutputCenterY: number;
+  startDrawWidth: number;
+  startDrawHeight: number;
   sourceWidth: number;
   sourceHeight: number;
 }

@@ -576,7 +576,17 @@ def _apply_mask_to_image(original, processed, mask):
         return processed
 
     weight = mask_tensor.unsqueeze(-1)
-    return original * (1.0 - weight) + processed * weight
+    if original.shape[-1] >= 4 or processed.shape[-1] >= 4:
+        original_rgba = _ensure_rgba(original.float().clamp(0.0, 1.0))
+        processed_rgba = _ensure_rgba(processed.float().clamp(0.0, 1.0))
+        blended = _unpremultiply_rgba(
+            _premultiply_rgba(original_rgba) * (1.0 - weight)
+            + _premultiply_rgba(processed_rgba) * weight
+        ).clamp(0.0, 1.0)
+        if processed.shape[-1] >= 4 or original.shape[-1] >= 4:
+            return blended.to(device=processed.device, dtype=processed.dtype)
+        return blended[..., :3].to(device=processed.device, dtype=processed.dtype)
+    return (original * (1.0 - weight) + processed * weight).to(device=processed.device, dtype=processed.dtype)
 
 
 def _match_image_to_reference(image: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
@@ -888,6 +898,18 @@ def _resize_premultiplied_rgba(image: torch.Tensor, out_w: int, out_h: int) -> t
     return _unpremultiply_rgba(_resize(_premultiply_rgba(image), out_w, out_h))
 
 
+def _rotate_premultiplied_rgba(image: torch.Tensor, rotate_deg) -> torch.Tensor:
+    angle = float(_scalar(rotate_deg))
+    if abs(angle) <= EPSILON:
+        return image
+    device = image.device
+    dtype = image.dtype
+    frames = []
+    for pil in _tensor_batch_to_pil_list(image.float().clamp(0.0, 1.0)):
+        frames.append(_pil_to_tensor(pil.rotate(-angle, resample=Image.BICUBIC, expand=True)))
+    return torch.cat(frames, dim=0).to(device=device, dtype=dtype).clamp(0.0, 1.0)
+
+
 def _apply_external_mask_to_rgba(image: torch.Tensor, mask: torch.Tensor | None) -> torch.Tensor:
     rgba = _ensure_rgba(image.float().clamp(0.0, 1.0))
     if mask is None:
@@ -905,7 +927,6 @@ def _apply_external_mask_to_rgba(image: torch.Tensor, mask: torch.Tensor | None)
     if torch.all(prepared_mask >= 1.0 - EPSILON):
         return rgba
     matte = prepared_mask.unsqueeze(-1).clamp(0.0, 1.0)
-    rgba[..., :3] = rgba[..., :3] * matte
     rgba[..., 3:4] = rgba[..., 3:4] * matte
     return rgba.clamp(0.0, 1.0)
 
@@ -1256,13 +1277,13 @@ def _compute_comp_rect(output_w: int, output_h: int, source_w: int, source_h: in
 
 
 def _composite_comp_layer(canvas: torch.Tensor, image: torch.Tensor, mask: torch.Tensor | None,
-                          mode: str, opacity, center_x, center_y, scale) -> torch.Tensor:
+                          mode: str, opacity, center_x, center_y, scale, rotate_deg=0.0) -> torch.Tensor:
     if canvas is None:
         raise ValueError("canvas is None")
     if image is None:
         raise ValueError("image is None")
 
-    if _has_list_param(opacity, center_x, center_y, scale):
+    if _has_list_param(opacity, center_x, center_y, scale, rotate_deg):
         batch = canvas.shape[0]
         source = _ensure_rgba(_expand_image_batch(image.float().clamp(0.0, 1.0), batch))
         source = _apply_external_mask_to_rgba(source, mask)
@@ -1270,7 +1291,7 @@ def _composite_comp_layer(canvas: torch.Tensor, image: torch.Tensor, mask: torch
             canvas[i:i+1] = _composite_comp_layer(
                 canvas[i:i+1], source[i:i+1], None, mode,
                 _scalar(opacity, index=i), _scalar(center_x, index=i),
-                _scalar(center_y, index=i), _scalar(scale, index=i),
+                _scalar(center_y, index=i), _scalar(scale, index=i), _scalar(rotate_deg, index=i),
             )
         return canvas
 
@@ -1279,17 +1300,24 @@ def _composite_comp_layer(canvas: torch.Tensor, image: torch.Tensor, mask: torch
     source = _apply_external_mask_to_rgba(source, mask)
     source_h = int(source.shape[1])
     source_w = int(source.shape[2])
-    left, top, draw_w, draw_h = _compute_comp_rect(out_w, out_h, source_w, source_h, center_x, center_y, scale)
+    _, _, draw_w, draw_h = _compute_comp_rect(out_w, out_h, source_w, source_h, center_x, center_y, scale)
+    center_px = _scalar(center_x) * float(max(1, out_w))
+    center_py = _scalar(center_y) * float(max(1, out_h))
+
+    rotated_source = _rotate_premultiplied_rgba(_resize_premultiplied_rgba(source, draw_w, draw_h), rotate_deg)
+    place_h = int(rotated_source.shape[1])
+    place_w = int(rotated_source.shape[2])
+    left = int(round(center_px - place_w / 2.0))
+    top = int(round(center_py - place_h / 2.0))
 
     x0 = max(0, left)
     y0 = max(0, top)
-    x1 = min(out_w, left + draw_w)
-    y1 = min(out_h, top + draw_h)
+    x1 = min(out_w, left + place_w)
+    y1 = min(out_h, top + place_h)
     if x1 <= x0 or y1 <= y0:
         return canvas
 
-    resized_source = _resize_premultiplied_rgba(source, draw_w, draw_h)
-    effective_alpha = resized_source[..., 3]
+    effective_alpha = rotated_source[..., 3]
 
     effective_alpha = (effective_alpha * _scalar(max(0.0, min(1.0, _scalar(opacity))))).clamp(0.0, 1.0)
     src_x0 = x0 - left
@@ -1298,7 +1326,7 @@ def _composite_comp_layer(canvas: torch.Tensor, image: torch.Tensor, mask: torch
     src_y1 = src_y0 + (y1 - y0)
 
     dst_region = canvas[:, y0:y1, x0:x1, :]
-    src_region = resized_source[:, src_y0:src_y1, src_x0:src_x1, :3]
+    src_region = rotated_source[:, src_y0:src_y1, src_x0:src_x1, :3]
     alpha_region = effective_alpha[:, src_y0:src_y1, src_x0:src_x1].unsqueeze(-1)
 
     blended_rgb = _blend_rgb(dst_region[..., :3], src_region, mode)

@@ -10,6 +10,10 @@ function getInputLink(node, inputIndex = 0) {
     return null;
   }
 }
+function getInputOriginSlot(node, inputIndex = 0, fallback = null) {
+  const link = getInputLink(node, inputIndex);
+  return link?.origin_slot ?? link?.originSlot ?? fallback;
+}
 function getInputCount(node, fallback = DEFAULT_INPUT_SCAN) {
   const count = Array.isArray(node?.inputs) ? node.inputs.length : 0;
   return count > 0 ? count : fallback;
@@ -115,6 +119,7 @@ export {
   findDependents,
   getInputCount,
   getInputLink,
+  getInputOriginSlot,
   getUpstreamNode,
   getUpstreamNodes,
   isGraphTooLarge

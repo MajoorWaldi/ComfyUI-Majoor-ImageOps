@@ -1,6 +1,8 @@
 from ._helpers import (
     MEDIA_INPUT_TYPE,
+    _apply_mask_to_image,
     _apply_color_correct_reference,
+    _prepare_effect_mask,
     _resolve_mask_output_source,
     _scalar,
     _select_media_tensor,
@@ -21,7 +23,7 @@ class ImageOpsColorAjust:
             "required": {
                 "bypass": ("BOOLEAN", {"default": False}),
                 "temperature": ("FLOAT", {"default": 0.0, "min": -100.0, "max": 100.0, "step": 5.0, "display": "slider", "round": 0.001}),
-                "hue": ("FLOAT", {"default": 0.0, "min": -90.0, "max": 90.0, "step": 5.0, "display": "slider", "round": 0.001}),
+                "hue": ("FLOAT", {"default": 0.0, "min": -180.0, "max": 180.0, "step": 5.0, "display": "slider", "round": 0.001}),
                 "brightness": ("FLOAT", {"default": 0.0, "min": -100.0, "max": 100.0, "step": 5.0, "display": "slider", "round": 0.001}),
                 "contrast": ("FLOAT", {"default": 0.0, "min": -100.0, "max": 100.0, "step": 5.0, "display": "slider", "round": 0.001}),
                 "saturation": ("FLOAT", {"default": 0.0, "min": -100.0, "max": 100.0, "step": 5.0, "display": "slider", "round": 0.001}),
@@ -53,11 +55,13 @@ class ImageOpsColorAjust:
         unique_id=None,
     ):
         source = _select_media_tensor(image, video)
+        effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         progress = start_progress(unique_id=unique_id)
         if _scalar(bypass, bool):
             progress.finish()
             return build_node_preview_result(source, (source, output_mask), prefix="imageops_color_ajust")
         result = _apply_color_correct_reference(source, temperature, hue, brightness, contrast, saturation, gamma)
+        result = _apply_mask_to_image(source, result, effect_mask)
         progress.finish()
         return build_node_preview_result(result, (result, output_mask), prefix="imageops_color_ajust")

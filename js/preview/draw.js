@@ -41,6 +41,9 @@ function normalizeDrawColor(value, fallback = "#ffffff") {
 function normalizeDrawTool(value) {
   return String(value || "brush").toLowerCase() === "eraser" ? "eraser" : "brush";
 }
+function normalizeDrawEdge(value) {
+  return String(value || "hard").toLowerCase() === "soft" ? "soft" : "hard";
+}
 function makeCanvas(width, height) {
   const canvas = document.createElement("canvas");
   canvas.width = normalizeCanvasDimension(width, 1);
@@ -147,6 +150,7 @@ export {
   makeCanvas,
   makeSolidBackgroundCanvas,
   normalizeDrawColor,
+  normalizeDrawEdge,
   normalizeDrawTool,
   renderDrawPreview,
   resizeCanvasPreserve,

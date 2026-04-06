@@ -41,9 +41,6 @@ class ImageOpsClamp:
             progress.finish()
             return build_node_preview_result(src, (src, output_mask_source), prefix="imageops_clamp")
         out = _apply_clamp(src, min_v, max_v)
-        if mask is None and src.shape[-1] < 4:
-            output_mask = output_mask_source
-        else:
-            output_mask = _clamp_mask(output_mask_source, min_v, max_v)
+        output_mask = _clamp_mask(output_mask_source, min_v, max_v)
         progress.finish()
         return build_node_preview_result(out, (out, output_mask), prefix="imageops_clamp")
