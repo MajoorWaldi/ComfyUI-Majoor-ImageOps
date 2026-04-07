@@ -96,6 +96,10 @@ export function imageOpsAdapter(): Adapter {
         return ops.channel(ctx, canvasSize, node, outputSlot, inputs, tick ?? 0);
       } else if (cls === "ImageOpsCrop") {
         return ops.crop(ctx, canvasSize, node, inputs, tick ?? 0);
+      } else if (cls === "ImageOpsPadOut") {
+        return ops.padOut(ctx, canvasSize, node, inputs, tick ?? 0);
+      } else if (cls === "ImageOpsCornerPin") {
+        return ops.cornerPin(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsBlur") {
         return ops.blur(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsTransform") {

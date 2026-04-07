@@ -9,9 +9,11 @@ from .transform import ImageOpsTransform
 from .color_ajust import ImageOpsColorAjust
 from .invert import ImageOpsInvert
 from .clamp import ImageOpsClamp
+from .corner_pin import ImageOpsCornerPin
 from .merge import ImageOpsMerge
 from .mask_convert import ImageOpsMaskConvert
 from .noise import ImageOpsNoise
+from .padout import ImageOpsPadOut
 from .preview import ImageOpsPreview
 
 __all__ = [
@@ -25,8 +27,10 @@ __all__ = [
     "ImageOpsColorAjust",
     "ImageOpsInvert",
     "ImageOpsClamp",
+    "ImageOpsCornerPin",
     "ImageOpsMerge",
     "ImageOpsMaskConvert",
     "ImageOpsNoise",
+    "ImageOpsPadOut",
     "ImageOpsPreview",
 ]

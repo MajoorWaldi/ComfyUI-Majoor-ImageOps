@@ -53,6 +53,7 @@ _load_module(f"{_PKG}.server", BASE_DIR / "server.py")
 
 ImageOpsBlur = _load_module(f"{_PKG}.nodes.blur", _nodes_dir / "blur.py").ImageOpsBlur
 ImageOpsChannel = _load_module(f"{_PKG}.nodes.channel", _nodes_dir / "channel.py").ImageOpsChannel
+ImageOpsCornerPin = _load_module(f"{_PKG}.nodes.corner_pin", _nodes_dir / "corner_pin.py").ImageOpsCornerPin
 ImageOpsComp = _load_module(f"{_PKG}.nodes.comp", _nodes_dir / "comp.py").ImageOpsComp
 ImageOpsCrop = _load_module(f"{_PKG}.nodes.crop", _nodes_dir / "crop.py").ImageOpsCrop
 ImageOpsDistort = _load_module(f"{_PKG}.nodes.distort", _nodes_dir / "distort.py").ImageOpsDistort
@@ -64,11 +65,13 @@ ImageOpsClamp = _load_module(f"{_PKG}.nodes.clamp", _nodes_dir / "clamp.py").Ima
 ImageOpsMerge = _load_module(f"{_PKG}.nodes.merge", _nodes_dir / "merge.py").ImageOpsMerge
 ImageOpsMaskConvert = _load_module(f"{_PKG}.nodes.mask_convert", _nodes_dir / "mask_convert.py").ImageOpsMaskConvert
 ImageOpsNoise = _load_module(f"{_PKG}.nodes.noise", _nodes_dir / "noise.py").ImageOpsNoise
+ImageOpsPadOut = _load_module(f"{_PKG}.nodes.padout", _nodes_dir / "padout.py").ImageOpsPadOut
 ImageOpsPreview = _load_module(f"{_PKG}.nodes.preview", _nodes_dir / "preview.py").ImageOpsPreview
 
 NODE_CLASS_MAPPINGS = {
     "ImageOpsBlur": ImageOpsBlur,
     "ImageOpsChannel": ImageOpsChannel,
+    "ImageOpsCornerPin": ImageOpsCornerPin,
     "ImageOpsComp": ImageOpsComp,
     "ImageOpsCrop": ImageOpsCrop,
     "ImageOpsDistort": ImageOpsDistort,
@@ -80,12 +83,14 @@ NODE_CLASS_MAPPINGS = {
     "ImageOpsMerge": ImageOpsMerge,
     "ImageOpsMaskConvert": ImageOpsMaskConvert,
     "ImageOpsNoise": ImageOpsNoise,
+    "ImageOpsPadOut": ImageOpsPadOut,
     "ImageOpsPreview": ImageOpsPreview,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageOpsBlur": "ImageOps Blur",
     "ImageOpsChannel": "ImageOps Channels",
+    "ImageOpsCornerPin": "ImageOps Corner Pin",
     "ImageOpsComp": "ImageOps Comp",
     "ImageOpsCrop": "ImageOps Resize/Crop",
     "ImageOpsDistort": "ImageOps Distort",
@@ -99,6 +104,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageOpsMerge": "ImageOps Merge",
     "ImageOpsMaskConvert": "ImageOps Mask Convert",
     "ImageOpsNoise": "ImageOps Noise",
+    "ImageOpsPadOut": "ImageOps PadOut",
     "ImageOpsPreview": "ImageOps Preview",
 }
 

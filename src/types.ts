@@ -209,6 +209,12 @@ export interface NodeState {
   compOpacityLabel: HTMLDivElement | null;
   compLayerLabel: HTMLDivElement | null;
   compInteractiveHooked: boolean;
+  cornerPinGeometry: CornerPinPreviewGeometry | null;
+  cornerPinDrag: CornerPinDragState | null;
+  cornerPinInteractiveHooked: boolean;
+  padOutGeometry: PadOutPreviewGeometry | null;
+  padOutDrag: PadOutDragState | null;
+  padOutInteractiveHooked: boolean;
 }
 
 export interface CropPreviewGeometry {
@@ -300,6 +306,50 @@ export interface CompDragState {
   startDrawHeight: number;
   sourceWidth: number;
   sourceHeight: number;
+}
+
+export interface CornerPinPreviewGeometry {
+  sourceWidth: number;
+  sourceHeight: number;
+  fitDx: number;
+  fitDy: number;
+  fitDrawWidth: number;
+  fitDrawHeight: number;
+}
+
+export type CornerPinHandle = "tl" | "tr" | "bl" | "br";
+
+export interface CornerPinDragState {
+  pointerId: number;
+  handle: CornerPinHandle;
+}
+
+export interface PadOutPreviewGeometry {
+  sourceWidth: number;
+  sourceHeight: number;
+  outputWidth: number;
+  outputHeight: number;
+  padLeft: number;
+  padTop: number;
+  padRight: number;
+  padBottom: number;
+  fitDx: number;
+  fitDy: number;
+  fitDrawWidth: number;
+  fitDrawHeight: number;
+}
+
+export type PadOutDragMode = "move" | "n" | "e" | "s" | "w" | "nw" | "ne" | "sw" | "se";
+
+export interface PadOutDragState {
+  pointerId: number;
+  mode: PadOutDragMode;
+  startCanvasX: number;
+  startCanvasY: number;
+  startPadLeft: number;
+  startPadTop: number;
+  startPadRight: number;
+  startPadBottom: number;
 }
 
 export interface ScopesElements {

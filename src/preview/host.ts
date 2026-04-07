@@ -12,6 +12,10 @@ import type {
   DrawStrokeState,
   CompLayerPreviewGeometry,
   CropPreviewGeometry,
+  CornerPinPreviewGeometry,
+  CornerPinHandle,
+  PadOutPreviewGeometry,
+  PadOutDragMode,
   NodeState,
   ProgressBus,
 } from "../types.js";
@@ -38,6 +42,7 @@ const IMAGEOPS_CLASSES = new Set([
   "ImageOpsColorAjust",
   "ImageOpsBlur",
   "ImageOpsChannel",
+  "ImageOpsCornerPin",
   "ImageOpsComp",
   "ImageOpsCrop",
   "ImageOpsDistort",
@@ -48,6 +53,7 @@ const IMAGEOPS_CLASSES = new Set([
   "ImageOpsMerge",
   "ImageOpsMaskConvert",
   "ImageOpsNoise",
+  "ImageOpsPadOut",
   "ImageOpsPreview",
 ]);
 
@@ -131,6 +137,12 @@ function ensureState(node: ComfyNode): NodeState {
     compOpacityLabel: null,
     compLayerLabel: null,
     compInteractiveHooked: false,
+    cornerPinGeometry: null,
+    cornerPinDrag: null,
+    cornerPinInteractiveHooked: false,
+    padOutGeometry: null,
+    padOutDrag: null,
+    padOutInteractiveHooked: false,
   };
   return node.__imageops_state!;
 }
@@ -795,6 +807,14 @@ function isCropNode(node: ComfyNode): boolean {
 
 function isDrawNode(node: ComfyNode): boolean {
   return String(node?.comfyClass ?? "") === "ImageOpsDraw";
+}
+
+function isCornerPinNode(node: ComfyNode): boolean {
+  return String(node?.comfyClass ?? "") === "ImageOpsCornerPin";
+}
+
+function isPadOutNode(node: ComfyNode): boolean {
+  return String(node?.comfyClass ?? "") === "ImageOpsPadOut";
 }
 
 function isColorCorrectNode(node: ComfyNode): boolean {
@@ -1776,7 +1796,7 @@ function getCompCanvasMetrics(
 }
 
 function tryRenderNativePreview(node: ComfyNode, st: NodeState, canvasSize: number): boolean {
-  if (isCropNode(node) || isCompNode(node) || isDrawNode(node)) return false;
+  if (isCropNode(node) || isCompNode(node) || isDrawNode(node) || isPadOutNode(node) || isCornerPinNode(node)) return false;
   if (st.nativeDirty) return false;
   if (showNativeMediaPreview(node, st, canvasSize)) {
     setInfo(st, "Node preview (media)");
@@ -1845,6 +1865,8 @@ function blit(
     st.drawGeometry = null;
   }
   st.cropGeometry = drawCropBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
+  st.cornerPinGeometry = drawCornerPinBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
+  st.padOutGeometry = drawPadOutBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
   drawTransformBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
   drawCompBounds(node, ctx, canvasSize, canvasSize, st.compOutputWidth || resolvedWidth, st.compOutputHeight || resolvedHeight, st.compLayers);
 }
@@ -1866,6 +1888,14 @@ function getDrawInfoText(node: ComfyNode, width: number, height: number): string
   return inputConnected
     ? `Paint preview (paint over input, ${width}x${height})`
     : `Paint preview (${width}x${height})`;
+}
+
+function getPadOutInfoText(_node: ComfyNode, width: number, height: number): string {
+  return `PadOut preview (${width}x${height})`;
+}
+
+function getCornerPinInfoText(_node: ComfyNode, width: number, height: number): string {
+  return `Corner Pin preview (${width}x${height})`;
 }
 
 function getCanvasPointer(canvas: HTMLCanvasElement, event: PointerEvent): { x: number; y: number } {
@@ -1918,6 +1948,189 @@ function getCropCursor(mode: CropDragMode | "move" | null): string {
     default:
       return "default";
   }
+}
+
+function getPadOutInteractionMode(geometry: PadOutPreviewGeometry | null, x: number, y: number): PadOutDragMode | "move" | null {
+  if (!geometry) return null;
+  const scaleX = geometry.fitDrawWidth / Math.max(1, geometry.outputWidth);
+  const scaleY = geometry.fitDrawHeight / Math.max(1, geometry.outputHeight);
+  const left = geometry.fitDx + geometry.padLeft * scaleX;
+  const top = geometry.fitDy + geometry.padTop * scaleY;
+  const right = left + geometry.sourceWidth * scaleX;
+  const bottom = top + geometry.sourceHeight * scaleY;
+  const threshold = 12;
+  const near = (px: number, py: number): boolean => Math.abs(x - px) <= threshold && Math.abs(y - py) <= threshold;
+
+  if (near(left, top)) return "nw";
+  if (near(right, top)) return "ne";
+  if (near(left, bottom)) return "sw";
+  if (near(right, bottom)) return "se";
+  if (Math.abs(y - top) <= threshold && x >= left && x <= right) return "n";
+  if (Math.abs(x - right) <= threshold && y >= top && y <= bottom) return "e";
+  if (Math.abs(y - bottom) <= threshold && x >= left && x <= right) return "s";
+  if (Math.abs(x - left) <= threshold && y >= top && y <= bottom) return "w";
+  if (x >= left && x <= right && y >= top && y <= bottom) return "move";
+  return null;
+}
+
+function getPadOutCursor(mode: PadOutDragMode | "move" | null): string {
+  switch (mode) {
+    case "move": return "move";
+    case "n":
+    case "s":
+      return "ns-resize";
+    case "e":
+    case "w":
+      return "ew-resize";
+    case "nw":
+    case "se":
+      return "nwse-resize";
+    case "ne":
+    case "sw":
+      return "nesw-resize";
+    default:
+      return "default";
+  }
+}
+
+function cornerPinCanvasPoint(geometry: CornerPinPreviewGeometry, xNorm: number, yNorm: number): { x: number; y: number } {
+  const sourceX = xNorm * Math.max(1, geometry.sourceWidth - 1);
+  const sourceY = yNorm * Math.max(1, geometry.sourceHeight - 1);
+  return {
+    x: geometry.fitDx + sourceX * geometry.fitDrawWidth / Math.max(1, geometry.sourceWidth),
+    y: geometry.fitDy + sourceY * geometry.fitDrawHeight / Math.max(1, geometry.sourceHeight),
+  };
+}
+
+function cornerPinControlPoints(node: ComfyNode, geometry: CornerPinPreviewGeometry): Record<CornerPinHandle, { x: number; y: number }> {
+  return {
+    tl: cornerPinCanvasPoint(geometry, widgetNumber(node, "tl_x", 0), widgetNumber(node, "tl_y", 0)),
+    tr: cornerPinCanvasPoint(geometry, widgetNumber(node, "tr_x", 1), widgetNumber(node, "tr_y", 0)),
+    bl: cornerPinCanvasPoint(geometry, widgetNumber(node, "bl_x", 0), widgetNumber(node, "bl_y", 1)),
+    br: cornerPinCanvasPoint(geometry, widgetNumber(node, "br_x", 1), widgetNumber(node, "br_y", 1)),
+  };
+}
+
+function drawCornerPinBounds(
+  node: ComfyNode,
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  sourceWidth: number,
+  sourceHeight: number,
+): CornerPinPreviewGeometry | null {
+  if (!isCornerPinNode(node)) return null;
+  const fit = getFitPlacement(width, height, sourceWidth, sourceHeight);
+  const geometry: CornerPinPreviewGeometry = {
+    sourceWidth,
+    sourceHeight,
+    fitDx: fit.dx,
+    fitDy: fit.dy,
+    fitDrawWidth: fit.drawWidth,
+    fitDrawHeight: fit.drawHeight,
+  };
+  const points = cornerPinControlPoints(node, geometry);
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(98, 224, 255, 0.96)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(points.tl.x, points.tl.y);
+  ctx.lineTo(points.tr.x, points.tr.y);
+  ctx.lineTo(points.br.x, points.br.y);
+  ctx.lineTo(points.bl.x, points.bl.y);
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(98, 224, 255, 0.35)";
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  ctx.moveTo(points.tl.x, points.tl.y);
+  ctx.lineTo(points.br.x, points.br.y);
+  ctx.moveTo(points.tr.x, points.tr.y);
+  ctx.lineTo(points.bl.x, points.bl.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const labels: Record<CornerPinHandle, string> = { tl: "TL", tr: "TR", bl: "BL", br: "BR" };
+  for (const key of ["tl", "tr", "bl", "br"] as CornerPinHandle[]) {
+    const point = points[key];
+    ctx.fillStyle = "rgba(98, 224, 255, 0.95)";
+    ctx.strokeStyle = "rgba(10, 18, 24, 0.95)";
+    ctx.lineWidth = 1.25;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 5.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.font = "10px sans-serif";
+    ctx.fillText(labels[key], point.x + 8, point.y - 8);
+  }
+  ctx.restore();
+
+  return geometry;
+}
+
+function drawPadOutBounds(
+  node: ComfyNode,
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  outputWidth: number,
+  outputHeight: number,
+): PadOutPreviewGeometry | null {
+  if (!isPadOutNode(node)) return null;
+  const padLeft = Math.max(0, Math.round(widgetNumber(node, "pad_left", 0)));
+  const padTop = Math.max(0, Math.round(widgetNumber(node, "pad_top", 0)));
+  const padRight = Math.max(0, Math.round(widgetNumber(node, "pad_right", 0)));
+  const padBottom = Math.max(0, Math.round(widgetNumber(node, "pad_bottom", 0)));
+  const sourceWidth = Math.max(1, outputWidth - padLeft - padRight);
+  const sourceHeight = Math.max(1, outputHeight - padTop - padBottom);
+  const fit = getFitPlacement(width, height, outputWidth, outputHeight);
+  const scaleX = fit.drawWidth / Math.max(1, outputWidth);
+  const scaleY = fit.drawHeight / Math.max(1, outputHeight);
+  const left = fit.dx + padLeft * scaleX;
+  const top = fit.dy + padTop * scaleY;
+  const innerWidth = sourceWidth * scaleX;
+  const innerHeight = sourceHeight * scaleY;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.28)";
+  ctx.beginPath();
+  ctx.rect(fit.dx, fit.dy, fit.drawWidth, fit.drawHeight);
+  ctx.rect(left, top, innerWidth, innerHeight);
+  ctx.fill("evenodd");
+
+  ctx.strokeStyle = "rgba(98, 224, 255, 0.96)";
+  ctx.lineWidth = 1.6;
+  ctx.strokeRect(left + 0.5, top + 0.5, innerWidth, innerHeight);
+
+  const points = [
+    { x: left, y: top },
+    { x: left + innerWidth, y: top },
+    { x: left, y: top + innerHeight },
+    { x: left + innerWidth, y: top + innerHeight },
+  ];
+  ctx.fillStyle = "rgba(98, 224, 255, 0.95)";
+  for (const point of points) {
+    ctx.fillRect(point.x - 3, point.y - 3, 6, 6);
+  }
+  ctx.restore();
+
+  return {
+    sourceWidth,
+    sourceHeight,
+    outputWidth,
+    outputHeight,
+    padLeft,
+    padTop,
+    padRight,
+    padBottom,
+    fitDx: fit.dx,
+    fitDy: fit.dy,
+    fitDrawWidth: fit.drawWidth,
+    fitDrawHeight: fit.drawHeight,
+  };
 }
 
 function canvasToSourcePoint(geometry: CropPreviewGeometry, x: number, y: number): { x: number; y: number } {
@@ -2024,6 +2237,46 @@ function getCompCursor(mode: CompDragMode | "move" | null): string {
       return "nesw-resize";
     default:
       return "default";
+  }
+}
+
+function getCornerPinHit(node: ComfyNode, geometry: CornerPinPreviewGeometry | null, x: number, y: number): CornerPinHandle | null {
+  if (!geometry) return null;
+  const points = cornerPinControlPoints(node, geometry);
+  const threshold = 12;
+  for (const key of ["tl", "tr", "bl", "br"] as CornerPinHandle[]) {
+    const point = points[key];
+    const dx = x - point.x;
+    const dy = y - point.y;
+    if (dx * dx + dy * dy <= threshold * threshold) return key;
+  }
+  return null;
+}
+
+function cornerPinCanvasToNormalized(geometry: CornerPinPreviewGeometry, x: number, y: number): { xNorm: number; yNorm: number } {
+  const sourceX = (x - geometry.fitDx) * geometry.sourceWidth / Math.max(1, geometry.fitDrawWidth);
+  const sourceY = (y - geometry.fitDy) * geometry.sourceHeight / Math.max(1, geometry.fitDrawHeight);
+  const denomX = Math.max(1, geometry.sourceWidth - 1);
+  const denomY = Math.max(1, geometry.sourceHeight - 1);
+  return {
+    xNorm: Math.max(-2, Math.min(2, sourceX / denomX)),
+    yNorm: Math.max(-2, Math.min(2, sourceY / denomY)),
+  };
+}
+
+function setCornerPinHandle(node: ComfyNode, handle: CornerPinHandle, xNorm: number, yNorm: number): void {
+  if (handle === "tl") {
+    setWidgetValue(findWidget(node, "tl_x"), xNorm);
+    setWidgetValue(findWidget(node, "tl_y"), yNorm);
+  } else if (handle === "tr") {
+    setWidgetValue(findWidget(node, "tr_x"), xNorm);
+    setWidgetValue(findWidget(node, "tr_y"), yNorm);
+  } else if (handle === "bl") {
+    setWidgetValue(findWidget(node, "bl_x"), xNorm);
+    setWidgetValue(findWidget(node, "bl_y"), yNorm);
+  } else {
+    setWidgetValue(findWidget(node, "br_x"), xNorm);
+    setWidgetValue(findWidget(node, "br_y"), yNorm);
   }
 }
 
@@ -2373,6 +2626,28 @@ export function registerImageOpsLivePreview(): void {
   }
 
   function refreshCropInteraction(node: ComfyNode): void {
+    const st = ensureState(node);
+    st.nativeDirty = true;
+    markPreviewInteraction(node);
+    markCanvasDirty();
+    schedule(node, () => {
+      startLoopIfVideo(node);
+      refreshDependents(node);
+    }, 0);
+  }
+
+  function refreshPadOutInteraction(node: ComfyNode): void {
+    const st = ensureState(node);
+    st.nativeDirty = true;
+    markPreviewInteraction(node);
+    markCanvasDirty();
+    schedule(node, () => {
+      startLoopIfVideo(node);
+      refreshDependents(node);
+    }, 0);
+  }
+
+  function refreshCornerPinInteraction(node: ComfyNode): void {
     const st = ensureState(node);
     st.nativeDirty = true;
     markPreviewInteraction(node);
@@ -3011,6 +3286,156 @@ export function registerImageOpsLivePreview(): void {
     });
   }
 
+  function attachCornerPinInteractions(node: ComfyNode): void {
+    if (!isCornerPinNode(node)) return;
+    const st = ensurePreviewWidget(node, progress, canvasSize);
+    if (!st?.canvas || st.cornerPinInteractiveHooked) return;
+    st.cornerPinInteractiveHooked = true;
+    const canvas = st.canvas;
+
+    canvas.addEventListener("pointerdown", (event: PointerEvent) => {
+      const geometry = st.cornerPinGeometry;
+      if (!geometry) return;
+      const point = getCanvasPointer(canvas, event);
+      const hit = getCornerPinHit(node, geometry, point.x, point.y);
+      if (!hit) return;
+      event.preventDefault();
+      canvas.focus();
+      canvas.setPointerCapture?.(event.pointerId);
+      st.cornerPinDrag = { pointerId: event.pointerId, handle: hit };
+      canvas.style.cursor = "grabbing";
+    });
+
+    canvas.addEventListener("pointermove", (event: PointerEvent) => {
+      const point = getCanvasPointer(canvas, event);
+      const drag = st.cornerPinDrag;
+      const geometry = st.cornerPinGeometry;
+      if (!drag || drag.pointerId !== event.pointerId || !geometry) {
+        canvas.style.cursor = getCornerPinHit(node, geometry, point.x, point.y) ? "grab" : "default";
+        return;
+      }
+      event.preventDefault();
+      const mapped = cornerPinCanvasToNormalized(geometry, point.x, point.y);
+      setCornerPinHandle(node, drag.handle, mapped.xNorm, mapped.yNorm);
+      refreshCornerPinInteraction(node);
+      canvas.style.cursor = "grabbing";
+    });
+
+    const releaseDrag = (event: PointerEvent) => {
+      if (!st.cornerPinDrag || st.cornerPinDrag.pointerId !== event.pointerId) return;
+      st.cornerPinDrag = null;
+      canvas.releasePointerCapture?.(event.pointerId);
+      const point = getCanvasPointer(canvas, event);
+      canvas.style.cursor = getCornerPinHit(node, st.cornerPinGeometry, point.x, point.y) ? "grab" : "default";
+      refreshCornerPinInteraction(node);
+    };
+
+    canvas.addEventListener("pointerup", releaseDrag);
+    canvas.addEventListener("pointercancel", releaseDrag);
+    canvas.addEventListener("pointerleave", () => {
+      if (!st.cornerPinDrag) {
+        canvas.style.cursor = "default";
+      }
+    });
+  }
+
+  function attachPadOutInteractions(node: ComfyNode): void {
+    if (!isPadOutNode(node)) return;
+    const st = ensurePreviewWidget(node, progress, canvasSize);
+    if (!st?.canvas || st.padOutInteractiveHooked) return;
+    st.padOutInteractiveHooked = true;
+    const canvas = st.canvas;
+
+    canvas.addEventListener("pointerdown", (event: PointerEvent) => {
+      const geometry = st.padOutGeometry;
+      if (!geometry) return;
+      const point = getCanvasPointer(canvas, event);
+      const mode = getPadOutInteractionMode(geometry, point.x, point.y);
+      if (!mode) return;
+      event.preventDefault();
+      canvas.focus();
+      canvas.setPointerCapture?.(event.pointerId);
+      st.padOutDrag = {
+        pointerId: event.pointerId,
+        mode,
+        startCanvasX: point.x,
+        startCanvasY: point.y,
+        startPadLeft: geometry.padLeft,
+        startPadTop: geometry.padTop,
+        startPadRight: geometry.padRight,
+        startPadBottom: geometry.padBottom,
+      };
+      canvas.style.cursor = getPadOutCursor(mode);
+    });
+
+    canvas.addEventListener("pointermove", (event: PointerEvent) => {
+      const point = getCanvasPointer(canvas, event);
+      const drag = st.padOutDrag;
+      const geometry = st.padOutGeometry;
+      if (!drag || drag.pointerId !== event.pointerId || !geometry) {
+        canvas.style.cursor = getPadOutCursor(getPadOutInteractionMode(geometry, point.x, point.y));
+        return;
+      }
+      event.preventDefault();
+
+      const deltaCanvasX = point.x - drag.startCanvasX;
+      const deltaCanvasY = point.y - drag.startCanvasY;
+      const deltaX = deltaCanvasX * geometry.outputWidth / Math.max(1, geometry.fitDrawWidth);
+      const deltaY = deltaCanvasY * geometry.outputHeight / Math.max(1, geometry.fitDrawHeight);
+
+      let left = drag.startPadLeft;
+      let top = drag.startPadTop;
+      let right = drag.startPadRight;
+      let bottom = drag.startPadBottom;
+
+      if (drag.mode === "move") {
+        const totalX = drag.startPadLeft + drag.startPadRight;
+        const totalY = drag.startPadTop + drag.startPadBottom;
+        left = Math.max(0, Math.min(totalX, Math.round(drag.startPadLeft + deltaX)));
+        right = totalX - left;
+        top = Math.max(0, Math.min(totalY, Math.round(drag.startPadTop + deltaY)));
+        bottom = totalY - top;
+      } else {
+        if (drag.mode === "w" || drag.mode === "nw" || drag.mode === "sw") {
+          left = Math.max(0, Math.round(drag.startPadLeft + deltaX));
+        }
+        if (drag.mode === "e" || drag.mode === "ne" || drag.mode === "se") {
+          right = Math.max(0, Math.round(drag.startPadRight - deltaX));
+        }
+        if (drag.mode === "n" || drag.mode === "nw" || drag.mode === "ne") {
+          top = Math.max(0, Math.round(drag.startPadTop + deltaY));
+        }
+        if (drag.mode === "s" || drag.mode === "sw" || drag.mode === "se") {
+          bottom = Math.max(0, Math.round(drag.startPadBottom - deltaY));
+        }
+      }
+
+      setWidgetValue(findWidget(node, "pad_left"), left);
+      setWidgetValue(findWidget(node, "pad_top"), top);
+      setWidgetValue(findWidget(node, "pad_right"), right);
+      setWidgetValue(findWidget(node, "pad_bottom"), bottom);
+      refreshPadOutInteraction(node);
+      canvas.style.cursor = getPadOutCursor(drag.mode);
+    });
+
+    const releaseDrag = (event: PointerEvent) => {
+      if (!st.padOutDrag || st.padOutDrag.pointerId !== event.pointerId) return;
+      st.padOutDrag = null;
+      canvas.releasePointerCapture?.(event.pointerId);
+      const point = getCanvasPointer(canvas, event);
+      canvas.style.cursor = getPadOutCursor(getPadOutInteractionMode(st.padOutGeometry, point.x, point.y));
+      refreshPadOutInteraction(node);
+    };
+
+    canvas.addEventListener("pointerup", releaseDrag);
+    canvas.addEventListener("pointercancel", releaseDrag);
+    canvas.addEventListener("pointerleave", () => {
+      if (!st.padOutDrag) {
+        canvas.style.cursor = "default";
+      }
+    });
+  }
+
   function renderNode(node: ComfyNode, tick: number = 0): void {
     const st = ensurePreviewWidget(node, progress, canvasSize);
     if (!st) return;
@@ -3188,15 +3613,21 @@ export function registerImageOpsLivePreview(): void {
         return;
       }
       blit(node, st, result.canvas, renderCanvasSize);
-      const src = detectSourceUpstream(node);
-      if (src?.kind === "video") {
-        setInfo(st, "Live preview (video)");
-      } else if (src?.animated) {
-        setInfo(st, "Live preview (animated image)");
-      } else if (src?.kind) {
-        setInfo(st, `Live preview (${src.kind})`);
+      if (isCornerPinNode(node)) {
+        setInfo(st, getCornerPinInfoText(node, result.canvas.width || 1, result.canvas.height || 1));
+      } else if (isPadOutNode(node)) {
+        setInfo(st, getPadOutInfoText(node, result.canvas.width || 1, result.canvas.height || 1));
       } else {
-        setInfo(st, "Live preview (no queue)");
+        const src = detectSourceUpstream(node);
+        if (src?.kind === "video") {
+          setInfo(st, "Live preview (video)");
+        } else if (src?.animated) {
+          setInfo(st, "Live preview (animated image)");
+        } else if (src?.kind) {
+          setInfo(st, `Live preview (${src.kind})`);
+        } else {
+          setInfo(st, "Live preview (no queue)");
+        }
       }
       commitRender();
       finishRender();
@@ -3297,6 +3728,12 @@ export function registerImageOpsLivePreview(): void {
       if (isCompNode(node)) {
         attachCompInteractions(node);
       }
+      if (isPadOutNode(node)) {
+        attachPadOutInteractions(node);
+      }
+      if (isCornerPinNode(node)) {
+        attachCornerPinInteractions(node);
+      }
       startLoopIfVideo(node);
     }
 
@@ -3356,6 +3793,12 @@ export function registerImageOpsLivePreview(): void {
           ensureCompState(node);
           attachCompInteractions(node);
           updateCompControls(node);
+        }
+        if (isCornerPinNode(node) && prop === "onConfigure") {
+          attachCornerPinInteractions(node);
+        }
+        if (isPadOutNode(node) && prop === "onConfigure") {
+          attachPadOutInteractions(node);
         }
         if (isPreviewNode(node) && prop === "onConfigure") {
           hidePreviewWidgets(node);

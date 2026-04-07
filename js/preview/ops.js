@@ -981,6 +981,217 @@ function applyCrop(ctx, node, sourceWidth, sourceHeight, aspectRatio, outW, outH
   );
   return output;
 }
+function renderPadOutCanvases(node, source, frameIndex = 0) {
+  const padLeft = Math.max(0, Math.round(numAny(node, ["pad_left"], 0, frameIndex)));
+  const padTop = Math.max(0, Math.round(numAny(node, ["pad_top"], 0, frameIndex)));
+  const padRight = Math.max(0, Math.round(numAny(node, ["pad_right"], 0, frameIndex)));
+  const padBottom = Math.max(0, Math.round(numAny(node, ["pad_bottom"], 0, frameIndex)));
+  const fillColor = parseHexColor(strAny(node, ["fill_color"], "#000000", frameIndex));
+  const invertMask = boolAny(node, ["invert_mask"], false, frameIndex);
+  const sourceWidth = source.width || 1;
+  const sourceHeight = source.height || 1;
+  const outWidth = Math.max(1, sourceWidth + padLeft + padRight);
+  const outHeight = Math.max(1, sourceHeight + padTop + padBottom);
+  const image = makeCanvas(outWidth, outHeight);
+  const imageCtx = image.getContext("2d");
+  imageCtx.fillStyle = fillColor;
+  imageCtx.fillRect(0, 0, outWidth, outHeight);
+  imageCtx.drawImage(source, padLeft, padTop, sourceWidth, sourceHeight);
+  const mask = makeCanvas(outWidth, outHeight);
+  const maskCtx = mask.getContext("2d");
+  maskCtx.fillStyle = invertMask ? "#000000" : "#FFFFFF";
+  maskCtx.fillRect(0, 0, outWidth, outHeight);
+  maskCtx.fillStyle = invertMask ? "#FFFFFF" : "#000000";
+  maskCtx.fillRect(padLeft, padTop, sourceWidth, sourceHeight);
+  markPreparedMaskCanvas(mask);
+  return { image, mask };
+}
+function solveLinear8x8(matrix, vector) {
+  const n = 8;
+  const A = matrix.map((row) => row.slice());
+  const b = vector.slice();
+  for (let col = 0; col < n; col++) {
+    let pivot = col;
+    let pivotAbs = Math.abs(A[col][col]);
+    for (let row = col + 1; row < n; row++) {
+      const valueAbs = Math.abs(A[row][col]);
+      if (valueAbs > pivotAbs) {
+        pivot = row;
+        pivotAbs = valueAbs;
+      }
+    }
+    if (pivotAbs < 1e-10) return null;
+    if (pivot !== col) {
+      const tmp = A[col];
+      A[col] = A[pivot];
+      A[pivot] = tmp;
+      const vb = b[col];
+      b[col] = b[pivot];
+      b[pivot] = vb;
+    }
+    const inv = 1 / A[col][col];
+    for (let c = col; c < n; c++) A[col][c] *= inv;
+    b[col] *= inv;
+    for (let row = 0; row < n; row++) {
+      if (row === col) continue;
+      const factor = A[row][col];
+      if (Math.abs(factor) < 1e-12) continue;
+      for (let c = col; c < n; c++) A[row][c] -= factor * A[col][c];
+      b[row] -= factor * b[col];
+    }
+  }
+  return b;
+}
+function invert3x3(m) {
+  const a = m[0], b = m[1], c = m[2];
+  const d = m[3], e = m[4], f = m[5];
+  const g = m[6], h = m[7], i = m[8];
+  const A = e * i - f * h;
+  const B = -(d * i - f * g);
+  const C = d * h - e * g;
+  const D = -(b * i - c * h);
+  const E = a * i - c * g;
+  const F = -(a * h - b * g);
+  const G = b * f - c * e;
+  const H = -(a * f - c * d);
+  const I = a * e - b * d;
+  const det = a * A + b * B + c * C;
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-10) return null;
+  const invDet = 1 / det;
+  return [A * invDet, D * invDet, G * invDet, B * invDet, E * invDet, H * invDet, C * invDet, F * invDet, I * invDet];
+}
+function solveCornerPinInverseHomography(node, width, height, frameIndex = 0) {
+  const src = [
+    [0, 0],
+    [Math.max(0, width - 1), 0],
+    [0, Math.max(0, height - 1)],
+    [Math.max(0, width - 1), Math.max(0, height - 1)]
+  ];
+  const dst = [
+    [numAny(node, ["tl_x"], 0, frameIndex) * Math.max(0, width - 1), numAny(node, ["tl_y"], 0, frameIndex) * Math.max(0, height - 1)],
+    [numAny(node, ["tr_x"], 1, frameIndex) * Math.max(0, width - 1), numAny(node, ["tr_y"], 0, frameIndex) * Math.max(0, height - 1)],
+    [numAny(node, ["bl_x"], 0, frameIndex) * Math.max(0, width - 1), numAny(node, ["bl_y"], 1, frameIndex) * Math.max(0, height - 1)],
+    [numAny(node, ["br_x"], 1, frameIndex) * Math.max(0, width - 1), numAny(node, ["br_y"], 1, frameIndex) * Math.max(0, height - 1)]
+  ];
+  const A = [];
+  const b = [];
+  for (let idx = 0; idx < 4; idx++) {
+    const x = src[idx][0];
+    const y = src[idx][1];
+    const u = dst[idx][0];
+    const v = dst[idx][1];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]);
+    b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]);
+    b.push(v);
+  }
+  const solved = solveLinear8x8(A, b);
+  if (!solved) return null;
+  const H = [solved[0], solved[1], solved[2], solved[3], solved[4], solved[5], solved[6], solved[7], 1];
+  return invert3x3(H);
+}
+function reflectCoord(value, maxInclusive) {
+  if (maxInclusive <= 0) return 0;
+  const period = maxInclusive * 2;
+  let x = value % period;
+  if (x < 0) x += period;
+  if (x > maxInclusive) x = period - x;
+  return x;
+}
+function sampleChannelNearest(data, width, height, x, y, channel) {
+  const ix = Math.max(0, Math.min(width - 1, Math.round(x)));
+  const iy = Math.max(0, Math.min(height - 1, Math.round(y)));
+  return data[(iy * width + ix) * 4 + channel];
+}
+function sampleChannelBilinear(data, width, height, x, y, channel) {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = Math.min(width - 1, x0 + 1);
+  const y1 = Math.min(height - 1, y0 + 1);
+  const fx = x - x0;
+  const fy = y - y0;
+  const c00 = data[(Math.max(0, y0) * width + Math.max(0, x0)) * 4 + channel];
+  const c10 = data[(Math.max(0, y0) * width + Math.max(0, x1)) * 4 + channel];
+  const c01 = data[(Math.max(0, y1) * width + Math.max(0, x0)) * 4 + channel];
+  const c11 = data[(Math.max(0, y1) * width + Math.max(0, x1)) * 4 + channel];
+  return (c00 * (1 - fx) + c10 * fx) * (1 - fy) + (c01 * (1 - fx) + c11 * fx) * fy;
+}
+function renderCornerPinCanvases(node, source, frameIndex = 0) {
+  const width = source.width || 1;
+  const height = source.height || 1;
+  const filter = strAny(node, ["filter"], "bilinear", frameIndex).toLowerCase();
+  const edgeMode = strAny(node, ["edge_mode"], "zeros", frameIndex).toLowerCase();
+  const invertMask = boolAny(node, ["invert_mask"], false, frameIndex);
+  const bypass = boolAny(node, ["bypass"], false, frameIndex);
+  if (bypass) {
+    const image2 = fitCanvas(source, width, height);
+    const mask2 = makeCanvas(width, height);
+    const maskCtx2 = mask2.getContext("2d");
+    maskCtx2.fillStyle = invertMask ? "#000000" : "#FFFFFF";
+    maskCtx2.fillRect(0, 0, width, height);
+    markPreparedMaskCanvas(mask2);
+    return { image: image2, mask: mask2 };
+  }
+  const inverse = solveCornerPinInverseHomography(node, width, height, frameIndex);
+  if (!inverse) {
+    const image2 = fitCanvas(source, width, height);
+    const mask2 = makeCanvas(width, height);
+    const maskCtx2 = mask2.getContext("2d");
+    maskCtx2.fillStyle = invertMask ? "#FFFFFF" : "#000000";
+    maskCtx2.fillRect(0, 0, width, height);
+    markPreparedMaskCanvas(mask2);
+    return { image: image2, mask: mask2 };
+  }
+  const sourceCtx = source.getContext("2d");
+  const srcImage = sourceCtx.getImageData(0, 0, width, height);
+  const srcData = srcImage.data;
+  const image = makeCanvas(width, height);
+  const imageCtx = image.getContext("2d");
+  const outImage = imageCtx.createImageData(width, height);
+  const outData = outImage.data;
+  const mask = makeCanvas(width, height);
+  const maskCtx = mask.getContext("2d");
+  const outMask = maskCtx.createImageData(width, height);
+  const outMaskData = outMask.data;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const denom = inverse[6] * x + inverse[7] * y + inverse[8];
+      const safeDenom = Math.abs(denom) < 1e-8 ? 1e-8 : denom;
+      let sx = (inverse[0] * x + inverse[1] * y + inverse[2]) / safeDenom;
+      let sy = (inverse[3] * x + inverse[4] * y + inverse[5]) / safeDenom;
+      const inside = sx >= 0 && sx <= width - 1 && sy >= 0 && sy <= height - 1;
+      const outOffset = (y * width + x) * 4;
+      if (!inside && edgeMode === "zeros") {
+        outData[outOffset] = 0;
+        outData[outOffset + 1] = 0;
+        outData[outOffset + 2] = 0;
+        outData[outOffset + 3] = 0;
+      } else {
+        if (edgeMode === "border") {
+          sx = Math.max(0, Math.min(width - 1, sx));
+          sy = Math.max(0, Math.min(height - 1, sy));
+        } else if (edgeMode === "reflection") {
+          sx = reflectCoord(sx, width - 1);
+          sy = reflectCoord(sy, height - 1);
+        }
+        const useNearest = filter === "nearest";
+        outData[outOffset] = Math.round(useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 0) : sampleChannelBilinear(srcData, width, height, sx, sy, 0));
+        outData[outOffset + 1] = Math.round(useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 1) : sampleChannelBilinear(srcData, width, height, sx, sy, 1));
+        outData[outOffset + 2] = Math.round(useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 2) : sampleChannelBilinear(srcData, width, height, sx, sy, 2));
+        outData[outOffset + 3] = Math.round(useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 3) : sampleChannelBilinear(srcData, width, height, sx, sy, 3));
+      }
+      const maskValue = invertMask ? inside ? 0 : 255 : inside ? 255 : 0;
+      outMaskData[outOffset] = maskValue;
+      outMaskData[outOffset + 1] = maskValue;
+      outMaskData[outOffset + 2] = maskValue;
+      outMaskData[outOffset + 3] = 255;
+    }
+  }
+  imageCtx.putImageData(outImage, 0, 0);
+  maskCtx.putImageData(outMask, 0, 0);
+  markPreparedMaskCanvas(mask);
+  return { image, mask };
+}
 function buildMaskAlphaCanvas(maskCanvas, width, height) {
   if (isPreparedMaskCanvas(maskCanvas) && (maskCanvas.width || 1) === width && (maskCanvas.height || 1) === height) {
     return maskCanvas;
@@ -1588,6 +1799,14 @@ const ops = {
       }
     );
   },
+  padOut(ctx, W, node, inputs = [], frameIndex = 0) {
+    const source = inputs[0] ?? ctx.canvas;
+    return renderPadOutCanvases(node, source, frameIndex).image;
+  },
+  cornerPin(ctx, W, node, inputs = [], frameIndex = 0) {
+    const source = inputs[0] ?? ctx.canvas;
+    return renderCornerPinCanvases(node, source, frameIndex).image;
+  },
   cropGeneric(ctx, W, node, inputs = [], inputInfos = []) {
     const source = inputs[0] ?? ctx.canvas;
     const sourceWidth = source.width || 1;
@@ -1892,6 +2111,12 @@ const ops = {
     }
     if (cls === "ImageOpsCrop") {
       return ops.crop(ctx, W, node, [resolvedMask ?? alphaMaskCanvas(source)], frameIndex);
+    }
+    if (cls === "ImageOpsPadOut") {
+      return renderPadOutCanvases(node, source, frameIndex).mask;
+    }
+    if (cls === "ImageOpsCornerPin") {
+      return renderCornerPinCanvases(node, source, frameIndex).mask;
     }
     if (cls === "ImageOpsChannel") {
       const extracted = applyEffectToCanvas(source, (effectCtx, width, height) => {
