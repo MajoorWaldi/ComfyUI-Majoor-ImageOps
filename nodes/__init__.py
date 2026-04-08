@@ -14,7 +14,6 @@ from .merge import ImageOpsMerge
 from .mask_convert import ImageOpsMaskConvert
 from .noise import ImageOpsNoise
 from .padout import ImageOpsPadOut
-from .padout_stitch import ImageOpsPadOutStitch
 from .preview import ImageOpsPreview
 
 __all__ = [
@@ -33,6 +32,5 @@ __all__ = [
     "ImageOpsMaskConvert",
     "ImageOpsNoise",
     "ImageOpsPadOut",
-    "ImageOpsPadOutStitch",
     "ImageOpsPreview",
 ]

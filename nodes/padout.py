@@ -115,25 +115,10 @@ def _make_edge_pad(source: torch.Tensor, left: int, top: int, right: int, bottom
     return out.permute(0, 2, 3, 1).contiguous().clamp(0.0, 1.0)
 
 
-def _build_padout_stitcher(canvas: torch.Tensor, outpaint_mask: torch.Tensor, left: int, top: int, source_w: int, source_h: int) -> dict:
-    return {
-        "version": 1,
-        "type": "imageops_padout_stitcher",
-        "canvas_image": canvas.detach().cpu().clone(),
-        "outpaint_mask": outpaint_mask.detach().cpu().clone(),
-        "source_x": int(left),
-        "source_y": int(top),
-        "source_width": int(source_w),
-        "source_height": int(source_h),
-        "canvas_width": int(canvas.shape[2]),
-        "canvas_height": int(canvas.shape[1]),
-    }
-
-
 class ImageOpsPadOut:
     CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE", "MASK", "IMAGEOPS_PADOUT_STITCHER")
-    RETURN_NAMES = ("image", "mask", "stitcher")
+    RETURN_TYPES = ("IMAGE", "MASK")
+    RETURN_NAMES = ("image", "mask")
     FUNCTION = "apply"
 
     @classmethod
@@ -181,15 +166,13 @@ class ImageOpsPadOut:
         batch = int(source.shape[0])
         source_h = int(source.shape[1])
         source_w = int(source.shape[2])
-        channels = int(source.shape[3])
 
         if _scalar(bypass, bool):
             mask = torch.zeros((batch, source_h, source_w), device=source.device, dtype=source.dtype)
-            stitcher = _build_padout_stitcher(source, mask, 0, 0, source_w, source_h)
             if _scalar(invert_mask, bool):
                 mask = 1.0 - mask
             progress.finish()
-            return build_node_preview_result(source, (source, mask, stitcher), prefix="imageops_padout")
+            return build_node_preview_result(source, (source, mask), prefix="imageops_padout")
 
         left = max(0, _scalar(pad_left, int))
         top = max(0, _scalar(pad_top, int))
@@ -231,9 +214,8 @@ class ImageOpsPadOut:
         ).clamp(0.0, 1.0)
 
         mask = stitch_mask
-        stitcher = _build_padout_stitcher(out, stitch_mask, left, top, source_w, source_h)
         if _scalar(invert_mask, bool):
             mask = 1.0 - mask
 
         progress.finish()
-        return build_node_preview_result(out, (out, mask.clamp(0.0, 1.0), stitcher), prefix="imageops_padout")
+        return build_node_preview_result(out, (out, mask.clamp(0.0, 1.0)), prefix="imageops_padout")
