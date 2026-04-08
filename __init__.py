@@ -66,6 +66,7 @@ ImageOpsMerge = _load_module(f"{_PKG}.nodes.merge", _nodes_dir / "merge.py").Ima
 ImageOpsMaskConvert = _load_module(f"{_PKG}.nodes.mask_convert", _nodes_dir / "mask_convert.py").ImageOpsMaskConvert
 ImageOpsNoise = _load_module(f"{_PKG}.nodes.noise", _nodes_dir / "noise.py").ImageOpsNoise
 ImageOpsPadOut = _load_module(f"{_PKG}.nodes.padout", _nodes_dir / "padout.py").ImageOpsPadOut
+ImageOpsPadOutStitch = _load_module(f"{_PKG}.nodes.padout_stitch", _nodes_dir / "padout_stitch.py").ImageOpsPadOutStitch
 ImageOpsPreview = _load_module(f"{_PKG}.nodes.preview", _nodes_dir / "preview.py").ImageOpsPreview
 
 NODE_CLASS_MAPPINGS = {
@@ -84,6 +85,7 @@ NODE_CLASS_MAPPINGS = {
     "ImageOpsMaskConvert": ImageOpsMaskConvert,
     "ImageOpsNoise": ImageOpsNoise,
     "ImageOpsPadOut": ImageOpsPadOut,
+    "ImageOpsPadOutStitch": ImageOpsPadOutStitch,
     "ImageOpsPreview": ImageOpsPreview,
 }
 
@@ -105,6 +107,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageOpsMaskConvert": "ImageOps Mask Convert",
     "ImageOpsNoise": "ImageOps Noise",
     "ImageOpsPadOut": "ImageOps PadOut",
+    "ImageOpsPadOutStitch": "ImageOps PadOut Stitch",
     "ImageOpsPreview": "ImageOps Preview",
 }
 

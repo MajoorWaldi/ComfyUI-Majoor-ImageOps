@@ -42,6 +42,7 @@
 | **ImageOps Transform** | `ImageOpsTransform` | Translate, rotate, scale with filter options (nearest/bilinear/bicubic) |
 | **ImageOps Corner Pin** | `ImageOpsCornerPin` | Perspective corner pinning with batched homography warp, bicubic filtering, supersampling, and alpha-safe edges |
 | **ImageOps Pad Out** | `ImageOpsPadOut` | Add per-side borders with constant, edge-extended, reflected, or blurry fill and optional target aspect ratios |
+| **ImageOps PadOut Stitch** | `ImageOpsPadOutStitch` | Restore the original image into an outpainted PadOut canvas using the PadOut mask |
 | **ImageOps Invert** | `ImageOpsInvert` | Invert colors and/or alpha channel |
 | **ImageOps Clamp** | `ImageOpsClamp` | Clamp pixel values to min/max range |
 | **ImageOps Merge** | `ImageOpsMerge` | Linear-light two-input compositing with production blend modes and foreground fit controls |
@@ -236,6 +237,27 @@ Add borders around an image without scaling the source.
 - `bypass`: Skip processing
 
 The `target_format` option adds only the extra padding needed to reach the selected ratio, so manual side padding can still decenter the source.
+
+**Outputs:** `IMAGE`, `MASK`, `IMAGEOPS_PADOUT_STITCHER`
+
+---
+
+### ImageOps PadOut Stitch
+Restore the original image into the protected PadOut region after an outpainting or image-edit node.
+
+Recommended flow: connect `PadOut.image` and `PadOut.mask` to the outpainting node, then connect `PadOut.stitcher` and the outpainting result to PadOut Stitch.
+
+**Inputs:**
+- `outpainted` (IMAGE/VIDEO): Result returned by the image edit / outpainting node
+- `stitcher` (IMAGEOPS_PADOUT_STITCHER, optional): Stitcher output from ImageOps PadOut
+- `original` (IMAGE/VIDEO, optional): Fallback source media before PadOut
+- `padout_mask` (MASK, optional): Fallback mask output from ImageOps PadOut
+
+**Parameters:**
+- `original_region`: Fallback mode when no stitcher is connected; `black_is_original` for PadOut's default mask, or `white_is_original` if PadOut's mask was inverted
+- `feather_radius`: Optional softened edge where the original is restored
+- `invert_mask`: Invert the returned outpaint-area mask
+- `bypass`: Return the outpainted image unchanged
 
 **Outputs:** `IMAGE`, `MASK`
 

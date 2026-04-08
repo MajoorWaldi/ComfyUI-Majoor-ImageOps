@@ -12,6 +12,22 @@ function getConnectedCompInputIndexes(node) {
   }
   return indexes;
 }
+function getConnectedPadOutStitchInputIndexes(node) {
+  return [0, 1, 2, 3].filter((index) => (node.inputs?.[index]?.link ?? null) != null);
+}
+function mapPadOutStitchInputs(node, inputs) {
+  const mapped = [];
+  let cursor = 0;
+  for (const index of getConnectedPadOutStitchInputIndexes(node)) {
+    mapped[index] = inputs[cursor++];
+  }
+  return [
+    mapped[1] ?? mapped[2],
+    mapped[0],
+    mapped[2],
+    mapped[3]
+  ];
+}
 function imageOpsAdapter() {
   return {
     match(node) {
@@ -36,6 +52,7 @@ function imageOpsAdapter() {
       if (cls === "ImageOpsMerge") return bypass ? 1 : maskConnected ? 3 : 2;
       if (cls === "ImageOpsComp") return getConnectedCompInputIndexes(node).length;
       if (cls === "ImageOpsDraw") return (node.inputs?.[0]?.link ?? null) != null ? 1 : 0;
+      if (cls === "ImageOpsPadOutStitch") return getConnectedPadOutStitchInputIndexes(node).length;
       if (cls === "ImageOpsPreview") {
         const imageConnected = (node.inputs?.[0]?.link ?? null) != null;
         const maskConnected2 = (node.inputs?.[1]?.link ?? null) != null;
@@ -58,6 +75,9 @@ function imageOpsAdapter() {
         if ((node.inputs?.[1]?.link ?? null) != null) indexes.push(1);
         if ((node.inputs?.[2]?.link ?? null) != null) indexes.push(2);
         return indexes;
+      }
+      if (cls === "ImageOpsPadOutStitch") {
+        return getConnectedPadOutStitchInputIndexes(node);
       }
       if (cls === "ImageOpsPreview") {
         const indexes = [];
@@ -82,6 +102,12 @@ function imageOpsAdapter() {
         const bgColor = String((node?.widgets ?? []).find((widget) => widget?.name === "bg_color")?.value ?? "#000000");
         return inputs[0] ?? makeSolidBackgroundCanvas(width, height, bgColor);
       }
+      if (cls === "ImageOpsPadOut" && outputSlot === 2) {
+        return ops.padOutStitcher(ctx, canvasSize, node, inputs, tick ?? 0);
+      }
+      if (cls === "ImageOpsPadOutStitch" && outputSlot === 1) {
+        return ops.imageOpsMask(ctx, canvasSize, node, cls, mapPadOutStitchInputs(node, inputs), tick ?? 0) ?? inputs[0];
+      }
       if (outputSlot === 1 && cls !== "ImageOpsPreview" && cls !== "ImageOpsDraw") {
         return ops.imageOpsMask(ctx, canvasSize, node, cls, inputs, tick ?? 0) ?? inputs[0];
       }
@@ -94,6 +120,8 @@ function imageOpsAdapter() {
         return ops.crop(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsPadOut") {
         return ops.padOut(ctx, canvasSize, node, inputs, tick ?? 0);
+      } else if (cls === "ImageOpsPadOutStitch") {
+        return ops.padOutStitch(ctx, canvasSize, node, mapPadOutStitchInputs(node, inputs), tick ?? 0);
       } else if (cls === "ImageOpsCornerPin") {
         return ops.cornerPin(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsBlur") {

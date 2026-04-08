@@ -86,6 +86,14 @@ function markPreparedMaskCanvas(canvas) {
 function isPreparedMaskCanvas(canvas) {
   return !!canvas && canvas.__imageopsPreparedMask === true;
 }
+function markPadOutStitcherCanvas(canvas, mask) {
+  const stitcherCanvas = canvas;
+  stitcherCanvas.__imageopsPadOutMask = mask;
+  return stitcherCanvas;
+}
+function getPadOutStitcherMask(canvas) {
+  return canvas?.__imageopsPadOutMask ?? null;
+}
 function normalizeFilterName(filter) {
   const value = String(filter || "bilinear").toLowerCase();
   if (value === "nearest") return "nearest-exact";
@@ -1090,11 +1098,11 @@ function drawPadOutExtendedEdges(ctx, source, sourceWidth, sourceHeight, padLeft
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(source, centerX, centerY, sourceWidth, sourceHeight);
 }
-function renderPadOutCanvases(node, source, frameIndex = 0) {
+function renderPadOutCanvases(node, source, frameIndex = 0, applyInvertMask = true) {
   const fillColor = parseHexColor(strAny(node, ["fill_color"], "#000000", frameIndex));
   const fillMode = normalizePadOutFillMode(strAny(node, ["fill_mode"], "constant", frameIndex));
   const blurRadius = Math.max(0, Math.round(numAny(node, ["blur_radius"], 32, frameIndex)));
-  const invertMask = boolAny(node, ["invert_mask"], false, frameIndex);
+  const invertMask = applyInvertMask && boolAny(node, ["invert_mask"], false, frameIndex);
   const sourceWidth = source.width || 1;
   const sourceHeight = source.height || 1;
   const { padLeft, padTop, padRight, padBottom, outWidth, outHeight } = resolvePadOutGeometry(sourceWidth, sourceHeight, node, frameIndex);
@@ -1511,6 +1519,76 @@ function invertMaskCanvas(maskCanvas) {
   }
   octx.putImageData(image, 0, 0);
   return markPreparedMaskCanvas(output);
+}
+function invertMaskAlphaCanvas(maskCanvas) {
+  const prepared = buildMaskAlphaCanvas(maskCanvas, maskCanvas.width || 1, maskCanvas.height || 1);
+  const output = makeCanvas(prepared.width || 1, prepared.height || 1);
+  const octx = output.getContext("2d");
+  octx.drawImage(prepared, 0, 0, output.width, output.height);
+  const image = octx.getImageData(0, 0, output.width, output.height);
+  const data = image.data;
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = 255;
+    data[i + 1] = 255;
+    data[i + 2] = 255;
+    data[i + 3] = 255 - data[i + 3];
+  }
+  octx.putImageData(image, 0, 0);
+  return markPreparedMaskCanvas(output);
+}
+function blurMaskAlphaCanvas(maskCanvas, radius) {
+  const prepared = buildMaskAlphaCanvas(maskCanvas, maskCanvas.width || 1, maskCanvas.height || 1);
+  const safeRadius = Math.max(0, radius);
+  if (safeRadius <= 0) return prepared;
+  const output = makeCanvas(prepared.width || 1, prepared.height || 1);
+  const octx = output.getContext("2d");
+  octx.filter = `blur(${safeRadius}px)`;
+  octx.drawImage(prepared, 0, 0, output.width, output.height);
+  octx.filter = "none";
+  return markPreparedMaskCanvas(output);
+}
+function emptyMaskCanvas(width, height) {
+  return markPreparedMaskCanvas(makeCanvas(width, height));
+}
+function renderPadOutStitchCanvases(node, inputs = [], frameIndex = 0) {
+  const stitcherCanvas = inputs[0] ?? null;
+  const outpainted = inputs[1] ?? stitcherCanvas ?? makeCanvas(1, 1);
+  const fallbackOriginal = inputs[2] ?? null;
+  const width = outpainted.width || 1;
+  const height = outpainted.height || 1;
+  const stitcherMask = getPadOutStitcherMask(stitcherCanvas);
+  const rawPadoutMask = stitcherMask ?? inputs[3] ?? null;
+  const canvasSource = stitcherCanvas ?? fallbackOriginal;
+  if (!rawPadoutMask) {
+    return { image: outpainted, mask: emptyMaskCanvas(width, height) };
+  }
+  const padoutMask = buildMaskAlphaCanvas(rawPadoutMask, width, height);
+  const originalRegion = strAny(node, ["original_region"], "black_is_original", frameIndex).toLowerCase().replace(/[-\s]+/g, "_");
+  const preserveMask = stitcherMask ? invertMaskAlphaCanvas(padoutMask) : originalRegion === "white_is_original" ? padoutMask : invertMaskAlphaCanvas(padoutMask);
+  const outpaintMask = invertMaskAlphaCanvas(preserveMask);
+  const outputMask = boolAny(node, ["invert_mask"], false, frameIndex) ? preserveMask : outpaintMask;
+  if (!canvasSource || boolAny(node, ["bypass"], false, frameIndex)) {
+    return { image: outpainted, mask: outputMask };
+  }
+  const bounds = computeMaskBounds(preserveMask);
+  if (!bounds) {
+    return { image: outpainted, mask: outputMask };
+  }
+  const placed = makeCanvas(width, height);
+  const pctx = placed.getContext("2d");
+  pctx.drawImage(outpainted, 0, 0, width, height);
+  setResampleMode(pctx, "bicubic");
+  if (stitcherMask) {
+    pctx.drawImage(canvasSource, 0, 0, width, height);
+  } else {
+    pctx.drawImage(canvasSource, bounds.x, bounds.y, bounds.width, bounds.height);
+  }
+  const featherRadius = Math.max(0, numAny(node, ["feather_radius"], 0, frameIndex));
+  const compositeMask = featherRadius > 0 ? blurMaskAlphaCanvas(preserveMask, featherRadius) : preserveMask;
+  return {
+    image: compositeProcessedWithMask(outpainted, placed, compositeMask),
+    mask: outputMask
+  };
 }
 function renderCompPreview(node, inputLayers) {
   const slots = getCompSlots(node);
@@ -2028,6 +2106,14 @@ const ops = {
     const source = inputs[0] ?? ctx.canvas;
     return renderPadOutCanvases(node, source, frameIndex).image;
   },
+  padOutStitcher(ctx, W, node, inputs = [], frameIndex = 0) {
+    const source = inputs[0] ?? ctx.canvas;
+    const { image, mask } = renderPadOutCanvases(node, source, frameIndex, false);
+    return markPadOutStitcherCanvas(image, mask);
+  },
+  padOutStitch(ctx, W, node, inputs = [], frameIndex = 0) {
+    return renderPadOutStitchCanvases(node, inputs, frameIndex).image;
+  },
   cornerPin(ctx, W, node, inputs = [], frameIndex = 0) {
     const source = inputs[0] ?? ctx.canvas;
     return renderCornerPinCanvases(node, source, frameIndex).image;
@@ -2341,6 +2427,9 @@ const ops = {
     }
     if (cls === "ImageOpsPadOut") {
       return renderPadOutCanvases(node, source, frameIndex).mask;
+    }
+    if (cls === "ImageOpsPadOutStitch") {
+      return renderPadOutStitchCanvases(node, inputs, frameIndex).mask;
     }
     if (cls === "ImageOpsCornerPin") {
       return renderCornerPinCanvases(node, source, frameIndex).mask;
