@@ -10,6 +10,9 @@ export const COMP_BLEND_MODES = [
   "difference",
   "lighten",
   "darken",
+  "color_dodge",
+  "color_burn",
+  "exclusion",
 ] as const;
 
 export interface CompLayerModel {
@@ -82,7 +85,7 @@ function defaultCompLayer(slot: string, index: number): CompLayerModel {
 function normalizeCompLayer(slot: string, index: number, layer: Partial<CompLayerModel> | null | undefined): CompLayerModel {
   const fallback = defaultCompLayer(slot, index);
   const anyLayer = (layer ?? {}) as Record<string, unknown>;
-  const mode = String(anyLayer.mode ?? fallback.mode).trim().toLowerCase();
+  const mode = String(anyLayer.mode ?? fallback.mode).trim().toLowerCase().replace(/[-\s]+/g, "_");
   return {
     slot,
     centerX: clampCompCenter(Number(anyLayer.centerX ?? anyLayer.center_x ?? fallback.centerX)),

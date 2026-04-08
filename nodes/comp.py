@@ -61,7 +61,7 @@ def _normalize_layer(entry: dict[str, Any], slot: str, index: int) -> dict[str, 
         )
     )
     data["opacity"] = _scalar(max(0.0, min(1.0, _scalar(data.get("opacity", default["opacity"])))))
-    mode = str(data.get("mode", default["mode"]) or "over").strip().lower()
+    mode = str(data.get("mode", default["mode"]) or "over").strip().lower().replace("-", "_").replace(" ", "_")
     data["mode"] = mode if mode in COMP_BLEND_MODES else "over"
     data["enabled"] = bool(data.get("enabled", True))
     return data
@@ -103,6 +103,12 @@ def _parse_layers_state(layers_json: str | dict | list | None, layer_numbers: li
     return layers
 
 
+def _largest_connected_layer_size(tensors: list[tuple[dict[str, Any], torch.Tensor, Any]]) -> tuple[int, int]:
+    out_h = max(int(image.shape[1]) for _, image, _ in tensors)
+    out_w = max(int(image.shape[2]) for _, image, _ in tensors)
+    return out_h, out_w
+
+
 class ImageOpsComp(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
@@ -120,6 +126,13 @@ class ImageOpsComp(io.ComfyNode):
                     label_on="From First Layer",
                     label_off="Custom Format",
                     tooltip="Use the first connected layer as the comp format. Disable to force Width/Height.",
+                ),
+                io.Boolean.Input(
+                    "auto_layering",
+                    default=False,
+                    label_on="Largest Layer",
+                    label_off="First/Custom",
+                    tooltip="Use the largest connected layer dimensions as the canvas format.",
                 ),
                 io.Int.Input("width", default=1024, min=1, max=8192, step=1),
                 io.Int.Input("height", default=1024, min=1, max=8192, step=1),
@@ -139,6 +152,7 @@ class ImageOpsComp(io.ComfyNode):
         cls,
         bypass: bool = False,
         use_first_layer_size: bool = True,
+        auto_layering: bool = False,
         width: int = 1024,
         height: int = 1024,
         background_color: str = "#000000",
@@ -178,7 +192,9 @@ class ImageOpsComp(io.ComfyNode):
             tensors.append((layer, image_tensor, mask_value))
             progress.update()
 
-        if _scalar(use_first_layer_size, bool):
+        if _scalar(auto_layering, bool):
+            out_h, out_w = _largest_connected_layer_size(tensors)
+        elif _scalar(use_first_layer_size, bool):
             ref_tensor = tensors[0][1]
             out_h = int(ref_tensor.shape[1])
             out_w = int(ref_tensor.shape[2])

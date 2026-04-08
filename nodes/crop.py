@@ -3,6 +3,7 @@ from ._helpers import (
     MEDIA_INPUT_TYPE,
     _apply_interactive_crop_resize,
     _apply_interactive_crop_resize_with_mask_pair,
+    _compute_crop_box,
     _prepare_effect_mask,
     _resolve_mask_output_source,
     _scalar,
@@ -33,6 +34,55 @@ def _is_noop_crop(source, width, height, aspect_ratio, crop_center_x, crop_cente
         if str(_scalar(aspect_ratio, str, index=index)) not in ASPECT_RATIO_PRESETS:
             return False
     return True
+
+
+def _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale):
+    if source is None or source.dim() != 4:
+        return None
+    source_h = int(source.shape[1])
+    source_w = int(source.shape[2])
+    count = int(source.shape[0])
+    frames = []
+    for index in range(count):
+        target_w = max(1, _scalar(width, int, index=index))
+        target_h = max(1, _scalar(height, int, index=index))
+        ratio = _scalar(aspect_ratio, str, index=index)
+        center_x = _scalar(crop_center_x, index=index)
+        center_y = _scalar(crop_center_y, index=index)
+        scale = _scalar(crop_scale, index=index)
+        crop_x, crop_y, crop_w, crop_h = _compute_crop_box(
+            source_w,
+            source_h,
+            ratio,
+            target_w,
+            target_h,
+            center_x=center_x,
+            center_y=center_y,
+            scale=scale,
+        )
+        frames.append({
+            "frame": index,
+            "x": crop_x,
+            "y": crop_y,
+            "width": crop_w,
+            "height": crop_h,
+            "source_width": source_w,
+            "source_height": source_h,
+            "target_width": target_w,
+            "target_height": target_h,
+            "aspect_ratio": ratio,
+            "center_x": center_x,
+            "center_y": center_y,
+            "scale": scale,
+        })
+    return {
+        "imageops_crop_bbox": {
+            "type": "bbox",
+            "coordinate_space": "source",
+            "bbox": frames[0] if frames else None,
+            "frames": frames,
+        }
+    }
 
 
 class ImageOpsCrop:
@@ -78,7 +128,8 @@ class ImageOpsCrop:
             return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_crop")
         if _is_noop_crop(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale):
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_crop")
+            metadata = _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
+            return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_crop", metadata=metadata)
 
         if input_mask is not None:
             result, output_mask = _apply_interactive_crop_resize_with_mask_pair(
@@ -109,6 +160,9 @@ class ImageOpsCrop:
                 center_x=crop_center_x,
                 center_y=crop_center_y,
                 scale=crop_scale,
+                resize_mode="bilinear",
+                antialias=True,
             )[..., 0]
         progress.finish()
-        return build_node_preview_result(result, (result, output_mask), prefix="imageops_crop")
+        metadata = _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
+        return build_node_preview_result(result, (result, output_mask), prefix="imageops_crop", metadata=metadata)

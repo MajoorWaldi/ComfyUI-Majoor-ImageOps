@@ -1,151 +1,208 @@
-import numpy as np
+from __future__ import annotations
+
+import math
+
 import torch
-from PIL import Image
 
 from ._helpers import (
     MEDIA_INPUT_TYPE,
+    EPSILON,
     _prepare_effect_mask,
     _resolve_mask_output_source,
-    _pil_to_tensor,
     _select_media_tensor,
-    _tensor_batch_to_pil_list,
     _unpremultiply_rgb_by_mask,
-    EPSILON,
-    LARGE_IMAGE_WARN_MB,
-    MAX_SCALE_DIMENSION,
+    _param_tensor,
     _scalar,
-    logger,
 )
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 
 
-def _resample_from_filter(filter_mode, index: int = 0):
+# ---------------------------------------------------------------------------
+# GPU affine-transform helpers
+# ---------------------------------------------------------------------------
+
+def _filter_to_grid_sample_mode(filter_mode: str | list, index: int = 0) -> str:
+    """Map an ImageOps filter name to a torch.nn.functional.grid_sample mode."""
     normalized = _scalar(filter_mode, str, index=index).strip().lower()
-    _RESAMPLE_MAP = {
-        "nearest": Image.NEAREST,
-        "bilinear": Image.BILINEAR,
-        "bicubic": Image.BICUBIC,
-    }
-    if normalized not in _RESAMPLE_MAP:
-        logger.warning(f"ImageOpsTransform: unknown filter mode '{normalized}', falling back to bilinear")
-    return _RESAMPLE_MAP.get(normalized, Image.BILINEAR)
+    return {"nearest": "nearest", "bilinear": "bilinear", "bicubic": "bicubic"}.get(normalized, "bilinear")
 
 
-def _mask_to_pil(mask_frame: torch.Tensor) -> Image.Image:
-    array = (mask_frame.detach().cpu().float().clamp(0, 1).numpy() * 255.0 + 0.5).astype("uint8")
-    return Image.fromarray(array, mode="L")
+def _frame_param(value, index: int, typ: type = float):
+    """Return one frame's scalar value when ComfyUI passes a per-frame list."""
+    return _scalar(value, typ, index=index) if isinstance(value, (list, tuple)) else value
 
 
-def _pil_to_mask(pil: Image.Image, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
-    arr = np.asarray(pil, dtype=np.float32) / 255.0
-    return torch.from_numpy(arr).unsqueeze(0).to(device=device, dtype=dtype)
+def _build_affine_theta_batch(
+    B: int,
+    translate_x,
+    translate_y,
+    rotate_deg,
+    scale,
+    H: int,
+    W: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Build a [B, 2, 3] batch of inverse affine matrices for affine_grid / grid_sample.
+
+    The matrix encodes clockwise rotation, uniform scale, and pixel translation.
+    It maps output normalized [-1, 1] coords to input normalized coords, which is
+    what affine_grid expects.
+
+    No intermediate canvas is created, so rotation, translation, and scale happen
+    in one sampling pass; only the final fixed-size output boundary can clip.
+    """
+    tx = _param_tensor(translate_x, B, device=device, dtype=torch.float32).view(B)
+    ty = _param_tensor(translate_y, B, device=device, dtype=torch.float32).view(B)
+    angle = _param_tensor(rotate_deg, B, device=device, dtype=torch.float32).view(B) * (math.pi / 180.0)
+    safe_scale = _param_tensor(scale, B, device=device, dtype=torch.float32).view(B).clamp_min(EPSILON)
+    inv_scale = safe_scale.reciprocal()
+
+    cos_a = torch.cos(angle)
+    sin_a = torch.sin(angle)
+    tx_n = 2.0 * tx / max(W, 1)   # pixel to normalized
+    ty_n = 2.0 * ty / max(H, 1)
+
+    theta = torch.empty((B, 2, 3), device=device, dtype=torch.float32)
+    theta[:, 0, 0] = cos_a * inv_scale
+    theta[:, 0, 1] = sin_a * inv_scale
+    theta[:, 0, 2] = -(tx_n * cos_a + ty_n * sin_a) * inv_scale
+    theta[:, 1, 0] = -sin_a * inv_scale
+    theta[:, 1, 1] = cos_a * inv_scale
+    theta[:, 1, 2] = (tx_n * sin_a - ty_n * cos_a) * inv_scale
+    return theta
 
 
-def _transform_masked_source(source, input_mask, filter_mode, translate_x, translate_y, rotate_deg, scale, expand, progress=None):
+def _transform_batch_affine(
+    source: torch.Tensor,
+    filter_mode,
+    translate_x,
+    translate_y,
+    rotate_deg,
+    scale,
+) -> torch.Tensor:
+    """Batched GPU affine transform for a [B, H, W, C] image tensor."""
+    B, H, W, C = source.shape
+    if isinstance(filter_mode, (list, tuple)):
+        if B == 0:
+            return source
+        return torch.cat([
+            _transform_batch_affine(
+                source[i:i + 1],
+                _scalar(filter_mode, str, index=i),
+                _frame_param(translate_x, i),
+                _frame_param(translate_y, i),
+                _frame_param(rotate_deg, i),
+                _frame_param(scale, i),
+            )
+            for i in range(B)
+        ], dim=0)
+
+    d, dt = source.device, source.dtype
+    mode  = _filter_to_grid_sample_mode(filter_mode)
+    theta = _build_affine_theta_batch(B, translate_x, translate_y, rotate_deg, scale, H, W, d)
+    grid  = torch.nn.functional.affine_grid(theta, size=(B, C, H, W), align_corners=False)
+    x     = source.float().permute(0, 3, 1, 2)                      # [B,C,H,W]
+    out   = torch.nn.functional.grid_sample(x, grid, mode=mode, padding_mode="zeros", align_corners=False)
+    return out.permute(0, 2, 3, 1).clamp(0.0, 1.0).to(device=d, dtype=dt)
+
+
+def _transform_mask_affine(
+    mask: torch.Tensor,
+    filter_mode,
+    translate_x,
+    translate_y,
+    rotate_deg,
+    scale,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    """Batched GPU affine transform for a [B, H, W] mask tensor."""
+    B, H, W = mask.shape
+    if isinstance(filter_mode, (list, tuple)):
+        if B == 0:
+            return mask.to(device=device, dtype=dtype)
+        return torch.cat([
+            _transform_mask_affine(
+                mask[i:i + 1],
+                _scalar(filter_mode, str, index=i),
+                _frame_param(translate_x, i),
+                _frame_param(translate_y, i),
+                _frame_param(rotate_deg, i),
+                _frame_param(scale, i),
+                device,
+                dtype,
+            )
+            for i in range(B)
+        ], dim=0)
+
+    mode  = _filter_to_grid_sample_mode(filter_mode)
+    theta = _build_affine_theta_batch(B, translate_x, translate_y, rotate_deg, scale, H, W, device)
+    grid  = torch.nn.functional.affine_grid(theta, size=(B, 1, H, W), align_corners=False)
+    m     = mask.float().unsqueeze(1)                                # [B,1,H,W]
+    out   = torch.nn.functional.grid_sample(m, grid, mode=mode, padding_mode="zeros", align_corners=False)
+    return out.squeeze(1).clamp(0.0, 1.0).to(device=device, dtype=dtype)
+
+
+# ---------------------------------------------------------------------------
+# Masked-source transform (premultiply -> transform -> unpremultiply)
+# ---------------------------------------------------------------------------
+
+def _transform_masked_source(
+    source: torch.Tensor,
+    input_mask: torch.Tensor,
+    filter_mode,
+    translate_x,
+    translate_y,
+    rotate_deg,
+    scale,
+    progress=None,
+) -> tuple[torch.Tensor, torch.Tensor]:
     if source.shape[0] != input_mask.shape[0]:
         raise ValueError(
-            f"ImageOpsTransform: source batch ({source.shape[0]}) and mask batch ({input_mask.shape[0]}) "
-            f"must match. Broadcasting would produce incorrect per-frame transforms."
+            f"ImageOpsTransform: source batch ({source.shape[0]}) and mask batch "
+            f"({input_mask.shape[0]}) must match. Broadcasting would produce incorrect "
+            "per-frame transforms."
         )
+
+    # Premultiply RGB by mask before transforming to avoid colour bleeding at edges
     premult_rgb = source[..., :3].float().clamp(0.0, 1.0) * input_mask.unsqueeze(-1)
-    processed_rgb = []
-    processed_mask = []
-    processed_alpha = []
 
-    for fi, pil in enumerate(_tensor_batch_to_pil_list(premult_rgb)):
-        tx, ty = _scalar(translate_x, index=fi), _scalar(translate_y, index=fi)
-        rd, sc = _scalar(rotate_deg, index=fi), _scalar(scale, index=fi)
-        ex = _scalar(expand, bool, index=fi)
-        processed_rgb.append(_pil_to_tensor(_transform_frame(pil, _resample_from_filter(filter_mode, fi), tx, ty, rd, sc, ex))[..., :3])
-        if progress is not None:
-            progress.update()
+    # Pack RGB (+ alpha if present) into a single grid_sample call
+    has_alpha = source.shape[-1] >= 4
+    if has_alpha:
+        combined = torch.cat([premult_rgb, source[..., 3:4].float().clamp(0.0, 1.0)], dim=-1)
+    else:
+        combined = premult_rgb
 
-    for idx in range(input_mask.shape[0]):
-        tx, ty = _scalar(translate_x, index=idx), _scalar(translate_y, index=idx)
-        rd, sc = _scalar(rotate_deg, index=idx), _scalar(scale, index=idx)
-        pil_mask = _mask_to_pil(input_mask[idx])
-        ex = _scalar(expand, bool, index=idx)
-        processed_mask.append(_pil_to_mask(_transform_frame(pil_mask, _resample_from_filter(filter_mode, idx), tx, ty, rd, sc, ex), source.device, source.dtype))
-        if progress is not None:
-            progress.update()
+    total = source.shape[0] * (3 if has_alpha else 2)
+    if progress is not None:
+        progress.update_absolute(0, total=max(1, total))
 
-    if source.shape[-1] >= 4:
-        for idx in range(source.shape[0]):
-            tx, ty = _scalar(translate_x, index=idx), _scalar(translate_y, index=idx)
-            rd, sc = _scalar(rotate_deg, index=idx), _scalar(scale, index=idx)
-            pil_alpha = _mask_to_pil(source[idx, ..., 3])
-            ex = _scalar(expand, bool, index=idx)
-            processed_alpha.append(_pil_to_mask(_transform_frame(pil_alpha, _resample_from_filter(filter_mode, idx), tx, ty, rd, sc, ex), source.device, source.dtype))
-            if progress is not None:
-                progress.update()
+    transformed   = _transform_batch_affine(combined, filter_mode, translate_x, translate_y, rotate_deg, scale)
+    output_mask   = _transform_mask_affine(
+        input_mask, filter_mode, translate_x, translate_y, rotate_deg, scale,
+        source.device, source.dtype,
+    )
 
-    if not processed_rgb:
+    if progress is not None:
+        progress.update_absolute(source.shape[0] * 2)
+
+    rgb    = _unpremultiply_rgb_by_mask(transformed[..., :3], output_mask)
+    result = torch.cat([rgb, transformed[..., 3:4]], dim=-1) if has_alpha else rgb
+
+    if progress is not None:
+        progress.update_absolute(total)
+
+    if not result.shape[0]:
         raise ValueError("ImageOpsTransform received an empty image batch.")
 
-    output_mask = torch.cat(processed_mask, dim=0).to(device=source.device, dtype=source.dtype)
-    rgb = _unpremultiply_rgb_by_mask(
-        torch.cat(processed_rgb, dim=0).to(device=source.device, dtype=source.dtype),
-        output_mask,
-    )
-    if processed_alpha:
-        alpha = torch.cat(processed_alpha, dim=0).unsqueeze(-1).to(device=source.device, dtype=source.dtype)
-        result = torch.cat([rgb, alpha], dim=-1)
-    else:
-        result = rgb
     return result.clamp(0.0, 1.0), output_mask.clamp(0.0, 1.0)
 
 
-def _transform_frame(pil, resample, translate_x, translate_y, rotate_deg, scale, expand):
-    """Transform a single PIL image. All params must be scalars (unwrapped by caller)."""
-    base_w, base_h = pil.size
-    working = pil
-
-    scale = _scalar(scale)
-    translate_x = _scalar(translate_x)
-    translate_y = _scalar(translate_y)
-    rotate_deg = _scalar(rotate_deg)
-    expand = _scalar(expand, bool)
-    if abs(scale - 1.0) > EPSILON:
-        nw, nh = max(1, int(round(base_w * scale))), max(1, int(round(base_h * scale)))
-        if nw > MAX_SCALE_DIMENSION or nh > MAX_SCALE_DIMENSION:
-            logger.error(f"Scaled dimensions ({nw}x{nh}) exceed maximum ({MAX_SCALE_DIMENSION}x{MAX_SCALE_DIMENSION})")
-            raise ValueError(
-                f"Resulting image size ({nw}x{nh}) would exceed maximum allowed dimensions "
-                f"({MAX_SCALE_DIMENSION}x{MAX_SCALE_DIMENSION}). "
-                f"Original: {base_w}x{base_h}, Scale: {scale:.2f}"
-            )
-
-        estimated_mb = (nw * nh * 4) / (1024 * 1024)
-        if estimated_mb > float(LARGE_IMAGE_WARN_MB):
-            logger.warning(f"Large image allocation: {nw}x{nh} (~{estimated_mb:.1f} MB) > {LARGE_IMAGE_WARN_MB} MB")
-
-        working = working.resize((nw, nh), resample=resample)
-
-    if abs(rotate_deg) > EPSILON:
-        # Match compositor conventions used in Nuke/UI overlays: positive values rotate clockwise.
-        working = working.rotate(-rotate_deg, resample=resample, expand=expand)
-        rw, rh = working.size
-        if rw > MAX_SCALE_DIMENSION or rh > MAX_SCALE_DIMENSION:
-            logger.error(f"Rotated dimensions ({rw}x{rh}) exceed maximum")
-            raise ValueError(f"Rotated image size ({rw}x{rh}) exceeds maximum ({MAX_SCALE_DIMENSION}x{MAX_SCALE_DIMENSION})")
-
-    mode = working.mode
-    if mode == "RGBA":
-        bg = (0, 0, 0, 0)
-    elif mode == "RGB":
-        bg = (0, 0, 0)
-    else:
-        bg = 0
-    output = Image.new(mode, (base_w, base_h), bg)
-    paste_x = int(round((base_w - working.size[0]) / 2.0 + translate_x))
-    paste_y = int(round((base_h - working.size[1]) / 2.0 + translate_y))
-    if mode == "RGBA":
-        output.paste(working, (paste_x, paste_y), working)
-    else:
-        output.paste(working, (paste_x, paste_y))
-    return output
-
+# ---------------------------------------------------------------------------
+# Node
+# ---------------------------------------------------------------------------
 
 class ImageOpsTransform:
     CATEGORY = "image/imageops"
@@ -176,10 +233,14 @@ class ImageOpsTransform:
         }
 
     def apply(self, image=None, bypass=False, translate_x=0, translate_y=0, rotate_deg=0.0, scale=1.0, filter="bilinear", expand=False, invert_mask=False, video=None, mask=None, unique_id=None):
+        # expand is accepted for workflow compatibility; the GPU path uses one
+        # fixed-size affine_grid/grid_sample pass instead of intermediate canvases.
+        del expand
         source = _select_media_tensor(image, video)
         input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         progress = start_progress(unique_id=unique_id)
+
         if _scalar(bypass, bool):
             progress.finish()
             return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_transform")
@@ -206,53 +267,31 @@ class ImageOpsTransform:
             return abs(float(current)) <= EPSILON
 
         no_translate = _is_noop_param(translate_x, "int") and _is_noop_param(translate_y, "int")
-        no_rotate = _is_noop_param(rotate_deg, "float")
-        unit_scale = _is_noop_param(_scalar(scale) - 1.0 if not isinstance(scale, (list, tuple)) else [(_scalar(scale, index=i) - 1.0) for i in range(len(scale))], "float")
-        no_expand = _is_noop_param(expand, "bool")
-        if no_translate and no_rotate and unit_scale and no_expand:
+        no_rotate    = _is_noop_param(rotate_deg, "float")
+        unit_scale   = _is_noop_param(
+            _scalar(scale) - 1.0 if not isinstance(scale, (list, tuple))
+            else [(_scalar(scale, index=i) - 1.0) for i in range(len(scale))],
+            "float",
+        )
+        if no_translate and no_rotate and unit_scale:
             progress.finish()
             return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_transform")
 
         if input_mask is not None:
-            total_steps = int(source.shape[0]) + int(input_mask.shape[0]) + (int(source.shape[0]) if source.shape[-1] >= 4 else 0)
-            progress.update_absolute(0, total=max(1, total_steps))
             result, output_mask = _transform_masked_source(
-                source,
-                input_mask,
-                filter,
-                translate_x,
-                translate_y,
-                rotate_deg,
-                scale,
-                expand,
+                source, input_mask, filter,
+                translate_x, translate_y, rotate_deg, scale,
                 progress=progress,
             )
             progress.finish()
             return build_node_preview_result(result, (result, output_mask), prefix="imageops_transform")
 
-        progress.update_absolute(0, total=max(1, int(source.shape[0]) + int(output_mask_source.shape[0])))
-        processed_frames = []
-        processed_masks = []
-        for fi, pil in enumerate(_tensor_batch_to_pil_list(source)):
-            tx, ty = _scalar(translate_x, index=fi), _scalar(translate_y, index=fi)
-            rd, sc = _scalar(rotate_deg, index=fi), _scalar(scale, index=fi)
-            ex = _scalar(expand, bool, index=fi)
-            processed_frames.append(_pil_to_tensor(_transform_frame(pil, _resample_from_filter(filter, fi), tx, ty, rd, sc, ex)))
-            progress.update()
-
-        for idx in range(output_mask_source.shape[0]):
-            tx, ty = _scalar(translate_x, index=idx), _scalar(translate_y, index=idx)
-            rd, sc = _scalar(rotate_deg, index=idx), _scalar(scale, index=idx)
-            pil_mask = _mask_to_pil(output_mask_source[idx])
-            ex = _scalar(expand, bool, index=idx)
-            transformed_mask = _transform_frame(pil_mask, _resample_from_filter(filter, idx), tx, ty, rd, sc, ex)
-            processed_masks.append(_pil_to_mask(transformed_mask, source.device, source.dtype))
-            progress.update()
-
-        if not processed_frames:
-            raise ValueError("ImageOpsTransform received an empty image batch.")
-
-        result = torch.cat(processed_frames, dim=0).to(device=source.device, dtype=source.dtype)
-        output_mask = torch.cat(processed_masks, dim=0).to(device=source.device, dtype=source.dtype)
+        # No external mask: transform image and alpha-derived mask on the GPU.
+        progress.update_absolute(0, total=2)
+        result      = _transform_batch_affine(source, filter, translate_x, translate_y, rotate_deg, scale)
+        output_mask = _transform_mask_affine(
+            output_mask_source, filter, translate_x, translate_y, rotate_deg, scale,
+            source.device, source.dtype,
+        )
         progress.finish()
         return build_node_preview_result(result, (result, output_mask), prefix="imageops_transform")

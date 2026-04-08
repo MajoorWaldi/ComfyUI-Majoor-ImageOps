@@ -10,7 +10,7 @@ import { initOpsConstants } from "./constants.js";
 import { colorWheelPointToValues, drawColorWheel, getColorWheelSwatchCss } from "./color.js";
 import { clampCropCenter, clampCropScale, computeCropRect, resolveCropAspectRatio } from "./crop.js";
 import { COMP_BLEND_MODES, clampCompCenter, clampCompRotation, clampCompScale, getCompSlots, serializeCompLayers, syncCompLayers } from "./comp.js";
-import { canvasToOverlayData, clampDrawDimension, clampDrawOpacity, clampDrawSize, normalizeDrawColor, normalizeDrawEdge, normalizeDrawTool, renderDrawPreview, resolveDrawOverlayCanvas, resizeCanvasPreserve } from "./draw.js";
+import { canvasToOverlayData, clampDrawDimension, clampDrawOpacity, clampDrawSize, normalizeDrawColor, normalizeDrawEdge, normalizeDrawOverlayFormat, normalizeDrawTool, renderDrawPreview, resolveDrawOverlayCanvas, resizeCanvasPreserve } from "./draw.js";
 import { renderCompPreview } from "./ops.js";
 console.info("[ImageOps] LivePreview v6 loaded");
 const EXT_NAME = "ImageOps.LivePreview.v6";
@@ -92,6 +92,10 @@ function ensureState(node) {
     drawHeightInput: null,
     drawLinkButton: null,
     drawBgColorInput: null,
+    drawOverlayFormatSelect: null,
+    drawPressureSizeInput: null,
+    drawPressureOpacityInput: null,
+    drawTiltSizeInput: null,
     drawInteractiveHooked: false,
     colorWheelCanvas: null,
     colorHueLabel: null,
@@ -461,6 +465,10 @@ function ensurePreviewWidget(node, progress, canvasSize) {
   let drawHeightInput = null;
   let drawLinkButton = null;
   let drawBgColorInput = null;
+  let drawOverlayFormatSelect = null;
+  let drawPressureSizeInput = null;
+  let drawPressureOpacityInput = null;
+  let drawTiltSizeInput = null;
   let drawControls = null;
   if (drawNode) {
     drawControls = document.createElement("div");
@@ -488,10 +496,26 @@ function ensurePreviewWidget(node, progress, canvasSize) {
     drawClearButton.type = "button";
     drawClearButton.textContent = "Clear";
     styleInlineAction(drawClearButton);
+    drawOverlayFormatSelect = document.createElement("select");
+    drawOverlayFormatSelect.title = "Overlay format";
+    drawOverlayFormatSelect.style.width = "72px";
+    styleSoftField(drawOverlayFormatSelect);
+    for (const format of ["png", "webp"]) {
+      const option = document.createElement("option");
+      option.value = format;
+      option.textContent = format.toUpperCase();
+      drawOverlayFormatSelect.appendChild(option);
+    }
+    const rightTools = document.createElement("div");
+    rightTools.style.display = "flex";
+    rightTools.style.alignItems = "center";
+    rightTools.style.gap = "6px";
+    rightTools.appendChild(drawOverlayFormatSelect);
+    rightTools.appendChild(drawClearButton);
     toolRow.appendChild(drawBrushButton);
     toolRow.appendChild(drawEraserButton);
     topRow.appendChild(toolRow);
-    topRow.appendChild(drawClearButton);
+    topRow.appendChild(rightTools);
     const strokeRow = document.createElement("div");
     strokeRow.style.display = "grid";
     strokeRow.style.gridTemplateColumns = "auto minmax(0,1fr) auto auto auto minmax(0,1fr)";
@@ -594,9 +618,43 @@ function ensurePreviewWidget(node, progress, canvasSize) {
     sizeRow.appendChild(drawHeightInput);
     sizeRow.appendChild(drawLinkButton);
     sizeRow.appendChild(drawBgColorInput);
+    const dynamicsRow = document.createElement("div");
+    dynamicsRow.style.display = "flex";
+    dynamicsRow.style.alignItems = "center";
+    dynamicsRow.style.gap = "10px";
+    dynamicsRow.style.flexWrap = "wrap";
+    dynamicsRow.style.fontSize = "11px";
+    dynamicsRow.style.opacity = "0.86";
+    const dynamicsLabel = document.createElement("span");
+    dynamicsLabel.textContent = "Dynamics";
+    dynamicsLabel.style.opacity = "0.78";
+    const makeDynamicsToggle = (text, title) => {
+      const label = document.createElement("label");
+      label.style.display = "inline-flex";
+      label.style.alignItems = "center";
+      label.style.gap = "4px";
+      label.title = title;
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.style.margin = "0";
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(text));
+      return [label, input];
+    };
+    const [pressureSizeLabel, pressureSizeInput] = makeDynamicsToggle("Size pressure", "Pen pressure changes brush diameter");
+    const [pressureOpacityLabel, pressureOpacityInput] = makeDynamicsToggle("Opacity pressure", "Pen pressure changes brush opacity");
+    const [tiltSizeLabel, tiltSizeInput] = makeDynamicsToggle("Tilt size", "Pen tilt widens the brush footprint");
+    drawPressureSizeInput = pressureSizeInput;
+    drawPressureOpacityInput = pressureOpacityInput;
+    drawTiltSizeInput = tiltSizeInput;
+    dynamicsRow.appendChild(dynamicsLabel);
+    dynamicsRow.appendChild(pressureSizeLabel);
+    dynamicsRow.appendChild(pressureOpacityLabel);
+    dynamicsRow.appendChild(tiltSizeLabel);
     drawControls.appendChild(topRow);
     drawControls.appendChild(strokeRow);
     drawControls.appendChild(sizeRow);
+    drawControls.appendChild(dynamicsRow);
   }
   const progressWrap = document.createElement("div");
   progressWrap.style.marginTop = "6px";
@@ -658,6 +716,10 @@ function ensurePreviewWidget(node, progress, canvasSize) {
   st.drawHeightInput = drawHeightInput;
   st.drawLinkButton = drawLinkButton;
   st.drawBgColorInput = drawBgColorInput;
+  st.drawOverlayFormatSelect = drawOverlayFormatSelect;
+  st.drawPressureSizeInput = drawPressureSizeInput;
+  st.drawPressureOpacityInput = drawPressureOpacityInput;
+  st.drawTiltSizeInput = drawTiltSizeInput;
   st.colorWheelCanvas = colorWheelCanvas;
   st.colorHueLabel = colorHueLabel;
   st.colorSatLabel = colorSatLabel;
@@ -749,6 +811,7 @@ function hasProceduralAnimation(node) {
   if (numeric("seed_step", 0) !== 0) return true;
   if (numeric("frame_offset_x", 0) !== 0) return true;
   if (numeric("frame_offset_y", 0) !== 0) return true;
+  if (numeric("frame_offset_z", 0) !== 0) return true;
   return animatedWidgets;
 }
 function getProceduralPlaybackFps(node) {
@@ -910,7 +973,12 @@ function hideDrawWidgets(node) {
   hideWidgetForGood(node, findWidget(node, "brush_edge"));
   hideWidgetForGood(node, findWidget(node, "brush_opacity"));
   hideWidgetForGood(node, findWidget(node, "brush_size"));
+  hideWidgetForGood(node, findWidget(node, "brush_pressure_size"));
+  hideWidgetForGood(node, findWidget(node, "brush_pressure_opacity"));
+  hideWidgetForGood(node, findWidget(node, "brush_tilt_size"));
+  hideWidgetForGood(node, findWidget(node, "overlay_format"));
   hideWidgetForGood(node, findWidget(node, "overlay_data"));
+  hideWidgetForGood(node, findWidget(node, "overlay_layers"));
 }
 function setWidgetValue(widget, value) {
   if (!widget) return;
@@ -1035,6 +1103,10 @@ function syncDrawWidgets(node, changedName) {
   const edgeWidget = findWidget(node, "brush_edge");
   const opacityWidget = findWidget(node, "brush_opacity");
   const sizeWidget = findWidget(node, "brush_size");
+  const pressureSizeWidget = findWidget(node, "brush_pressure_size");
+  const pressureOpacityWidget = findWidget(node, "brush_pressure_opacity");
+  const tiltSizeWidget = findWidget(node, "brush_tilt_size");
+  const overlayFormatWidget = findWidget(node, "overlay_format");
   if (!widthWidget || !heightWidget) return;
   let width = clampDrawDimension(widgetNumber(node, "width", 1024));
   let height = clampDrawDimension(widgetNumber(node, "height", 1024));
@@ -1089,19 +1161,38 @@ function syncDrawWidgets(node, changedName) {
     st.drawSizeInput.title = `Brush size ${size}`;
     if (st.drawSizeLabel) st.drawSizeLabel.textContent = String(size);
   }
+  if (st.drawOverlayFormatSelect) {
+    st.drawOverlayFormatSelect.value = normalizeDrawOverlayFormat(widgetString(node, "overlay_format", "png"));
+  }
+  if (st.drawPressureSizeInput) {
+    st.drawPressureSizeInput.checked = widgetBoolean(node, "brush_pressure_size", true);
+  }
+  if (st.drawPressureOpacityInput) {
+    st.drawPressureOpacityInput.checked = widgetBoolean(node, "brush_pressure_opacity", true);
+  }
+  if (st.drawTiltSizeInput) {
+    st.drawTiltSizeInput.checked = widgetBoolean(node, "brush_tilt_size", false);
+  }
   if (linkWidget) linkWidget.value = linked;
   if (bgWidget && st.drawBgColorInput && !inputConnected) bgWidget.value = st.drawBgColorInput.value;
   if (colorWidget && st.drawColorInput) colorWidget.value = st.drawColorInput.value;
   if (edgeWidget && st.drawEdgeSelect) edgeWidget.value = st.drawEdgeSelect.value;
   if (opacityWidget && st.drawOpacityInput) opacityWidget.value = Number(st.drawOpacityInput.value) / 100;
   if (sizeWidget && st.drawSizeInput) sizeWidget.value = Number(st.drawSizeInput.value);
+  if (pressureSizeWidget && st.drawPressureSizeInput) pressureSizeWidget.value = st.drawPressureSizeInput.checked;
+  if (pressureOpacityWidget && st.drawPressureOpacityInput) pressureOpacityWidget.value = st.drawPressureOpacityInput.checked;
+  if (tiltSizeWidget && st.drawTiltSizeInput) tiltSizeWidget.value = st.drawTiltSizeInput.checked;
+  if (overlayFormatWidget && st.drawOverlayFormatSelect) overlayFormatWidget.value = st.drawOverlayFormatSelect.value;
   updateDrawToolButtons(node);
 }
 function updateDrawOverlayWidget(node) {
   const st = ensureState(node);
-  const value = canvasToOverlayData(st.drawCanvas);
-  st.drawOverlayKey = value;
+  const value = canvasToOverlayData(st.drawCanvas, normalizeDrawOverlayFormat(widgetString(node, "overlay_format", "png")));
+  const layers = value ? JSON.stringify({ version: 1, active: 0, layers: [{ name: "Layer 1", enabled: true, opacity: 1, data: value }] }) : "";
+  st.drawOverlayKey = `${layers}
+${value}`;
   setWidgetStringValue(findWidget(node, "overlay_data"), value);
+  setWidgetStringValue(findWidget(node, "overlay_layers"), layers);
 }
 let _dirtyRaf = null;
 function markCanvasDirty() {
@@ -1302,7 +1393,16 @@ function drawCropBounds(node, ctx, width, height, sourceWidth, sourceHeight) {
     cropX: crop.x,
     cropY: crop.y,
     cropWidth: crop.cropWidth,
-    cropHeight: crop.cropHeight
+    cropHeight: crop.cropHeight,
+    bbox: {
+      x: crop.x,
+      y: crop.y,
+      width: crop.cropWidth,
+      height: crop.cropHeight,
+      sourceWidth,
+      sourceHeight,
+      coordinateSpace: "source"
+    }
   };
 }
 function getCropCanvasMetrics(left, top, width, height) {
@@ -2002,7 +2102,17 @@ function registerImageOpsLivePreview() {
     const b = Number.parseInt(hex.slice(4, 6), 16);
     return `rgba(${r}, ${g}, ${b}, ${clampDrawOpacity(opacity)})`;
   }
-  function paintDrawSegment(node, fromX, fromY, toX, toY) {
+  function drawPointerDynamics(node, event) {
+    const isPen = event?.pointerType === "pen";
+    const pressure = isPen && Number.isFinite(event?.pressure ?? NaN) && (event?.pressure ?? 0) > 0 ? Math.max(0.05, Math.min(1, event?.pressure ?? 1)) : 1;
+    const size = widgetBoolean(node, "brush_pressure_size", true) ? 0.2 + pressure * 0.8 : 1;
+    const opacity = widgetBoolean(node, "brush_pressure_opacity", true) ? 0.15 + pressure * 0.85 : 1;
+    const tiltX = Number(event?.tiltX ?? 0);
+    const tiltY = Number(event?.tiltY ?? 0);
+    const tilt = isPen && widgetBoolean(node, "brush_tilt_size", false) ? Math.min(1, Math.hypot(tiltX, tiltY) / 90) : 0;
+    return { size: size * (1 + tilt * 0.65), opacity };
+  }
+  function paintDrawSegment(node, fromX, fromY, toX, toY, dynamics = { size: 1, opacity: 1 }) {
     const st = ensureState(node);
     const canvas = st.drawCanvas;
     if (!canvas) return;
@@ -2010,8 +2120,8 @@ function registerImageOpsLivePreview() {
     if (!ctx) return;
     const tool = normalizeDrawTool(widgetString(node, "tool", "brush"));
     const edge = normalizeDrawEdge(widgetString(node, "brush_edge", "hard"));
-    const brushSize = clampDrawSize(widgetNumber(node, "brush_size", 10));
-    const brushOpacity = widgetNumber(node, "brush_opacity", 1);
+    const brushSize = Math.max(1, clampDrawSize(widgetNumber(node, "brush_size", 10)) * Math.max(0.05, dynamics.size));
+    const brushOpacity = clampDrawOpacity(widgetNumber(node, "brush_opacity", 1) * Math.max(0.05, dynamics.opacity), 1);
     const brushColor = widgetString(node, "brush_color", "#FFFFFF");
     ctx.save();
     ctx.lineCap = "round";
@@ -2021,7 +2131,7 @@ function registerImageOpsLivePreview() {
     ctx.shadowBlur = 0;
     if (tool === "eraser") {
       ctx.globalCompositeOperation = "destination-out";
-      ctx.strokeStyle = "rgba(0,0,0,1)";
+      ctx.strokeStyle = `rgba(0,0,0,${brushOpacity})`;
     } else {
       ctx.globalCompositeOperation = "source-over";
       ctx.strokeStyle = strokeStyle(brushColor, brushOpacity);
@@ -2425,6 +2535,29 @@ function registerImageOpsLivePreview() {
       if (st.drawBgColorInput) st.drawBgColorInput.value = color;
       refreshDrawInteraction(node);
     });
+    st.drawOverlayFormatSelect?.addEventListener("change", () => {
+      const format = normalizeDrawOverlayFormat(st.drawOverlayFormatSelect?.value ?? "png");
+      setWidgetStringValue(findWidget(node, "overlay_format"), format);
+      if (st.drawOverlayFormatSelect) st.drawOverlayFormatSelect.value = format;
+      if (!st.drawCanvas) {
+        void renderDrawNode(node, 0).then(() => {
+          updateDrawOverlayWidget(node);
+          refreshDrawInteraction(node);
+        });
+        return;
+      }
+      updateDrawOverlayWidget(node);
+      refreshDrawInteraction(node);
+    });
+    const syncDrawDynamics = () => {
+      setWidgetBooleanValue(findWidget(node, "brush_pressure_size"), !!st.drawPressureSizeInput?.checked);
+      setWidgetBooleanValue(findWidget(node, "brush_pressure_opacity"), !!st.drawPressureOpacityInput?.checked);
+      setWidgetBooleanValue(findWidget(node, "brush_tilt_size"), !!st.drawTiltSizeInput?.checked);
+      void renderDrawNode(node, 0);
+    };
+    st.drawPressureSizeInput?.addEventListener("change", syncDrawDynamics);
+    st.drawPressureOpacityInput?.addEventListener("change", syncDrawDynamics);
+    st.drawTiltSizeInput?.addEventListener("change", syncDrawDynamics);
     canvas.addEventListener("wheel", (event) => {
       if (!st.drawGeometry) return;
       const point = getCanvasPointer(canvas, event);
@@ -2469,7 +2602,7 @@ function registerImageOpsLivePreview() {
         snapshot
       };
       st.drawHover = { canvasX: point.x, canvasY: point.y, inside: true };
-      paintDrawSegment(node, mapped.x, mapped.y, mapped.x, mapped.y);
+      paintDrawSegment(node, mapped.x, mapped.y, mapped.x, mapped.y, drawPointerDynamics(node, event));
       markPreviewInteraction(node);
       markCanvasDirty();
       void renderDrawNode(node, 0);
@@ -2493,9 +2626,9 @@ function registerImageOpsLivePreview() {
       event.preventDefault();
       if (event.shiftKey) {
         restoreCanvas(st.drawCanvas, drag.snapshot);
-        paintDrawSegment(node, drag.startX, drag.startY, mapped.x, mapped.y);
+        paintDrawSegment(node, drag.startX, drag.startY, mapped.x, mapped.y, drawPointerDynamics(node, event));
       } else {
-        paintDrawSegment(node, drag.lastX, drag.lastY, mapped.x, mapped.y);
+        paintDrawSegment(node, drag.lastX, drag.lastY, mapped.x, mapped.y, drawPointerDynamics(node, event));
       }
       drag.lastX = mapped.x;
       drag.lastY = mapped.y;

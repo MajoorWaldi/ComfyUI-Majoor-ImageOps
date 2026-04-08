@@ -36,14 +36,17 @@
 | **ImageOps Color Correct** | `ImageOpsColorAjust` | Professional color correction with temperature, hue, brightness, contrast, saturation, and gamma controls |
 | **ImageOps Blur** | `ImageOpsBlur` | Gaussian blur with radius/sigma control and mask support |
 | **ImageOps Channels** | `ImageOpsChannel` | Extract and manipulate individual RGB/Alpha channels |
+| **ImageOps Mask Convert** | `ImageOpsMaskConvert` | Convert images and masks with selectable matte extraction, levels, and antialiasing |
 | **ImageOps Resize/Crop** | `ImageOpsCrop` | Interactive crop and resize with aspect ratio presets |
 | **ImageOps Distort** | `ImageOpsDistort` | iDistort-style displacement warp driven by source channels, external maps, masks, or internal procedural noise |
 | **ImageOps Transform** | `ImageOpsTransform` | Translate, rotate, scale with filter options (nearest/bilinear/bicubic) |
+| **ImageOps Corner Pin** | `ImageOpsCornerPin` | Perspective corner pinning with batched homography warp, bicubic filtering, supersampling, and alpha-safe edges |
+| **ImageOps Pad Out** | `ImageOpsPadOut` | Add per-side borders with constant, edge-extended, reflected, or blurry fill and optional target aspect ratios |
 | **ImageOps Invert** | `ImageOpsInvert` | Invert colors and/or alpha channel |
 | **ImageOps Clamp** | `ImageOpsClamp` | Clamp pixel values to min/max range |
-| **ImageOps Merge** | `ImageOpsMerge` | Blend two images with multiple blend modes (over, add, subtract, multiply, screen, difference, max, min) |
-| **ImageOps Noise** | `ImageOpsNoise` | Procedural noise source with Perlin, value, FBM, turbulence, ridged, seed stepping, frame length/FPS animation controls, and color ramp output |
-| **ImageOps Paint** | `ImageOpsDraw` | Digital painting with brush/eraser tools, opacity, and color controls |
+| **ImageOps Merge** | `ImageOpsMerge` | Linear-light two-input compositing with production blend modes and foreground fit controls |
+| **ImageOps Noise** | `ImageOpsNoise` | GPU-backed procedural noise source with Perlin, value, seamless tiling, 3D Z animation, seed stepping, frame length/FPS controls, and color ramp output |
+| **ImageOps Paint** | `ImageOpsDraw` | Digital painting with brush/eraser tools, cropped overlay payloads, layer JSON support, and pen dynamics |
 | **ImageOps Comp** | `ImageOpsComp` | Multi-layer compositor with blend modes, positioning, and opacity per layer |
 
 ### 📤 Output Nodes
@@ -110,6 +113,23 @@ Extract and isolate individual color channels.
 
 ---
 
+### 🎚️ ImageOps Mask Convert
+Convert images to masks and masks to previewable images.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO, optional): Source media when `reverse` is enabled
+- `mask` (MASK, optional): Source mask when `reverse` is disabled
+
+**Parameters:**
+- `reverse`: image -> mask when enabled, mask -> image when disabled
+- `mask_source`: auto, luma, max_rgb, saturation, red, green, blue, or alpha
+- `black_point` / `white_point`: Remap the extracted matte to harden or soften the mask
+- `antialias_radius`: Small blur radius before levels to smooth jagged matte edges
+
+**Outputs:** `IMAGE`, `MASK`
+
+---
+
 ### ✂️ ImageOps Resize/Crop
 Interactive crop and resize with aspect ratio control.
 
@@ -125,6 +145,7 @@ Interactive crop and resize with aspect ratio control.
 - `crop_center_x` (0.0 to 1.0): Horizontal crop position
 - `crop_center_y` (0.0 to 1.0): Vertical crop position
 - `crop_scale` (0.05 to 1.0): Crop zoom level
+- Crop outputs include `imageops_crop_bbox` metadata in source-image coordinates for UI overlays/extensions
 - `invert_mask`: Invert mask effect
 - `bypass`: Skip processing
 
@@ -168,9 +189,53 @@ Geometric transformations with quality filters.
 - `rotate_deg` (-180 to 180): Rotation angle (clockwise positive)
 - `scale` (0.01 to 8.0): Scale factor
 - `filter`: Nearest, Bilinear, or Bicubic
-- `expand`: Expand canvas to fit rotated content
+- `expand`: Compatibility option; the GPU affine path keeps the output size fixed
 - `invert_mask`: Invert mask effect
 - `bypass`: Skip processing
+
+**Outputs:** `IMAGE`, `MASK`
+
+---
+
+### 📐 ImageOps Corner Pin
+Perspective corner pinning for screen replacement, planar warps, and compositing.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO): Source media
+
+**Parameters:**
+- `tl_x`, `tl_y`: Top-left destination corner in normalized image coordinates
+- `tr_x`, `tr_y`: Top-right destination corner in normalized image coordinates
+- `bl_x`, `bl_y`: Bottom-left destination corner in normalized image coordinates
+- `br_x`, `br_y`: Bottom-right destination corner in normalized image coordinates
+- `filter`: Nearest, Bilinear, or Bicubic
+- `supersample`: 1x to 4x multisampling before downsampling
+- `edge_mode`: border, reflection, or zeros
+- `invert_mask`: Invert the warped transparency mask
+- `bypass`: Skip processing
+
+The warp uses batched PyTorch homographies with `grid_sample`; RGBA input is premultiplied before warping so transparent edges stay clean.
+
+**Outputs:** `IMAGE`, `MASK`
+
+---
+
+### 🧱 ImageOps Pad Out
+Add borders around an image without scaling the source.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO): Source media
+
+**Parameters:**
+- `pad_left`, `pad_top`, `pad_right`, `pad_bottom`: Per-side padding in pixels
+- `target_format`: custom, 1:1, 16:9, 9:16, 4:3, or 3:4
+- `fill_mode`: constant, edge_extend, reflect, or blurry
+- `fill_color`: Solid color for constant padding
+- `blur_radius`: Background blur radius for blurry padding
+- `invert_mask`: Invert the padding mask
+- `bypass`: Skip processing
+
+The `target_format` option adds only the extra padding needed to reach the selected ratio, so manual side padding can still decenter the source.
 
 **Outputs:** `IMAGE`, `MASK`
 
@@ -210,7 +275,7 @@ Clamp pixel values to specified range.
 ---
 
 ### 🔀 ImageOps Merge
-Blend two images with various blend modes.
+Blend two images with linear-light or sRGB blend modes.
 
 **Inputs:**
 - `A` (IMAGE/VIDEO): Background layer
@@ -218,8 +283,10 @@ Blend two images with various blend modes.
 - `mask` (MASK, optional): Effect mask
 
 **Parameters:**
-- `mode`: over, add, subtract, multiply, screen, difference, max, min
+- `mode`: over, add, subtract, multiply, screen, overlay, soft_light, difference, max, min, lighten, darken, color_dodge, color_burn, exclusion, vivid_light, pin_light, hard_mix
 - `mix` (0.0 to 1.0): Blend opacity
+- `foreground_fit`: stretch, contain, cover, or none for adapting foreground B to background A
+- `blend_space`: linear or srgb; linear performs RGB blend math in gamma 1.0 then converts back to sRGB
 - `invert_mask`: Invert mask effect
 - `bypass`: Skip processing
 
@@ -238,6 +305,9 @@ Procedural texture generator for masks and grayscale or color noise plates.
 - `octaves`, `lacunarity`, `gain`: fractal shaping controls
 - `offset_x`, `offset_y`: pattern translation
 - `frame_offset_x`, `frame_offset_y`: per-frame motion offset
+- `offset_z`, `frame_offset_z`: temporal/depth motion for smooth 3D noise animation; use `seed_step` 0 for continuous evolution
+- `seamless`: tileable X/Y noise for repeating textures
+- `compute_device`: auto, cpu, or cuda synthesis device
 - `contrast`, `invert`: output shaping
 - `low_color`, `high_color`: color ramp for the generated image
 
@@ -260,9 +330,16 @@ Digital painting and drawing tool.
 - `brush_color`: Brush color (hex)
 - `brush_opacity` (0.0 to 1.0): Brush transparency
 - `brush_size` (1 to 256): Brush diameter
-- `overlay_data`: Base64-encoded overlay image
+- `brush_pressure_size`: Pen pressure modulates brush diameter
+- `brush_pressure_opacity`: Pen pressure modulates brush opacity
+- `brush_tilt_size`: Pen tilt can widen the brush footprint
+- `overlay_format`: WebP or PNG payload encoding
+- `overlay_data`: Encoded overlay payload; the preview stores cropped visible bounds to reduce transfer size
+- `overlay_layers`: Optional JSON layer list for composing multiple overlay payloads
 - `invert_mask`: Invert mask effect
 - `bypass`: Skip processing
+
+The node still accepts older full-frame Base64 PNG `overlay_data` values. New preview payloads are cropped to the visible painted bounds and can use WebP when the browser supports it; `overlay_layers` accepts `{"layers":[{"data":"...","opacity":1,"enabled":true}]}` for non-destructive multi-layer overlays.
 
 **Outputs:** `IMAGE`, `MASK`
 
@@ -279,6 +356,7 @@ Multi-layer compositor with professional controls.
 **Parameters:**
 - `bypass`: Skip processing
 - `use_first_layer_size`: Use first layer as canvas size
+- `auto_layering`: Use the largest connected layer dimensions as canvas size
 - `width` (1 to 8192): Custom canvas width
 - `height` (1 to 8192): Custom canvas height
 - `background_color`: Canvas background (hex)
@@ -410,6 +488,9 @@ Some packs expose video via custom types. Best results when upstream provides fr
 | `difference` | difference |
 | `lighten` | lighten |
 | `darken` | darken |
+| `color_dodge` | color-dodge |
+| `color_burn` | color-burn |
+| `exclusion` | exclusion |
 
 ---
 

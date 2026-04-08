@@ -239,7 +239,7 @@ function compositeAt(base, top, mode, opacity, x, y, width, height) {
   return output;
 }
 function compModeToCanvasOp(mode) {
-  const normalized = String(mode || "over").toLowerCase();
+  const normalized = String(mode || "over").toLowerCase().replace(/[-\s]+/g, "_");
   if (normalized === "add") return "lighter";
   if (normalized === "multiply") return "multiply";
   if (normalized === "screen") return "screen";
@@ -248,6 +248,9 @@ function compModeToCanvasOp(mode) {
   if (normalized === "difference") return "difference";
   if (normalized === "lighten") return "lighten";
   if (normalized === "darken") return "darken";
+  if (normalized === "color_dodge") return "color-dodge";
+  if (normalized === "color_burn") return "color-burn";
+  if (normalized === "exclusion") return "exclusion";
   return "source-over";
 }
 function hexToRgb01(value) {
@@ -264,55 +267,104 @@ function noiseFade(t) {
 function noiseLerp(a, b, t) {
   return a + (b - a) * t;
 }
-function noiseHash2D(x, y, seed) {
-  let h = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(seed | 0, 1442695041) | 0;
+function noiseHash3D(x, y, z, seed) {
+  let h = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(z | 0, 2246822519) + Math.imul(seed | 0, 1442695041) | 0;
   h ^= h >>> 13;
   h = Math.imul(h, 1274126177);
   h ^= h >>> 16;
   return (h >>> 0) / 4294967295;
 }
-function sampleWhiteNoise(x, y, seed) {
-  return noiseHash2D(Math.floor(x), Math.floor(y), seed) * 2 - 1;
+function wrapNoiseIndex(value, period) {
+  if (period <= 0) return value;
+  return (value % period + period) % period;
 }
-function sampleValueNoise(x, y, seed) {
+function sampleWhiteNoise(x, y, z, seed, periodX = 0, periodY = 0) {
   const x0 = Math.floor(x);
   const y0 = Math.floor(y);
-  const x1 = x0 + 1;
-  const y1 = y0 + 1;
-  const tx = x - x0;
-  const ty = y - y0;
-  const u = noiseFade(tx);
-  const v = noiseFade(ty);
-  const v00 = noiseHash2D(x0, y0, seed) * 2 - 1;
-  const v10 = noiseHash2D(x1, y0, seed) * 2 - 1;
-  const v01 = noiseHash2D(x0, y1, seed) * 2 - 1;
-  const v11 = noiseHash2D(x1, y1, seed) * 2 - 1;
-  return noiseLerp(noiseLerp(v00, v10, u), noiseLerp(v01, v11, u), v);
+  const z0 = Math.floor(z);
+  const z1 = z0 + 1;
+  const tz = z - z0;
+  const ix = wrapNoiseIndex(x0, periodX);
+  const iy = wrapNoiseIndex(y0, periodY);
+  const n0 = noiseHash3D(ix, iy, z0, seed) * 2 - 1;
+  const n1 = noiseHash3D(ix, iy, z1, seed) * 2 - 1;
+  return noiseLerp(n0, n1, noiseFade(tz));
 }
-function gradientDot(ix, iy, x, y, seed) {
-  const angle = noiseHash2D(ix, iy, seed) * Math.PI * 2;
-  return Math.cos(angle) * (x - ix) + Math.sin(angle) * (y - iy);
-}
-function samplePerlinNoise(x, y, seed) {
+function sampleValueNoise(x, y, z, seed, periodX = 0, periodY = 0) {
   const x0 = Math.floor(x);
   const y0 = Math.floor(y);
+  const z0 = Math.floor(z);
   const x1 = x0 + 1;
   const y1 = y0 + 1;
+  const z1 = z0 + 1;
   const tx = x - x0;
   const ty = y - y0;
+  const tz = z - z0;
   const u = noiseFade(tx);
   const v = noiseFade(ty);
-  const n00 = gradientDot(x0, y0, x, y, seed);
-  const n10 = gradientDot(x1, y0, x, y, seed);
-  const n01 = gradientDot(x0, y1, x, y, seed);
-  const n11 = gradientDot(x1, y1, x, y, seed);
-  return Math.max(-1, Math.min(1, noiseLerp(noiseLerp(n00, n10, u), noiseLerp(n01, n11, u), v) * Math.SQRT2));
+  const w2 = noiseFade(tz);
+  const ix0 = wrapNoiseIndex(x0, periodX);
+  const ix1 = wrapNoiseIndex(x1, periodX);
+  const iy0 = wrapNoiseIndex(y0, periodY);
+  const iy1 = wrapNoiseIndex(y1, periodY);
+  const v000 = noiseHash3D(ix0, iy0, z0, seed) * 2 - 1;
+  const v100 = noiseHash3D(ix1, iy0, z0, seed) * 2 - 1;
+  const v010 = noiseHash3D(ix0, iy1, z0, seed) * 2 - 1;
+  const v110 = noiseHash3D(ix1, iy1, z0, seed) * 2 - 1;
+  const v001 = noiseHash3D(ix0, iy0, z1, seed) * 2 - 1;
+  const v101 = noiseHash3D(ix1, iy0, z1, seed) * 2 - 1;
+  const v011 = noiseHash3D(ix0, iy1, z1, seed) * 2 - 1;
+  const v111 = noiseHash3D(ix1, iy1, z1, seed) * 2 - 1;
+  const x00 = noiseLerp(v000, v100, u);
+  const x10 = noiseLerp(v010, v110, u);
+  const x01 = noiseLerp(v001, v101, u);
+  const x11 = noiseLerp(v011, v111, u);
+  return noiseLerp(noiseLerp(x00, x10, v), noiseLerp(x01, x11, v), w2);
 }
-function sampleNoiseBasis(basis, sampleX, sampleY, rawX, rawY, seed) {
+function gradientDot3(ix, iy, iz, x, y, z, seed, periodX = 0, periodY = 0) {
+  const hashX = wrapNoiseIndex(ix, periodX);
+  const hashY = wrapNoiseIndex(iy, periodY);
+  const h0 = noiseHash3D(hashX, hashY, iz, seed);
+  const h1 = noiseHash3D(hashX + 19, hashY - 31, iz + 47, seed + 1009);
+  const angle = h0 * Math.PI * 2;
+  const gz = h1 * 2 - 1;
+  const radial = Math.sqrt(Math.max(0, 1 - gz * gz));
+  const gx = radial * Math.cos(angle);
+  const gy = radial * Math.sin(angle);
+  return gx * (x - ix) + gy * (y - iy) + gz * (z - iz);
+}
+function samplePerlinNoise(x, y, z, seed, periodX = 0, periodY = 0) {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const z0 = Math.floor(z);
+  const x1 = x0 + 1;
+  const y1 = y0 + 1;
+  const z1 = z0 + 1;
+  const tx = x - x0;
+  const ty = y - y0;
+  const tz = z - z0;
+  const u = noiseFade(tx);
+  const v = noiseFade(ty);
+  const w2 = noiseFade(tz);
+  const n000 = gradientDot3(x0, y0, z0, x, y, z, seed, periodX, periodY);
+  const n100 = gradientDot3(x1, y0, z0, x, y, z, seed, periodX, periodY);
+  const n010 = gradientDot3(x0, y1, z0, x, y, z, seed, periodX, periodY);
+  const n110 = gradientDot3(x1, y1, z0, x, y, z, seed, periodX, periodY);
+  const n001 = gradientDot3(x0, y0, z1, x, y, z, seed, periodX, periodY);
+  const n101 = gradientDot3(x1, y0, z1, x, y, z, seed, periodX, periodY);
+  const n011 = gradientDot3(x0, y1, z1, x, y, z, seed, periodX, periodY);
+  const n111 = gradientDot3(x1, y1, z1, x, y, z, seed, periodX, periodY);
+  const x00 = noiseLerp(n000, n100, u);
+  const x10 = noiseLerp(n010, n110, u);
+  const x01 = noiseLerp(n001, n101, u);
+  const x11 = noiseLerp(n011, n111, u);
+  return Math.max(-1, Math.min(1, noiseLerp(noiseLerp(x00, x10, v), noiseLerp(x01, x11, v), w2) * 1.15470053838));
+}
+function sampleNoiseBasis(basis, sampleX, sampleY, sampleZ, rawX, rawY, rawZ, seed, periodX = 0, periodY = 0) {
   const normalized = String(basis || "perlin").toLowerCase();
-  if (normalized === "value") return sampleValueNoise(sampleX, sampleY, seed);
-  if (normalized === "white") return sampleWhiteNoise(rawX, rawY, seed);
-  return samplePerlinNoise(sampleX, sampleY, seed);
+  if (normalized === "value") return sampleValueNoise(sampleX, sampleY, sampleZ, seed, periodX, periodY);
+  if (normalized === "white") return sampleWhiteNoise(rawX, rawY, rawZ, seed, periodX > 0 ? Math.max(1, Math.round(periodX)) : 0, periodY > 0 ? Math.max(1, Math.round(periodY)) : 0);
+  return samplePerlinNoise(sampleX, sampleY, sampleZ, seed, periodX, periodY);
 }
 function buildNoiseField(width, height, options) {
   const basis = options.basis;
@@ -325,6 +377,8 @@ function buildNoiseField(width, height, options) {
   const gain = Math.max(0, options.gain);
   const offsetX = options.offsetX + frameIndex * (options.frameOffsetX ?? 0);
   const offsetY = options.offsetY + frameIndex * (options.frameOffsetY ?? 0);
+  const offsetZ = (options.offsetZ ?? 0) + frameIndex * (options.frameOffsetZ ?? 0);
+  const seamless = !!options.seamless;
   const contrast = Math.max(0, options.contrast);
   const invert = options.invert;
   const grayValues = new Float32Array(width * height);
@@ -336,7 +390,12 @@ function buildNoiseField(width, height, options) {
       const rawY = y + offsetY;
       let gray = 0;
       if (fractalMode === "none") {
-        const signed = sampleNoiseBasis(basis, rawX / scale, rawY / scale, rawX, rawY, seed);
+        const useWhitePeriod = String(basis || "perlin").toLowerCase() === "white";
+        const periodX = seamless ? useWhitePeriod ? width : Math.max(1, Math.round(width / scale)) : 0;
+        const periodY = seamless ? useWhitePeriod ? height : Math.max(1, Math.round(height / scale)) : 0;
+        const sampleX = seamless ? x * (periodX / Math.max(1, width)) + offsetX / scale : rawX / scale;
+        const sampleY = seamless ? y * (periodY / Math.max(1, height)) + offsetY / scale : rawY / scale;
+        const signed = sampleNoiseBasis(basis, sampleX, sampleY, offsetZ / scale, rawX, rawY, offsetZ, seed, periodX, periodY);
         gray = clamp01(signed * 0.5 + 0.5);
       } else {
         let total = 0;
@@ -345,7 +404,12 @@ function buildNoiseField(width, height, options) {
         let currentScale = scale;
         for (let octave = 0; octave < octaves; octave++) {
           const octaveSeed = seed + octave * 10007;
-          const signed = sampleNoiseBasis(basis, rawX / currentScale, rawY / currentScale, rawX, rawY, octaveSeed);
+          const useWhitePeriod = String(basis || "perlin").toLowerCase() === "white";
+          const periodX = seamless ? useWhitePeriod ? width : Math.max(1, Math.round(width / currentScale)) : 0;
+          const periodY = seamless ? useWhitePeriod ? height : Math.max(1, Math.round(height / currentScale)) : 0;
+          const sampleX = seamless ? x * (periodX / Math.max(1, width)) + offsetX / currentScale : rawX / currentScale;
+          const sampleY = seamless ? y * (periodY / Math.max(1, height)) + offsetY / currentScale : rawY / currentScale;
+          const signed = sampleNoiseBasis(basis, sampleX, sampleY, offsetZ / currentScale, rawX, rawY, offsetZ, octaveSeed, periodX, periodY);
           let contribution = signed;
           if (fractalMode === "turbulence") contribution = Math.abs(signed);
           else if (fractalMode === "ridged") contribution = 1 - Math.abs(signed);
@@ -415,8 +479,11 @@ function renderNoiseCanvas(node, maskOnly = false, frameIndex = 0) {
     gain: numAny(node, ["gain"], 0.5, resolvedFrameIndex),
     offsetX: numAny(node, ["offset_x"], 0, resolvedFrameIndex),
     offsetY: numAny(node, ["offset_y"], 0, resolvedFrameIndex),
+    offsetZ: numAny(node, ["offset_z"], 0, resolvedFrameIndex),
     frameOffsetX: numAny(node, ["frame_offset_x"], 0, resolvedFrameIndex),
     frameOffsetY: numAny(node, ["frame_offset_y"], 0, resolvedFrameIndex),
+    frameOffsetZ: numAny(node, ["frame_offset_z"], 0, resolvedFrameIndex),
+    seamless: boolAny(node, ["seamless"], false, resolvedFrameIndex),
     contrast: numAny(node, ["contrast"], 1, resolvedFrameIndex),
     invert: boolAny(node, ["invert"], false, resolvedFrameIndex),
     frameIndex: resolvedFrameIndex
@@ -582,14 +649,6 @@ function setResampleMode(ctx, filter) {
   if (ctx.imageSmoothingEnabled) {
     ctx.imageSmoothingQuality = mode === "bicubic" ? "high" : "medium";
   }
-}
-function rotatedBounds(width, height, radians) {
-  const cos = Math.abs(Math.cos(radians));
-  const sin = Math.abs(Math.sin(radians));
-  return {
-    width: Math.max(1, Math.ceil(width * cos + height * sin)),
-    height: Math.max(1, Math.ceil(width * sin + height * cos))
-  };
 }
 function applyLevels(ctx, W, H, inMin, inMax, gamma, outMin, outMax) {
   const { epsilon: EPS, preview_gamma_epsilon: GE } = getOpsConstants();
@@ -858,35 +917,23 @@ function applyDesaturate(ctx, W, H, factor = 1) {
   putImageData(ctx, img);
 }
 function applyTransform(ctx, W, H, tx, ty, rotDeg, scale, filter, expand) {
+  void expand;
   const safeScale = Math.max(0.01, scale || 1);
   const rad = rotDeg * Math.PI / 180;
   const needsScale = Math.abs(safeScale - 1) > 1e-4;
   const needsRotate = Math.abs(rotDeg) > 1e-4;
   const needsTranslate = tx !== 0 || ty !== 0;
   if (!needsScale && !needsRotate && !needsTranslate) return;
-  let working = makeCanvas(needsScale ? Math.round(W * safeScale) : W, needsScale ? Math.round(H * safeScale) : H);
-  let wctx = working.getContext("2d");
-  setResampleMode(wctx, filter);
-  wctx.clearRect(0, 0, working.width, working.height);
-  wctx.drawImage(ctx.canvas, 0, 0, working.width, working.height);
-  if (needsRotate) {
-    const bounds = expand ? rotatedBounds(working.width, working.height, rad) : { width: working.width, height: working.height };
-    const rotated = makeCanvas(bounds.width, bounds.height);
-    const rctx = rotated.getContext("2d");
-    setResampleMode(rctx, filter);
-    rctx.translate(rotated.width / 2, rotated.height / 2);
-    rctx.rotate(rad);
-    rctx.drawImage(working, -working.width / 2, -working.height / 2);
-    working = rotated;
-    wctx = rctx;
-  }
   const output = makeCanvas(W, H);
   const octx = output.getContext("2d");
   setResampleMode(octx, filter);
   octx.clearRect(0, 0, W, H);
-  const drawX = Math.round((W - working.width) / 2 + (needsTranslate ? tx : 0));
-  const drawY = Math.round((H - working.height) / 2 + (needsTranslate ? ty : 0));
-  octx.drawImage(working, drawX, drawY);
+  octx.save();
+  octx.translate(W / 2 + tx, H / 2 + ty);
+  octx.rotate(rad);
+  octx.scale(safeScale, safeScale);
+  octx.drawImage(ctx.canvas, -W / 2, -H / 2, W, H);
+  octx.restore();
   return output;
 }
 function applyGlow(ctx, W, H, threshold, intensity, blurPx) {
@@ -981,22 +1028,93 @@ function applyCrop(ctx, node, sourceWidth, sourceHeight, aspectRatio, outW, outH
   );
   return output;
 }
+function padOutRatio(targetFormat) {
+  const normalized = String(targetFormat || "custom").trim().toLowerCase().replace(/\s+/g, "_");
+  if (normalized === "1:1" || normalized === "square" || normalized === "nearest_square") return [1, 1];
+  if (normalized === "16:9") return [16, 9];
+  if (normalized === "9:16") return [9, 16];
+  if (normalized === "4:3") return [4, 3];
+  if (normalized === "3:4") return [3, 4];
+  return null;
+}
+function resolvePadOutGeometry(sourceWidth, sourceHeight, node, frameIndex = 0) {
+  let padLeft = Math.max(0, Math.round(numAny(node, ["pad_left"], 0, frameIndex)));
+  let padTop = Math.max(0, Math.round(numAny(node, ["pad_top"], 0, frameIndex)));
+  let padRight = Math.max(0, Math.round(numAny(node, ["pad_right"], 0, frameIndex)));
+  let padBottom = Math.max(0, Math.round(numAny(node, ["pad_bottom"], 0, frameIndex)));
+  let outWidth = Math.max(1, sourceWidth + padLeft + padRight);
+  let outHeight = Math.max(1, sourceHeight + padTop + padBottom);
+  const ratio = padOutRatio(strAny(node, ["target_format"], "custom", frameIndex));
+  if (ratio) {
+    const [ratioW, ratioH] = ratio;
+    let targetWidth = outWidth;
+    let targetHeight = outHeight;
+    if (outWidth * ratioH < outHeight * ratioW) {
+      targetWidth = Math.ceil(outHeight * ratioW / ratioH);
+    } else if (outWidth * ratioH > outHeight * ratioW) {
+      targetHeight = Math.ceil(outWidth * ratioH / ratioW);
+    }
+    const extraW = Math.max(0, targetWidth - outWidth);
+    const extraH = Math.max(0, targetHeight - outHeight);
+    const extraLeft = Math.floor(extraW / 2);
+    const extraTop = Math.floor(extraH / 2);
+    padLeft += extraLeft;
+    padRight += extraW - extraLeft;
+    padTop += extraTop;
+    padBottom += extraH - extraTop;
+    outWidth = targetWidth;
+    outHeight = targetHeight;
+  }
+  return { padLeft, padTop, padRight, padBottom, outWidth, outHeight };
+}
+function normalizePadOutFillMode(value) {
+  const normalized = String(value || "constant").trim().toLowerCase().replace(/[-\s]+/g, "_");
+  if (normalized === "edge" || normalized === "edge_extend" || normalized === "replicate" || normalized === "extend") return "edge_extend";
+  if (normalized === "blur" || normalized === "blurry" || normalized === "blurred") return "blurry";
+  if (normalized === "reflect" || normalized === "reflection" || normalized === "mirror") return "reflect";
+  return "constant";
+}
+function drawPadOutExtendedEdges(ctx, source, sourceWidth, sourceHeight, padLeft, padTop, padRight, padBottom) {
+  const centerX = padLeft;
+  const centerY = padTop;
+  ctx.imageSmoothingEnabled = false;
+  if (padLeft > 0) ctx.drawImage(source, 0, 0, 1, sourceHeight, 0, centerY, padLeft, sourceHeight);
+  if (padRight > 0) ctx.drawImage(source, sourceWidth - 1, 0, 1, sourceHeight, centerX + sourceWidth, centerY, padRight, sourceHeight);
+  if (padTop > 0) ctx.drawImage(source, 0, 0, sourceWidth, 1, centerX, 0, sourceWidth, padTop);
+  if (padBottom > 0) ctx.drawImage(source, 0, sourceHeight - 1, sourceWidth, 1, centerX, centerY + sourceHeight, sourceWidth, padBottom);
+  if (padLeft > 0 && padTop > 0) ctx.drawImage(source, 0, 0, 1, 1, 0, 0, padLeft, padTop);
+  if (padRight > 0 && padTop > 0) ctx.drawImage(source, sourceWidth - 1, 0, 1, 1, centerX + sourceWidth, 0, padRight, padTop);
+  if (padLeft > 0 && padBottom > 0) ctx.drawImage(source, 0, sourceHeight - 1, 1, 1, 0, centerY + sourceHeight, padLeft, padBottom);
+  if (padRight > 0 && padBottom > 0) ctx.drawImage(source, sourceWidth - 1, sourceHeight - 1, 1, 1, centerX + sourceWidth, centerY + sourceHeight, padRight, padBottom);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(source, centerX, centerY, sourceWidth, sourceHeight);
+}
 function renderPadOutCanvases(node, source, frameIndex = 0) {
-  const padLeft = Math.max(0, Math.round(numAny(node, ["pad_left"], 0, frameIndex)));
-  const padTop = Math.max(0, Math.round(numAny(node, ["pad_top"], 0, frameIndex)));
-  const padRight = Math.max(0, Math.round(numAny(node, ["pad_right"], 0, frameIndex)));
-  const padBottom = Math.max(0, Math.round(numAny(node, ["pad_bottom"], 0, frameIndex)));
   const fillColor = parseHexColor(strAny(node, ["fill_color"], "#000000", frameIndex));
+  const fillMode = normalizePadOutFillMode(strAny(node, ["fill_mode"], "constant", frameIndex));
+  const blurRadius = Math.max(0, Math.round(numAny(node, ["blur_radius"], 32, frameIndex)));
   const invertMask = boolAny(node, ["invert_mask"], false, frameIndex);
   const sourceWidth = source.width || 1;
   const sourceHeight = source.height || 1;
-  const outWidth = Math.max(1, sourceWidth + padLeft + padRight);
-  const outHeight = Math.max(1, sourceHeight + padTop + padBottom);
+  const { padLeft, padTop, padRight, padBottom, outWidth, outHeight } = resolvePadOutGeometry(sourceWidth, sourceHeight, node, frameIndex);
   const image = makeCanvas(outWidth, outHeight);
   const imageCtx = image.getContext("2d");
-  imageCtx.fillStyle = fillColor;
-  imageCtx.fillRect(0, 0, outWidth, outHeight);
-  imageCtx.drawImage(source, padLeft, padTop, sourceWidth, sourceHeight);
+  if (fillMode === "blurry") {
+    imageCtx.save();
+    imageCtx.imageSmoothingEnabled = true;
+    imageCtx.imageSmoothingQuality = "high";
+    imageCtx.filter = blurRadius > 0 ? `blur(${blurRadius}px)` : "none";
+    imageCtx.drawImage(source, 0, 0, outWidth, outHeight);
+    imageCtx.restore();
+    imageCtx.drawImage(source, padLeft, padTop, sourceWidth, sourceHeight);
+  } else if (fillMode === "edge_extend" || fillMode === "reflect") {
+    drawPadOutExtendedEdges(imageCtx, source, sourceWidth, sourceHeight, padLeft, padTop, padRight, padBottom);
+  } else {
+    imageCtx.fillStyle = fillColor;
+    imageCtx.fillRect(0, 0, outWidth, outHeight);
+    imageCtx.drawImage(source, padLeft, padTop, sourceWidth, sourceHeight);
+  }
   const mask = makeCanvas(outWidth, outHeight);
   const maskCtx = mask.getContext("2d");
   maskCtx.fillStyle = invertMask ? "#000000" : "#FFFFFF";
@@ -1121,6 +1239,7 @@ function renderCornerPinCanvases(node, source, frameIndex = 0) {
   const height = source.height || 1;
   const filter = strAny(node, ["filter"], "bilinear", frameIndex).toLowerCase();
   const edgeMode = strAny(node, ["edge_mode"], "zeros", frameIndex).toLowerCase();
+  const supersample = Math.max(1, Math.min(4, Math.round(numAny(node, ["supersample"], 1, frameIndex))));
   const invertMask = boolAny(node, ["invert_mask"], false, frameIndex);
   const bypass = boolAny(node, ["bypass"], false, frameIndex);
   if (bypass) {
@@ -1153,37 +1272,55 @@ function renderCornerPinCanvases(node, source, frameIndex = 0) {
   const maskCtx = mask.getContext("2d");
   const outMask = maskCtx.createImageData(width, height);
   const outMaskData = outMask.data;
+  const useNearest = filter === "nearest";
+  const sampleCount = supersample * supersample;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const denom = inverse[6] * x + inverse[7] * y + inverse[8];
-      const safeDenom = Math.abs(denom) < 1e-8 ? 1e-8 : denom;
-      let sx = (inverse[0] * x + inverse[1] * y + inverse[2]) / safeDenom;
-      let sy = (inverse[3] * x + inverse[4] * y + inverse[5]) / safeDenom;
-      const inside = sx >= 0 && sx <= width - 1 && sy >= 0 && sy <= height - 1;
       const outOffset = (y * width + x) * 4;
-      if (!inside && edgeMode === "zeros") {
-        outData[outOffset] = 0;
-        outData[outOffset + 1] = 0;
-        outData[outOffset + 2] = 0;
-        outData[outOffset + 3] = 0;
-      } else {
-        if (edgeMode === "border") {
-          sx = Math.max(0, Math.min(width - 1, sx));
-          sy = Math.max(0, Math.min(height - 1, sy));
-        } else if (edgeMode === "reflection") {
-          sx = reflectCoord(sx, width - 1);
-          sy = reflectCoord(sy, height - 1);
+      let premulR = 0;
+      let premulG = 0;
+      let premulB = 0;
+      let alphaSum = 0;
+      let insideSum = 0;
+      for (let subY = 0; subY < supersample; subY++) {
+        const dstY = supersample === 1 ? y : y + (subY + 0.5) / supersample - 0.5;
+        for (let subX = 0; subX < supersample; subX++) {
+          const dstX = supersample === 1 ? x : x + (subX + 0.5) / supersample - 0.5;
+          const denom = inverse[6] * dstX + inverse[7] * dstY + inverse[8];
+          const safeDenom = Math.abs(denom) < 1e-8 ? 1e-8 : denom;
+          let sx = (inverse[0] * dstX + inverse[1] * dstY + inverse[2]) / safeDenom;
+          let sy = (inverse[3] * dstX + inverse[4] * dstY + inverse[5]) / safeDenom;
+          const inside = sx >= 0 && sx <= width - 1 && sy >= 0 && sy <= height - 1;
+          if (inside) insideSum += 1;
+          if (!inside && edgeMode === "zeros") continue;
+          if (edgeMode === "border") {
+            sx = Math.max(0, Math.min(width - 1, sx));
+            sy = Math.max(0, Math.min(height - 1, sy));
+          } else if (edgeMode === "reflection") {
+            sx = reflectCoord(sx, width - 1);
+            sy = reflectCoord(sy, height - 1);
+          }
+          const r = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 0) : sampleChannelBilinear(srcData, width, height, sx, sy, 0);
+          const g = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 1) : sampleChannelBilinear(srcData, width, height, sx, sy, 1);
+          const b = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 2) : sampleChannelBilinear(srcData, width, height, sx, sy, 2);
+          const a = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 3) : sampleChannelBilinear(srcData, width, height, sx, sy, 3);
+          premulR += r * (a / 255);
+          premulG += g * (a / 255);
+          premulB += b * (a / 255);
+          alphaSum += a;
         }
-        const useNearest = filter === "nearest";
-        outData[outOffset] = Math.round(useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 0) : sampleChannelBilinear(srcData, width, height, sx, sy, 0));
-        outData[outOffset + 1] = Math.round(useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 1) : sampleChannelBilinear(srcData, width, height, sx, sy, 1));
-        outData[outOffset + 2] = Math.round(useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 2) : sampleChannelBilinear(srcData, width, height, sx, sy, 2));
-        outData[outOffset + 3] = Math.round(useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 3) : sampleChannelBilinear(srcData, width, height, sx, sy, 3));
       }
-      const maskValue = invertMask ? inside ? 0 : 255 : inside ? 255 : 0;
-      outMaskData[outOffset] = maskValue;
-      outMaskData[outOffset + 1] = maskValue;
-      outMaskData[outOffset + 2] = maskValue;
+      const alpha = alphaSum / sampleCount;
+      const alpha01 = alpha / 255;
+      outData[outOffset] = alpha01 > 1e-6 ? Math.round(clamp01(premulR / sampleCount / alpha01 / 255) * 255) : 0;
+      outData[outOffset + 1] = alpha01 > 1e-6 ? Math.round(clamp01(premulG / sampleCount / alpha01 / 255) * 255) : 0;
+      outData[outOffset + 2] = alpha01 > 1e-6 ? Math.round(clamp01(premulB / sampleCount / alpha01 / 255) * 255) : 0;
+      outData[outOffset + 3] = Math.round(clamp01(alpha01) * 255);
+      const maskValue = Math.round(clamp01(insideSum / sampleCount * alpha01) * 255);
+      const finalMask = invertMask ? 255 - maskValue : maskValue;
+      outMaskData[outOffset] = finalMask;
+      outMaskData[outOffset + 1] = finalMask;
+      outMaskData[outOffset + 2] = finalMask;
       outMaskData[outOffset + 3] = 255;
     }
   }
@@ -1240,9 +1377,34 @@ function alphaMaskCanvas(source) {
   octx.putImageData(image, 0, 0);
   return markPreparedMaskCanvas(output);
 }
-function imageToMaskPreviewCanvas(source) {
-  const output = fitCanvas(source, source.width || 1, source.height || 1);
+function maskConvertSourceValue(data, index, sourceMode, useAlpha, lumaWeights) {
+  const normalized = String(sourceMode || "auto").toLowerCase().replace(/[-\s]+/g, "_");
+  const r = data[index] / 255;
+  const g = data[index + 1] / 255;
+  const b = data[index + 2] / 255;
+  const a = data[index + 3] / 255;
+  if (normalized === "auto" && useAlpha) return a;
+  if (normalized === "alpha") return a;
+  if (normalized === "red" || normalized === "r") return r;
+  if (normalized === "green" || normalized === "g") return g;
+  if (normalized === "blue" || normalized === "b") return b;
+  if (normalized === "max_rgb" || normalized === "max" || normalized === "value" || normalized === "v") return Math.max(r, g, b);
+  if (normalized === "saturation" || normalized === "sat" || normalized === "chroma") {
+    const hi = Math.max(r, g, b);
+    const lo = Math.min(r, g, b);
+    return hi > 1e-6 ? (hi - lo) / hi : 0;
+  }
+  return luma01(r, g, b, lumaWeights);
+}
+function applyMaskConvertLevels(value, blackPoint, whitePoint) {
+  const black = clamp01(blackPoint);
+  const white = Math.max(black + 1e-6, clamp01(whitePoint));
+  return clamp01((value - black) / (white - black));
+}
+function imageToMaskPreviewCanvas(source, node, frameIndex = 0) {
+  const output = makeCanvas(source.width || 1, source.height || 1);
   const octx = output.getContext("2d");
+  octx.drawImage(source, 0, 0, output.width, output.height);
   const image = octx.getImageData(0, 0, output.width, output.height);
   const data = image.data;
   let minAlpha = 255;
@@ -1254,15 +1416,37 @@ function imageToMaskPreviewCanvas(source) {
   }
   const useAlpha = maxAlpha - minAlpha > 0 || minAlpha < 255;
   const lw = getOpsConstants().luma_weights;
+  const sourceMode = strAny(node ?? {}, ["mask_source", "source", "channel"], "auto", frameIndex);
   for (let index = 0; index < data.length; index += 4) {
-    const matte = useAlpha ? data[index + 3] : Math.round(clamp01(luma01(data[index] / 255, data[index + 1] / 255, data[index + 2] / 255, lw)) * 255);
+    const matte = Math.round(clamp01(maskConvertSourceValue(data, index, sourceMode, useAlpha, lw)) * 255);
     data[index] = matte;
     data[index + 1] = matte;
     data[index + 2] = matte;
     data[index + 3] = 255;
   }
   octx.putImageData(image, 0, 0);
-  return markPreparedMaskCanvas(output);
+  const antialiasRadius = Math.max(0, numAny(node ?? {}, ["antialias_radius", "mask_antialias", "antialias"], 0, frameIndex));
+  const levelsSource = antialiasRadius > 0 ? makeCanvas(output.width, output.height) : output;
+  if (antialiasRadius > 0) {
+    const blurCtx = levelsSource.getContext("2d");
+    blurCtx.filter = `blur(${antialiasRadius}px)`;
+    blurCtx.drawImage(output, 0, 0);
+    blurCtx.filter = "none";
+  }
+  const blackPoint = numAny(node ?? {}, ["black_point", "black"], 0, frameIndex);
+  const whitePoint = numAny(node ?? {}, ["white_point", "white"], 1, frameIndex);
+  const levelsCtx = levelsSource.getContext("2d");
+  const levelsImage = levelsCtx.getImageData(0, 0, levelsSource.width, levelsSource.height);
+  const levelsData = levelsImage.data;
+  for (let index = 0; index < levelsData.length; index += 4) {
+    const matte = Math.round(applyMaskConvertLevels(levelsData[index] / 255, blackPoint, whitePoint) * 255);
+    levelsData[index] = matte;
+    levelsData[index + 1] = matte;
+    levelsData[index + 2] = matte;
+    levelsData[index + 3] = 255;
+  }
+  levelsCtx.putImageData(levelsImage, 0, 0);
+  return markPreparedMaskCanvas(levelsSource);
 }
 function applyEffectToCanvas(source, effect) {
   const output = makeCanvas(source.width || 1, source.height || 1);
@@ -1333,9 +1517,12 @@ function renderCompPreview(node, inputLayers) {
   const allLayers = syncCompLayers(str(node, "layers_json", ""), slots);
   const layerBySlot = new Map(allLayers.map((layer) => [layer.slot, layer]));
   const firstInput = inputLayers[0]?.image ?? null;
+  const useAutoLayering = bool(node, "auto_layering", false);
   const useFirst = bool(node, "use_first_layer_size", true);
-  const outputWidth = useFirst && firstInput ? Math.max(1, firstInput.width) : Math.max(1, Math.round(num(node, "width", firstInput?.width ?? 1024)));
-  const outputHeight = useFirst && firstInput ? Math.max(1, firstInput.height) : Math.max(1, Math.round(num(node, "height", firstInput?.height ?? 1024)));
+  const largestWidth = inputLayers.reduce((value, entry) => Math.max(value, entry.image.width || 1), 1);
+  const largestHeight = inputLayers.reduce((value, entry) => Math.max(value, entry.image.height || 1), 1);
+  const outputWidth = useAutoLayering ? largestWidth : useFirst && firstInput ? Math.max(1, firstInput.width) : Math.max(1, Math.round(num(node, "width", firstInput?.width ?? 1024)));
+  const outputHeight = useAutoLayering ? largestHeight : useFirst && firstInput ? Math.max(1, firstInput.height) : Math.max(1, Math.round(num(node, "height", firstInput?.height ?? 1024)));
   const output = makeCanvas(outputWidth, outputHeight);
   const octx = output.getContext("2d");
   const alphaCanvas = makeCanvas(outputWidth, outputHeight);
@@ -1440,84 +1627,122 @@ function applyLumaKey(ctx, W, H, low, high, softness) {
 function softLightD(a) {
   return a <= 0.25 ? ((16 * a - 12) * a + 4) * a : Math.sqrt(a);
 }
-function blend(ctx, W, H, topCanvas, mode, mix) {
+function srgbToLinear01(value) {
+  const v = clamp01(value);
+  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+}
+function linearToSrgb01(value) {
+  const v = clamp01(value);
+  return v <= 31308e-7 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
+}
+function normalizeBlendModeName(mode) {
+  const normalized = String(mode || "over").toLowerCase().replace(/[-\s]+/g, "_");
+  return normalized === "normal" ? "over" : normalized;
+}
+function colorDodge01(base, top) {
+  return top >= 1 - 1e-6 ? 1 : clamp01(base / Math.max(1e-6, 1 - top));
+}
+function colorBurn01(base, top) {
+  return top <= 1e-6 ? 0 : clamp01(1 - (1 - base) / Math.max(1e-6, top));
+}
+function blendChannel01(base, top, mode) {
+  if (mode === "over") return top;
+  if (mode === "add") return base + top;
+  if (mode === "subtract") return base - top;
+  if (mode === "multiply") return base * top;
+  if (mode === "screen") return 1 - (1 - base) * (1 - top);
+  if (mode === "overlay") return base <= 0.5 ? 2 * base * top : 1 - 2 * (1 - base) * (1 - top);
+  if (mode === "soft_light" || mode === "soft-light") {
+    return top <= 0.5 ? base - (1 - 2 * top) * base * (1 - base) : base + (2 * top - 1) * (softLightD(base) - base);
+  }
+  if (mode === "difference") return Math.abs(base - top);
+  if (mode === "lighten" || mode === "max") return Math.max(base, top);
+  if (mode === "darken" || mode === "min") return Math.min(base, top);
+  if (mode === "color_dodge") return colorDodge01(base, top);
+  if (mode === "color_burn") return colorBurn01(base, top);
+  if (mode === "exclusion") return base + top - 2 * base * top;
+  if (mode === "vivid_light") return top <= 0.5 ? colorBurn01(base, top * 2) : colorDodge01(base, top * 2 - 1);
+  if (mode === "pin_light") return top <= 0.5 ? Math.min(base, top * 2) : Math.max(base, top * 2 - 1);
+  if (mode === "hard_mix") return blendChannel01(base, top, "vivid_light") < 0.5 ? 0 : 1;
+  return top;
+}
+function fitMergeForeground(topCanvas, width, height, fitMode) {
+  const mode = String(fitMode || "stretch").toLowerCase().replace(/[-\s]+/g, "_");
+  const out = makeCanvas(width, height);
+  const octx = out.getContext("2d");
+  octx.clearRect(0, 0, out.width, out.height);
+  octx.imageSmoothingEnabled = true;
+  octx.imageSmoothingQuality = "high";
+  const srcW = Math.max(1, topCanvas.width || 1);
+  const srcH = Math.max(1, topCanvas.height || 1);
+  if (mode === "stretch" || mode === "scale" || mode === "resize" || mode === "fit_exact") {
+    octx.drawImage(topCanvas, 0, 0, out.width, out.height);
+    return out;
+  }
+  let drawW = srcW;
+  let drawH = srcH;
+  if (!(mode === "none" || mode === "center" || mode === "original")) {
+    const fitScale = Math.min(out.width / srcW, out.height / srcH);
+    const fillScale = Math.max(out.width / srcW, out.height / srcH);
+    const scale = mode === "cover" || mode === "fill" || mode === "crop" ? fillScale : fitScale;
+    drawW = Math.max(1, Math.round(srcW * scale));
+    drawH = Math.max(1, Math.round(srcH * scale));
+  }
+  const dx = Math.round((out.width - drawW) / 2);
+  const dy = Math.round((out.height - drawH) / 2);
+  octx.drawImage(topCanvas, dx, dy, drawW, drawH);
+  return out;
+}
+function blend(ctx, W, H, topCanvas, mode, mix, foregroundFit = "stretch", blendSpace = "linear") {
   const m = Math.max(0, Math.min(1, mix));
   if (m <= 0) return;
-  const scaledTop = makeCanvas(W, H);
-  const sctx = scaledTop.getContext("2d");
-  sctx.clearRect(0, 0, W, H);
-  sctx.drawImage(topCanvas, 0, 0, W, H);
+  const scaledTop = fitMergeForeground(topCanvas, W, H, foregroundFit);
   const base = getImageData(ctx, W, H);
-  const top = sctx.getImageData(0, 0, W, H);
+  const top = scaledTop.getContext("2d").getImageData(0, 0, W, H);
   const bd = base.data;
   const td = top.data;
-  const normalizedMode = String(mode || "over").toLowerCase();
-  const blendMode = normalizedMode === "normal" ? "over" : normalizedMode;
+  const blendMode = normalizeBlendModeName(mode);
+  const linear = String(blendSpace || "linear").toLowerCase().replace(/[-\s]+/g, "_") !== "srgb";
   for (let i = 0; i < bd.length; i += 4) {
-    const ar = bd[i] / 255;
-    const ag = bd[i + 1] / 255;
-    const ab = bd[i + 2] / 255;
+    const arSrgb = bd[i] / 255;
+    const agSrgb = bd[i + 1] / 255;
+    const abSrgb = bd[i + 2] / 255;
     const aa = bd[i + 3] / 255;
-    const br = td[i] / 255;
-    const bg = td[i + 1] / 255;
-    const bb = td[i + 2] / 255;
+    const brSrgb = td[i] / 255;
+    const bgSrgb = td[i + 1] / 255;
+    const bbSrgb = td[i + 2] / 255;
     const ba = td[i + 3] / 255;
-    let rr = br;
-    let rg = bg;
-    let rb = bb;
+    const ar = linear ? srgbToLinear01(arSrgb) : arSrgb;
+    const ag = linear ? srgbToLinear01(agSrgb) : agSrgb;
+    const ab = linear ? srgbToLinear01(abSrgb) : abSrgb;
+    const br = linear ? srgbToLinear01(brSrgb) : brSrgb;
+    const bg = linear ? srgbToLinear01(bgSrgb) : bgSrgb;
+    const bb = linear ? srgbToLinear01(bbSrgb) : bbSrgb;
     if (blendMode === "over") {
-      rr = br * ba + ar * (1 - ba);
-      rg = bg * ba + ag * (1 - ba);
-      rb = bb * ba + ab * (1 - ba);
-    } else if (blendMode === "add") {
-      rr = ar + br;
-      rg = ag + bg;
-      rb = ab + bb;
-    } else if (blendMode === "subtract") {
-      rr = ar - br;
-      rg = ag - bg;
-      rb = ab - bb;
-    } else if (blendMode === "multiply") {
-      rr = ar * br;
-      rg = ag * bg;
-      rb = ab * bb;
-    } else if (blendMode === "screen") {
-      rr = 1 - (1 - ar) * (1 - br);
-      rg = 1 - (1 - ag) * (1 - bg);
-      rb = 1 - (1 - ab) * (1 - bb);
-    } else if (blendMode === "overlay") {
-      rr = ar <= 0.5 ? 2 * ar * br : 1 - 2 * (1 - ar) * (1 - br);
-      rg = ag <= 0.5 ? 2 * ag * bg : 1 - 2 * (1 - ag) * (1 - bg);
-      rb = ab <= 0.5 ? 2 * ab * bb : 1 - 2 * (1 - ab) * (1 - bb);
-    } else if (blendMode === "soft_light" || blendMode === "soft-light") {
-      rr = br <= 0.5 ? ar - (1 - 2 * br) * ar * (1 - ar) : ar + (2 * br - 1) * (softLightD(ar) - ar);
-      rg = bg <= 0.5 ? ag - (1 - 2 * bg) * ag * (1 - ag) : ag + (2 * bg - 1) * (softLightD(ag) - ag);
-      rb = bb <= 0.5 ? ab - (1 - 2 * bb) * ab * (1 - ab) : ab + (2 * bb - 1) * (softLightD(ab) - ab);
-    } else if (blendMode === "difference") {
-      rr = Math.abs(ar - br);
-      rg = Math.abs(ag - bg);
-      rb = Math.abs(ab - bb);
-    } else if (blendMode === "lighten" || blendMode === "max") {
-      rr = Math.max(ar, br);
-      rg = Math.max(ag, bg);
-      rb = Math.max(ab, bb);
-    } else if (blendMode === "darken" || blendMode === "min") {
-      rr = Math.min(ar, br);
-      rg = Math.min(ag, bg);
-      rb = Math.min(ab, bb);
+      const rr2 = br * ba + ar * (1 - ba);
+      const rg2 = bg * ba + ag * (1 - ba);
+      const rb2 = bb * ba + ab * (1 - ba);
+      const outR2 = clamp01(ar * (1 - m) + rr2 * m);
+      const outG2 = clamp01(ag * (1 - m) + rg2 * m);
+      const outB2 = clamp01(ab * (1 - m) + rb2 * m);
+      const mergedAlpha = ba + aa * (1 - ba);
+      const outA = clamp01(aa * (1 - m) + mergedAlpha * m);
+      bd[i] = Math.round((linear ? linearToSrgb01(outR2) : outR2) * 255);
+      bd[i + 1] = Math.round((linear ? linearToSrgb01(outG2) : outG2) * 255);
+      bd[i + 2] = Math.round((linear ? linearToSrgb01(outB2) : outB2) * 255);
+      bd[i + 3] = Math.round(outA * 255);
+      continue;
     }
+    const rr = blendChannel01(ar, br, blendMode) * ba + ar * (1 - ba);
+    const rg = blendChannel01(ag, bg, blendMode) * ba + ag * (1 - ba);
+    const rb = blendChannel01(ab, bb, blendMode) * ba + ab * (1 - ba);
     const outR = clamp01(ar * (1 - m) + clamp01(rr) * m);
     const outG = clamp01(ag * (1 - m) + clamp01(rg) * m);
     const outB = clamp01(ab * (1 - m) + clamp01(rb) * m);
-    let outA = aa;
-    if (blendMode === "over") {
-      const mergedAlpha = ba + aa * (1 - ba);
-      outA = clamp01(aa * (1 - m) + mergedAlpha * m);
-    }
-    bd[i] = Math.round(outR * 255);
-    bd[i + 1] = Math.round(outG * 255);
-    bd[i + 2] = Math.round(outB * 255);
-    bd[i + 3] = Math.round(clamp01(outA) * 255);
+    bd[i] = Math.round((linear ? linearToSrgb01(outR) : outR) * 255);
+    bd[i + 1] = Math.round((linear ? linearToSrgb01(outG) : outG) * 255);
+    bd[i + 2] = Math.round((linear ? linearToSrgb01(outB) : outB) * 255);
+    bd[i + 3] = Math.round(clamp01(aa) * 255);
   }
   putImageData(ctx, base);
 }
@@ -1972,10 +2197,12 @@ const ops = {
     const topCanvas = inputs[1] ?? null;
     if (!topCanvas) return fitCanvas(base, base.width || 1, base.height || 1);
     const mode = strAny(node, ["mode", "blend_mode"], "over", frameIndex);
+    const foregroundFit = strAny(node, ["foreground_fit", "fit_mode"], "stretch", frameIndex);
+    const blendSpace = strAny(node, ["blend_space", "color_space"], "linear", frameIndex);
     const rawOpacity = w(node, "opacity") ? num(node, "opacity", 100, frameIndex) : numAny(node, ["mix", "factor", "fade_factor", "blend_factor", "start_level", "end_level"], 1, frameIndex);
     const opacity = rawOpacity > 1 ? rawOpacity / 100 : rawOpacity;
     const merged = applyEffectToCanvas(base, (effectCtx, width, height) => {
-      blend(effectCtx, width, height, topCanvas, mode, opacity);
+      blend(effectCtx, width, height, topCanvas, mode, opacity, foregroundFit, blendSpace);
     });
     const effectMask = resolvePreviewMaskCanvas(node, base, inputs[2] ?? null, frameIndex);
     return effectMask ? compositeProcessedWithMask(base, merged, effectMask) : merged;
@@ -2091,7 +2318,7 @@ const ops = {
     const rawMask = inputs[1] ?? null;
     const resolvedMask = resolvePreviewMaskCanvas(node, source, rawMask, frameIndex);
     if (cls === "ImageOpsMaskConvert") {
-      return boolAny(node, ["reverse"], false, frameIndex) ? imageToMaskPreviewCanvas(source) : source;
+      return boolAny(node, ["reverse"], false, frameIndex) ? imageToMaskPreviewCanvas(source, node, frameIndex) : source;
     }
     if (cls === "ImageOpsNoise") {
       return renderNoiseCanvas(node, true, frameIndex);

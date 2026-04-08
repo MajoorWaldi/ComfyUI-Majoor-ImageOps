@@ -190,6 +190,10 @@ export interface NodeState {
   drawHeightInput: HTMLInputElement | null;
   drawLinkButton: HTMLButtonElement | null;
   drawBgColorInput: HTMLInputElement | null;
+  drawOverlayFormatSelect: HTMLSelectElement | null;
+  drawPressureSizeInput: HTMLInputElement | null;
+  drawPressureOpacityInput: HTMLInputElement | null;
+  drawTiltSizeInput: HTMLInputElement | null;
   drawInteractiveHooked: boolean;
   colorWheelCanvas: HTMLCanvasElement | null;
   colorHueLabel: HTMLDivElement | null;
@@ -228,6 +232,15 @@ export interface CropPreviewGeometry {
   cropY: number;
   cropWidth: number;
   cropHeight: number;
+  bbox: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    sourceWidth: number;
+    sourceHeight: number;
+    coordinateSpace: "source";
+  };
 }
 
 export type CropDragMode = "move" | "n" | "e" | "s" | "w" | "nw" | "ne" | "sw" | "se";

@@ -7,7 +7,10 @@ const COMP_BLEND_MODES = [
   "soft_light",
   "difference",
   "lighten",
-  "darken"
+  "darken",
+  "color_dodge",
+  "color_burn",
+  "exclusion"
 ];
 function inputName(input) {
   return String(input?.name ?? "");
@@ -41,7 +44,7 @@ function defaultCompLayer(slot, index) {
 function normalizeCompLayer(slot, index, layer) {
   const fallback = defaultCompLayer(slot, index);
   const anyLayer = layer ?? {};
-  const mode = String(anyLayer.mode ?? fallback.mode).trim().toLowerCase();
+  const mode = String(anyLayer.mode ?? fallback.mode).trim().toLowerCase().replace(/[-\s]+/g, "_");
   return {
     slot,
     centerX: clampCompCenter(Number(anyLayer.centerX ?? anyLayer.center_x ?? fallback.centerX)),

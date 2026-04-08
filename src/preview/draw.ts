@@ -2,6 +2,28 @@ import type { ComfyNode, ComfyWidget } from "../types.js";
 
 export type DrawTool = "brush" | "eraser";
 export type DrawEdgeMode = "hard" | "soft";
+export type DrawOverlayFormat = "webp" | "png";
+
+interface DrawOverlayBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface DrawOverlayPayload {
+  version?: number;
+  width?: number;
+  height?: number;
+  bounds?: DrawOverlayBounds | [number, number, number, number];
+  data?: string;
+  overlay_data?: string;
+}
+
+interface DrawOverlayLayerPayload {
+  data: string;
+  opacity: number;
+}
 
 function widget(node: ComfyNode, name: string): ComfyWidget | null {
   return node?.widgets?.find((entry) => entry?.name === name) ?? null;
@@ -60,6 +82,10 @@ export function normalizeDrawEdge(value: string): DrawEdgeMode {
   return String(value || "hard").toLowerCase() === "soft" ? "soft" : "hard";
 }
 
+export function normalizeDrawOverlayFormat(value: string): DrawOverlayFormat {
+  return String(value || "png").toLowerCase() === "webp" ? "webp" : "png";
+}
+
 export function makeCanvas(width: number, height: number): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = normalizeCanvasDimension(width, 1);
@@ -79,23 +105,73 @@ export function resizeCanvasPreserve(source: HTMLCanvasElement | null, width: nu
   return target;
 }
 
-function hasVisiblePixels(canvas: HTMLCanvasElement): boolean {
+function getVisibleBounds(canvas: HTMLCanvasElement): DrawOverlayBounds | null {
   const ctx = canvas.getContext("2d");
-  if (!ctx) return false;
+  if (!ctx) return null;
   const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  let minX = canvas.width;
+  let minY = canvas.height;
+  let maxX = -1;
+  let maxY = -1;
   for (let index = 3; index < data.length; index += 4) {
-    if (data[index] > 0) return true;
+    if (data[index] <= 0) continue;
+    const pixel = (index - 3) / 4;
+    const x = pixel % canvas.width;
+    const y = Math.floor(pixel / canvas.width);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
   }
-  return false;
+  if (maxX < minX || maxY < minY) return null;
+  return { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
 }
 
-export function canvasToOverlayData(canvas: HTMLCanvasElement | null): string {
-  if (!canvas || !hasVisiblePixels(canvas)) return "";
+function encodeOverlayCanvas(canvas: HTMLCanvasElement, format: DrawOverlayFormat): string {
   try {
+    if (format === "webp") {
+      const webp = canvas.toDataURL("image/webp", 0.92);
+      if (webp.startsWith("data:image/webp")) return webp;
+    }
     return canvas.toDataURL("image/png");
   } catch {
     return "";
   }
+}
+
+export function canvasToOverlayData(canvas: HTMLCanvasElement | null, format: DrawOverlayFormat = "png"): string {
+  if (!canvas) return "";
+  const bounds = getVisibleBounds(canvas);
+  if (!bounds) return "";
+
+  const crop = makeCanvas(bounds.width, bounds.height);
+  const ctx = crop.getContext("2d");
+  if (!ctx) return "";
+  ctx.clearRect(0, 0, crop.width, crop.height);
+  ctx.drawImage(
+    canvas,
+    bounds.x,
+    bounds.y,
+    bounds.width,
+    bounds.height,
+    0,
+    0,
+    bounds.width,
+    bounds.height,
+  );
+
+  const data = encodeOverlayCanvas(crop, format);
+  if (!data) return "";
+  if (bounds.x === 0 && bounds.y === 0 && bounds.width === canvas.width && bounds.height === canvas.height) {
+    return data;
+  }
+  return JSON.stringify({
+    version: 2,
+    width: canvas.width,
+    height: canvas.height,
+    bounds,
+    data,
+  });
 }
 
 function hexToCss(color: string): string {
@@ -113,16 +189,101 @@ async function loadDataUrlImage(dataUrl: string): Promise<HTMLImageElement | nul
   });
 }
 
+function normalizeOverlayBounds(bounds: DrawOverlayPayload["bounds"]): DrawOverlayBounds | null {
+  if (Array.isArray(bounds) && bounds.length >= 4) {
+    return {
+      x: Math.round(Number(bounds[0]) || 0),
+      y: Math.round(Number(bounds[1]) || 0),
+      width: Math.max(1, Math.round(Number(bounds[2]) || 1)),
+      height: Math.max(1, Math.round(Number(bounds[3]) || 1)),
+    };
+  }
+  if (bounds && typeof bounds === "object" && !Array.isArray(bounds)) {
+    return {
+      x: Math.round(Number(bounds.x) || 0),
+      y: Math.round(Number(bounds.y) || 0),
+      width: Math.max(1, Math.round(Number(bounds.width) || 1)),
+      height: Math.max(1, Math.round(Number(bounds.height) || 1)),
+    };
+  }
+  return null;
+}
+
+function parseOverlayPayload(overlayData: string): DrawOverlayPayload | null {
+  const raw = String(overlayData || "").trim();
+  if (!raw.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed as DrawOverlayPayload : null;
+  } catch {
+    return null;
+  }
+}
+
+function readOverlayLayerPayloads(node: ComfyNode): DrawOverlayLayerPayload[] {
+  const raw = widgetString(node, "overlay_layers", "").trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    const layers = Array.isArray(parsed) ? parsed : parsed?.layers;
+    if (!Array.isArray(layers)) return [];
+    const values: DrawOverlayLayerPayload[] = [];
+    for (const layer of layers) {
+      if (layer && typeof layer === "object") {
+        if (layer.enabled === false) continue;
+        const data = String(layer.data ?? layer.overlay_data ?? layer.payload ?? "").trim();
+        const opacity = Math.max(0, Math.min(1, Number(layer.opacity ?? 1)));
+        if (data) values.push({ data, opacity: Number.isFinite(opacity) ? opacity : 1 });
+      } else {
+        const data = String(layer ?? "").trim();
+        if (data) values.push({ data, opacity: 1 });
+      }
+    }
+    return values;
+  } catch {
+    return [];
+  }
+}
+
+async function drawOverlayPayload(
+  ctx: CanvasRenderingContext2D,
+  overlayData: string,
+  width: number,
+  height: number,
+  opacity: number = 1,
+): Promise<void> {
+  const payload = parseOverlayPayload(overlayData);
+  const dataUrl = String(payload?.data ?? payload?.overlay_data ?? overlayData ?? "").trim();
+  const image = await loadDataUrlImage(dataUrl);
+  if (!image) return;
+
+  const bounds = normalizeOverlayBounds(payload?.bounds);
+  ctx.save();
+  ctx.globalAlpha *= Math.max(0, Math.min(1, Number.isFinite(opacity) ? opacity : 1));
+  if (!payload || !bounds) {
+    ctx.drawImage(image, 0, 0, width, height);
+    ctx.restore();
+    return;
+  }
+
+  const sourceWidth = Math.max(1, Math.round(Number(payload.width) || width));
+  const sourceHeight = Math.max(1, Math.round(Number(payload.height) || height));
+  const x = Math.round(bounds.x * width / sourceWidth);
+  const y = Math.round(bounds.y * height / sourceHeight);
+  const drawWidth = Math.max(1, Math.round(bounds.width * width / sourceWidth));
+  const drawHeight = Math.max(1, Math.round(bounds.height * height / sourceHeight));
+  ctx.drawImage(image, x, y, drawWidth, drawHeight);
+  ctx.restore();
+}
+
 export async function loadOverlayCanvas(overlayData: string, width: number, height: number): Promise<HTMLCanvasElement> {
   const canvas = makeCanvas(width, height);
   const ctx = canvas.getContext("2d");
   if (!ctx) return canvas;
-  const image = await loadDataUrlImage(overlayData);
-  if (!image) return canvas;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  await drawOverlayPayload(ctx, overlayData, canvas.width, canvas.height);
   return canvas;
 }
 
@@ -130,19 +291,30 @@ export async function resolveDrawOverlayCanvas(node: ComfyNode, width: number, h
   const targetWidth = normalizeCanvasDimension(width, 1);
   const targetHeight = normalizeCanvasDimension(height, 1);
   const overlayData = widgetString(node, "overlay_data", "");
+  const overlayLayers = widgetString(node, "overlay_layers", "");
+  const overlayKey = `${overlayLayers}\n${overlayData}`;
   const st = node.__imageops_state;
 
-  if (st?.drawCanvas && st.drawOverlayKey === overlayData && st.drawCanvas.width === targetWidth && st.drawCanvas.height === targetHeight) {
+  if (st?.drawCanvas && st.drawOverlayKey === overlayKey && st.drawCanvas.width === targetWidth && st.drawCanvas.height === targetHeight) {
     return st.drawCanvas;
   }
 
-  const canvas = overlayData
-    ? await loadOverlayCanvas(overlayData, targetWidth, targetHeight)
-    : makeCanvas(targetWidth, targetHeight);
+  const layerPayloads = readOverlayLayerPayloads(node);
+  const canvas = makeCanvas(targetWidth, targetHeight);
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    const payloads = layerPayloads.length > 0 ? layerPayloads : (overlayData ? [{ data: overlayData, opacity: 1 }] : []);
+    for (const payload of payloads) {
+      await drawOverlayPayload(ctx, payload.data, targetWidth, targetHeight, payload.opacity);
+    }
+  }
 
   if (st) {
     st.drawCanvas = canvas;
-    st.drawOverlayKey = overlayData;
+    st.drawOverlayKey = overlayKey;
   }
   return canvas;
 }

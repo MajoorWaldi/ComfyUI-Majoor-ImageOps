@@ -1,7 +1,7 @@
 from ._helpers import (
     MEDIA_INPUT_TYPE,
     _apply_mask_to_image,
-    _apply_color_correct_reference,
+    _apply_color_adjust,
     _prepare_effect_mask,
     _resolve_mask_output_source,
     _scalar,
@@ -61,7 +61,7 @@ class ImageOpsColorAjust:
         if _scalar(bypass, bool):
             progress.finish()
             return build_node_preview_result(source, (source, output_mask), prefix="imageops_color_ajust")
-        result = _apply_color_correct_reference(source, temperature, hue, brightness, contrast, saturation, gamma)
+        result = _apply_color_adjust(source, temperature, hue, brightness, contrast, saturation, gamma)
         result = _apply_mask_to_image(source, result, effect_mask)
         progress.finish()
         return build_node_preview_result(result, (result, output_mask), prefix="imageops_color_ajust")

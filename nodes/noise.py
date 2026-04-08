@@ -10,6 +10,7 @@ from ._preview import build_node_preview_result
 
 _NOISE_BASIS = ["perlin", "value", "white"]
 _NOISE_FRACTAL_MODES = ["none", "fbm", "turbulence", "ridged"]
+_NOISE_COMPUTE_DEVICES = ["auto", "cpu", "cuda"]
 _EPSILON = 1.0e-6
 
 
@@ -21,96 +22,201 @@ def _lerp(a: torch.Tensor, b: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
     return a + (b - a) * t
 
 
-def _make_generator(seed: int) -> torch.Generator:
-    generator = torch.Generator(device="cpu")
-    generator.manual_seed(int(seed) & 0xFFFFFFFFFFFFFFFF)
-    return generator
+def _resolve_noise_device(preference: str = "auto") -> torch.device:
+    normalized = str(preference or "auto").strip().lower()
+    if normalized == "cuda" and not torch.cuda.is_available():
+        return torch.device("cpu")
+    if normalized in ("auto", "cuda") and torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
 
 
-def _perlin_noise(width: int, height: int, scale: float, offset_x: float, offset_y: float, seed: int) -> torch.Tensor:
+def _wrap_lattice(index: torch.Tensor, period: int) -> torch.Tensor:
+    if period <= 0:
+        return index
+    return torch.remainder(index, int(period))
+
+
+def _hash_lattice3(ix, iy, iz, seed: int) -> torch.Tensor:
+    """Deterministic float hash that stays on the current torch device."""
+    seed_term = float(int(seed) % 104729)
+    value = (
+        ix.to(torch.float32) * 127.1
+        + iy.to(torch.float32) * 311.7
+        + iz.to(torch.float32) * 74.7
+        + seed_term * 37.719
+    )
+    hashed = torch.sin(value) * 43758.5453123
+    return hashed - torch.floor(hashed)
+
+
+def _coordinate_axes(
+    width: int,
+    height: int,
+    scale: float,
+    offset_x: float,
+    offset_y: float,
+    offset_z: float,
+    seamless: bool,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, int, int]:
     safe_scale = max(1.0, float(scale))
-    xs = (torch.arange(width, dtype=torch.float32) + float(offset_x)) / safe_scale
-    ys = (torch.arange(height, dtype=torch.float32) + float(offset_y)) / safe_scale
+    if seamless:
+        period_x = max(1, int(round(max(1, width) / safe_scale)))
+        period_y = max(1, int(round(max(1, height) / safe_scale)))
+        xs = torch.arange(width, device=device, dtype=torch.float32) * (period_x / max(1, width))
+        ys = torch.arange(height, device=device, dtype=torch.float32) * (period_y / max(1, height))
+        xs = xs + float(offset_x) / safe_scale
+        ys = ys + float(offset_y) / safe_scale
+    else:
+        period_x = 0
+        period_y = 0
+        xs = (torch.arange(width, device=device, dtype=torch.float32) + float(offset_x)) / safe_scale
+        ys = (torch.arange(height, device=device, dtype=torch.float32) + float(offset_y)) / safe_scale
+    z = torch.tensor(float(offset_z) / safe_scale, device=device, dtype=torch.float32)
+    return xs, ys, z, period_x, period_y
 
+
+def _value_noise(
+    width: int,
+    height: int,
+    scale: float,
+    offset_x: float,
+    offset_y: float,
+    offset_z: float,
+    seed: int,
+    seamless: bool,
+    device: torch.device,
+) -> torch.Tensor:
+    xs, ys, z, period_x, period_y = _coordinate_axes(width, height, scale, offset_x, offset_y, offset_z, seamless, device)
     xi = torch.floor(xs).to(torch.int64)
     yi = torch.floor(ys).to(torch.int64)
+    zi = torch.floor(z).to(torch.int64)
     xf = xs - xi.to(torch.float32)
     yf = ys - yi.to(torch.float32)
-    xi = xi - int(xi.min().item())
-    yi = yi - int(yi.min().item())
-
-    grid_w = int(xi.max().item()) + 2
-    grid_h = int(yi.max().item()) + 2
-    angles = torch.rand((grid_h, grid_w), generator=_make_generator(seed), dtype=torch.float32) * (math.pi * 2.0)
-    grad_x = torch.cos(angles)
-    grad_y = torch.sin(angles)
+    zf = z - zi.to(torch.float32)
 
     xi0 = xi.view(1, -1)
     yi0 = yi.view(-1, 1)
-    xi1 = xi0 + 1
-    yi1 = yi0 + 1
+    ix0 = _wrap_lattice(xi0, period_x)
+    ix1 = _wrap_lattice(xi0 + 1, period_x)
+    iy0 = _wrap_lattice(yi0, period_y)
+    iy1 = _wrap_lattice(yi0 + 1, period_y)
+    zi1 = zi + 1
+
+    u = _fade(xf).view(1, -1)
+    v = _fade(yf).view(-1, 1)
+    w = _fade(zf)
+
+    v000 = _hash_lattice3(ix0, iy0, zi, seed) * 2.0 - 1.0
+    v100 = _hash_lattice3(ix1, iy0, zi, seed) * 2.0 - 1.0
+    v010 = _hash_lattice3(ix0, iy1, zi, seed) * 2.0 - 1.0
+    v110 = _hash_lattice3(ix1, iy1, zi, seed) * 2.0 - 1.0
+    v001 = _hash_lattice3(ix0, iy0, zi1, seed) * 2.0 - 1.0
+    v101 = _hash_lattice3(ix1, iy0, zi1, seed) * 2.0 - 1.0
+    v011 = _hash_lattice3(ix0, iy1, zi1, seed) * 2.0 - 1.0
+    v111 = _hash_lattice3(ix1, iy1, zi1, seed) * 2.0 - 1.0
+
+    x00 = _lerp(v000, v100, u)
+    x10 = _lerp(v010, v110, u)
+    x01 = _lerp(v001, v101, u)
+    x11 = _lerp(v011, v111, u)
+    y0 = _lerp(x00, x10, v)
+    y1 = _lerp(x01, x11, v)
+    return _lerp(y0, y1, w).clamp(-1.0, 1.0)
+
+
+def _gradient_dot3(ix, iy, iz, dx, dy, dz, seed: int) -> torch.Tensor:
+    h0 = _hash_lattice3(ix, iy, iz, seed)
+    h1 = _hash_lattice3(ix + 19, iy - 31, iz + 47, seed + 1009)
+    theta = h0 * (math.pi * 2.0)
+    gz = h1 * 2.0 - 1.0
+    radial = (1.0 - gz * gz).clamp_min(0.0).sqrt()
+    gx = radial * torch.cos(theta)
+    gy = radial * torch.sin(theta)
+    return gx * dx + gy * dy + gz * dz
+
+
+def _perlin_noise(
+    width: int,
+    height: int,
+    scale: float,
+    offset_x: float,
+    offset_y: float,
+    offset_z: float,
+    seed: int,
+    seamless: bool,
+    device: torch.device,
+) -> torch.Tensor:
+    xs, ys, z, period_x, period_y = _coordinate_axes(width, height, scale, offset_x, offset_y, offset_z, seamless, device)
+    xi = torch.floor(xs).to(torch.int64)
+    yi = torch.floor(ys).to(torch.int64)
+    zi = torch.floor(z).to(torch.int64)
+    xf = xs - xi.to(torch.float32)
+    yf = ys - yi.to(torch.float32)
+    zf = z - zi.to(torch.float32)
+
+    xi0 = xi.view(1, -1)
+    yi0 = yi.view(-1, 1)
+    ix0 = _wrap_lattice(xi0, period_x)
+    ix1 = _wrap_lattice(xi0 + 1, period_x)
+    iy0 = _wrap_lattice(yi0, period_y)
+    iy1 = _wrap_lattice(yi0 + 1, period_y)
+    zi1 = zi + 1
 
     dx0 = xf.view(1, -1)
     dy0 = yf.view(-1, 1)
+    dz0 = zf
     dx1 = dx0 - 1.0
     dy1 = dy0 - 1.0
+    dz1 = zf - 1.0
 
-    g00x = grad_x[yi0, xi0]
-    g00y = grad_y[yi0, xi0]
-    g10x = grad_x[yi0, xi1]
-    g10y = grad_y[yi0, xi1]
-    g01x = grad_x[yi1, xi0]
-    g01y = grad_y[yi1, xi0]
-    g11x = grad_x[yi1, xi1]
-    g11y = grad_y[yi1, xi1]
-
-    n00 = g00x * dx0 + g00y * dy0
-    n10 = g10x * dx1 + g10y * dy0
-    n01 = g01x * dx0 + g01y * dy1
-    n11 = g11x * dx1 + g11y * dy1
+    n000 = _gradient_dot3(ix0, iy0, zi, dx0, dy0, dz0, seed)
+    n100 = _gradient_dot3(ix1, iy0, zi, dx1, dy0, dz0, seed)
+    n010 = _gradient_dot3(ix0, iy1, zi, dx0, dy1, dz0, seed)
+    n110 = _gradient_dot3(ix1, iy1, zi, dx1, dy1, dz0, seed)
+    n001 = _gradient_dot3(ix0, iy0, zi1, dx0, dy0, dz1, seed)
+    n101 = _gradient_dot3(ix1, iy0, zi1, dx1, dy0, dz1, seed)
+    n011 = _gradient_dot3(ix0, iy1, zi1, dx0, dy1, dz1, seed)
+    n111 = _gradient_dot3(ix1, iy1, zi1, dx1, dy1, dz1, seed)
 
     u = _fade(xf).view(1, -1)
     v = _fade(yf).view(-1, 1)
-    nx0 = _lerp(n00, n10, u)
-    nx1 = _lerp(n01, n11, u)
-    return (_lerp(nx0, nx1, v) * 1.41421356237).clamp(-1.0, 1.0)
+    w = _fade(zf)
+
+    x00 = _lerp(n000, n100, u)
+    x10 = _lerp(n010, n110, u)
+    x01 = _lerp(n001, n101, u)
+    x11 = _lerp(n011, n111, u)
+    y0 = _lerp(x00, x10, v)
+    y1 = _lerp(x01, x11, v)
+    return (_lerp(y0, y1, w) * 1.15470053838).clamp(-1.0, 1.0)
 
 
-def _value_noise(width: int, height: int, scale: float, offset_x: float, offset_y: float, seed: int) -> torch.Tensor:
-    safe_scale = max(1.0, float(scale))
-    xs = (torch.arange(width, dtype=torch.float32) + float(offset_x)) / safe_scale
-    ys = (torch.arange(height, dtype=torch.float32) + float(offset_y)) / safe_scale
-
-    xi = torch.floor(xs).to(torch.int64)
-    yi = torch.floor(ys).to(torch.int64)
-    xf = xs - xi.to(torch.float32)
-    yf = ys - yi.to(torch.float32)
-    xi = xi - int(xi.min().item())
-    yi = yi - int(yi.min().item())
-
-    grid_w = int(xi.max().item()) + 2
-    grid_h = int(yi.max().item()) + 2
-    lattice = torch.rand((grid_h, grid_w), generator=_make_generator(seed), dtype=torch.float32) * 2.0 - 1.0
-
-    xi0 = xi.view(1, -1)
-    yi0 = yi.view(-1, 1)
-    xi1 = xi0 + 1
-    yi1 = yi0 + 1
-
-    v00 = lattice[yi0, xi0]
-    v10 = lattice[yi0, xi1]
-    v01 = lattice[yi1, xi0]
-    v11 = lattice[yi1, xi1]
-
-    u = _fade(xf).view(1, -1)
-    v = _fade(yf).view(-1, 1)
-    nx0 = _lerp(v00, v10, u)
-    nx1 = _lerp(v01, v11, u)
-    return _lerp(nx0, nx1, v).clamp(-1.0, 1.0)
-
-
-def _white_noise(width: int, height: int, seed: int) -> torch.Tensor:
-    return torch.rand((height, width), generator=_make_generator(seed), dtype=torch.float32) * 2.0 - 1.0
+def _white_noise(
+    width: int,
+    height: int,
+    offset_x: float,
+    offset_y: float,
+    offset_z: float,
+    seed: int,
+    seamless: bool,
+    device: torch.device,
+) -> torch.Tensor:
+    xs = torch.arange(width, device=device, dtype=torch.float32) + float(offset_x)
+    ys = torch.arange(height, device=device, dtype=torch.float32) + float(offset_y)
+    z = torch.tensor(float(offset_z), device=device, dtype=torch.float32)
+    xi = torch.floor(xs).to(torch.int64).view(1, -1)
+    yi = torch.floor(ys).to(torch.int64).view(-1, 1)
+    zi = torch.floor(z).to(torch.int64)
+    zf = z - zi.to(torch.float32)
+    period_x = width if seamless else 0
+    period_y = height if seamless else 0
+    ix = _wrap_lattice(xi, period_x)
+    iy = _wrap_lattice(yi, period_y)
+    n0 = _hash_lattice3(ix, iy, zi, seed) * 2.0 - 1.0
+    n1 = _hash_lattice3(ix, iy, zi + 1, seed) * 2.0 - 1.0
+    return _lerp(n0, n1, _fade(zf)).clamp(-1.0, 1.0)
 
 
 def _basis_noise(
@@ -120,14 +226,17 @@ def _basis_noise(
     scale: float,
     offset_x: float,
     offset_y: float,
+    offset_z: float,
     seed: int,
+    seamless: bool,
+    device: torch.device,
 ) -> torch.Tensor:
     normalized = str(basis or "perlin").strip().lower()
     if normalized == "value":
-        return _value_noise(width, height, scale, offset_x, offset_y, seed)
+        return _value_noise(width, height, scale, offset_x, offset_y, offset_z, seed, seamless, device)
     if normalized == "white":
-        return _white_noise(width, height, seed)
-    return _perlin_noise(width, height, scale, offset_x, offset_y, seed)
+        return _white_noise(width, height, offset_x, offset_y, offset_z, seed, seamless, device)
+    return _perlin_noise(width, height, scale, offset_x, offset_y, offset_z, seed, seamless, device)
 
 
 def _synthesize_noise(
@@ -141,14 +250,17 @@ def _synthesize_noise(
     gain: float,
     offset_x: float,
     offset_y: float,
+    offset_z: float,
     seed: int,
+    seamless: bool,
+    device: torch.device,
 ) -> torch.Tensor:
     normalized_mode = str(fractal_mode or "none").strip().lower()
     if normalized_mode == "none":
-        signed = _basis_noise(basis, width, height, scale, offset_x, offset_y, seed)
+        signed = _basis_noise(basis, width, height, scale, offset_x, offset_y, offset_z, seed, seamless, device)
         return ((signed * 0.5) + 0.5).clamp(0.0, 1.0)
 
-    total = torch.zeros((height, width), dtype=torch.float32)
+    total = torch.zeros((height, width), device=device, dtype=torch.float32)
     amplitude = 1.0
     amplitude_sum = 0.0
     current_scale = max(1.0, float(scale))
@@ -157,7 +269,7 @@ def _synthesize_noise(
 
     for octave in range(max(1, int(octaves))):
         octave_seed = int(seed) + octave * 10007
-        signed = _basis_noise(basis, width, height, current_scale, offset_x, offset_y, octave_seed)
+        signed = _basis_noise(basis, width, height, current_scale, offset_x, offset_y, offset_z, octave_seed, seamless, device)
         if normalized_mode == "turbulence":
             contribution = signed.abs()
         elif normalized_mode == "ridged":
@@ -171,7 +283,7 @@ def _synthesize_noise(
         current_scale = max(1.0, current_scale / safe_lacunarity)
 
     if amplitude_sum <= _EPSILON:
-        return torch.zeros((height, width), dtype=torch.float32)
+        return torch.zeros((height, width), device=device, dtype=torch.float32)
 
     total = total / amplitude_sum
     if normalized_mode == "fbm":
@@ -188,16 +300,16 @@ def _apply_tone(gray: torch.Tensor, contrast: float, invert: bool) -> torch.Tens
 
 
 def _normalize_gray(gray: torch.Tensor) -> torch.Tensor:
-    min_v = float(gray.min().item())
-    max_v = float(gray.max().item())
-    if max_v - min_v <= _EPSILON:
-        return torch.zeros_like(gray)
-    return ((gray - min_v) / (max_v - min_v)).clamp(0.0, 1.0)
+    min_v = gray.amin()
+    max_v = gray.amax()
+    gray_range = max_v - min_v
+    normalized = ((gray - min_v) / gray_range.clamp_min(_EPSILON)).clamp(0.0, 1.0)
+    return torch.where(gray_range <= _EPSILON, torch.zeros_like(gray), normalized)
 
 
 def _colorize(gray: torch.Tensor, low_color: str, high_color: str) -> torch.Tensor:
-    low = torch.tensor(_hex_to_rgb01(low_color), dtype=torch.float32).view(1, 1, 3)
-    high = torch.tensor(_hex_to_rgb01(high_color), dtype=torch.float32).view(1, 1, 3)
+    low = torch.tensor(_hex_to_rgb01(low_color), device=gray.device, dtype=gray.dtype).view(1, 1, 3)
+    high = torch.tensor(_hex_to_rgb01(high_color), device=gray.device, dtype=gray.dtype).view(1, 1, 3)
     return low + gray.unsqueeze(-1) * (high - low)
 
 
@@ -226,12 +338,16 @@ class ImageOpsNoise:
                 "gain": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01, "round": 0.001}),
                 "offset_x": ("FLOAT", {"default": 0.0, "min": -65536.0, "max": 65536.0, "step": 1.0, "round": 0.01}),
                 "offset_y": ("FLOAT", {"default": 0.0, "min": -65536.0, "max": 65536.0, "step": 1.0, "round": 0.01}),
+                "offset_z": ("FLOAT", {"default": 0.0, "min": -65536.0, "max": 65536.0, "step": 1.0, "round": 0.01, "tooltip": "Temporal/depth noise offset for smooth 3D noise animation."}),
                 "frame_offset_x": ("FLOAT", {"default": 0.0, "min": -4096.0, "max": 4096.0, "step": 0.5, "round": 0.01}),
                 "frame_offset_y": ("FLOAT", {"default": 0.0, "min": -4096.0, "max": 4096.0, "step": 0.5, "round": 0.01}),
+                "frame_offset_z": ("FLOAT", {"default": 0.0, "min": -4096.0, "max": 4096.0, "step": 0.5, "round": 0.01, "tooltip": "Per-frame Z/depth motion. Use seed_step=0 for smooth temporal evolution."}),
+                "seamless": ("BOOLEAN", {"default": False, "tooltip": "Wrap X/Y lattice coordinates so generated noise tiles as a repeating texture."}),
                 "contrast": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 4.0, "step": 0.01, "round": 0.001}),
                 "invert": ("BOOLEAN", {"default": False}),
                 "low_color": ("STRING", {"default": "#000000"}),
                 "high_color": ("STRING", {"default": "#FFFFFF"}),
+                "compute_device": (_NOISE_COMPUTE_DEVICES, {"default": "auto", "tooltip": "auto uses CUDA for synthesis when available, otherwise CPU."}),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -255,12 +371,16 @@ class ImageOpsNoise:
         gain=0.5,
         offset_x=0.0,
         offset_y=0.0,
+        offset_z=0.0,
         frame_offset_x=0.0,
         frame_offset_y=0.0,
+        frame_offset_z=0.0,
+        seamless=False,
         contrast=1.0,
         invert=False,
         low_color="#000000",
         high_color="#FFFFFF",
+        compute_device="auto",
         unique_id=None,
     ):
         target_w = max(1, _scalar(width, int))
@@ -269,6 +389,7 @@ class ImageOpsNoise:
         requested_frame_length = max(0, _scalar(frame_length, int))
         frame_count = requested_frame_length if requested_frame_length > 0 else legacy_batch
         preview_fps = max(1.0, _scalar(fps, float))
+        device = _resolve_noise_device(_scalar(compute_device, str))
         progress = start_progress(total=frame_count, unique_id=unique_id)
 
         masks = []
@@ -286,7 +407,10 @@ class ImageOpsNoise:
                 gain=_scalar(gain, float, index=frame_index),
                 offset_x=_scalar(offset_x, float, index=frame_index) + frame_index * _scalar(frame_offset_x, float, index=frame_index),
                 offset_y=_scalar(offset_y, float, index=frame_index) + frame_index * _scalar(frame_offset_y, float, index=frame_index),
+                offset_z=_scalar(offset_z, float, index=frame_index) + frame_index * _scalar(frame_offset_z, float, index=frame_index),
                 seed=frame_seed,
+                seamless=_scalar(seamless, bool, index=frame_index),
+                device=device,
             )
             frame_gray = _normalize_gray(frame_gray)
             frame_gray = _apply_tone(
@@ -304,7 +428,7 @@ class ImageOpsNoise:
             )
             progress.update()
 
-        mask = torch.cat(masks, dim=0).clamp(0.0, 1.0)
-        image = torch.cat(images, dim=0).clamp(0.0, 1.0)
+        mask = torch.cat(masks, dim=0).clamp(0.0, 1.0).cpu()
+        image = torch.cat(images, dim=0).clamp(0.0, 1.0).cpu()
         progress.finish()
         return build_node_preview_result(image, (image, mask), prefix="imageops_noise", fps=preview_fps)

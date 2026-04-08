@@ -24,8 +24,29 @@ class ImageOpsMerge:
                 "A": (MEDIA_INPUT_TYPE, {"tooltip": "Background Images/Video input.", "display_name": "Background"}),
                 "B": (MEDIA_INPUT_TYPE, {"tooltip": "Foreground Images/Video input.", "display_name": "Foreground"}),
                 "bypass": ("BOOLEAN", {"default": False}),
-                "mode": (["over", "add", "subtract", "multiply", "screen", "difference", "max", "min"], {"default": "over"}),
+                "mode": ([
+                    "over",
+                    "add",
+                    "subtract",
+                    "multiply",
+                    "screen",
+                    "overlay",
+                    "soft_light",
+                    "difference",
+                    "max",
+                    "min",
+                    "lighten",
+                    "darken",
+                    "color_dodge",
+                    "color_burn",
+                    "exclusion",
+                    "vivid_light",
+                    "pin_light",
+                    "hard_mix",
+                ], {"default": "over"}),
                 "mix": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001}),
+                "foreground_fit": (["stretch", "contain", "cover", "none"], {"default": "stretch"}),
+                "blend_space": (["linear", "srgb"], {"default": "linear"}),
                 "invert_mask": ("BOOLEAN", {"default": False}),
             },
             "optional": {
@@ -36,7 +57,7 @@ class ImageOpsMerge:
             },
         }
 
-    def apply(self, A, B, bypass=False, mode="over", mix=1.0, invert_mask=False, mask=None, unique_id=None):
+    def apply(self, A, B, bypass=False, mode="over", mix=1.0, foreground_fit="stretch", blend_space="linear", invert_mask=False, mask=None, unique_id=None):
         A = _coerce_media_to_tensor(A, "A")
         effect_mask = _prepare_effect_mask(mask, A, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, A, invert_mask=invert_mask)
@@ -50,7 +71,7 @@ class ImageOpsMerge:
             progress.finish()
             return build_node_preview_result(A, (A, output_mask), prefix="imageops_merge")
         B = _coerce_media_to_tensor(B, "B")
-        out = _apply_merge(A, B, mode, mix)
+        out = _apply_merge(A, B, mode, mix, foreground_fit, blend_space)
         out = _apply_mask_to_image(A, out, effect_mask)
         output_mask = effect_mask if effect_mask is not None else _resolve_mask_output_source(mask, out, invert_mask=invert_mask)
         progress.finish()

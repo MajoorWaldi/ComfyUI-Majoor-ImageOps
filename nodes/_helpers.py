@@ -1,20 +1,21 @@
+from __future__ import annotations
+
 import math
 import logging
 import os
+from typing import Union
 
 import numpy as np
 import torch
-from PIL import Image, ImageEnhance
-
-try:
-    import cv2
-except ImportError:
-    cv2 = None
+from PIL import Image
 
 from ._ops_constants import EPSILON, GAMMA_MAX, GAMMA_SAFE_MIN, LUMA_WEIGHTS
 
+# Type alias for parameters that can be a scalar or a per-frame list/tuple.
+ScalarOrList = Union[float, int, bool, list, tuple]
 
-def _scalar(v, typ=float, index: int = 0):
+
+def _scalar(v: ScalarOrList, typ: type = float, index: int = 0):
     """Unwrap a value that may be a scalar or a list/tuple (ComfyUI batching).
 
     Handles inputs from nodes like RyanOnTheInside's FeatureToFloat that
@@ -36,7 +37,7 @@ def _scalar(v, typ=float, index: int = 0):
     return typ(v)
 
 
-def _param_tensor(v, batch: int, device="cpu", dtype=torch.float32):
+def _param_tensor(v: ScalarOrList, batch: int, device="cpu", dtype: torch.dtype = torch.float32) -> torch.Tensor:
     """Convert a scalar or per-frame list into a [B,1,1,1] tensor for broadcasting.
 
     Supports FeatureToFloat-style lists aligned to image batch dimension.
@@ -51,7 +52,7 @@ def _param_tensor(v, batch: int, device="cpu", dtype=torch.float32):
     return t.view(batch, 1, 1, 1)
 
 
-def _has_list_param(*args):
+def _has_list_param(*args) -> bool:
     """Return True if any argument is a list/tuple (per-frame parameter)."""
     return any(isinstance(a, (list, tuple)) for a in args)
 
@@ -74,6 +75,8 @@ ALLOWED_EXTENSIONS = {
     '.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tif', '.tiff'
 }
 MEDIA_INPUT_TYPE = "IMAGE,VIDEO"
+LARGE_BLUR_BOX_THRESHOLD = 32
+BOX_BLUR_APPROX_PASSES = 3
 ASPECT_RATIO_PRESETS = {
     "custom": None,
     "1:1": (1, 1),
@@ -83,7 +86,20 @@ ASPECT_RATIO_PRESETS = {
     "9:16": (9, 16),
 }
 CHANNEL_OPTIONS = ["Red", "Green", "Blue", "Alpha"]
-COMP_BLEND_MODES = ["over", "add", "multiply", "screen", "overlay", "soft_light", "difference", "lighten", "darken"]
+COMP_BLEND_MODES = [
+    "over",
+    "add",
+    "multiply",
+    "screen",
+    "overlay",
+    "soft_light",
+    "difference",
+    "lighten",
+    "darken",
+    "color_dodge",
+    "color_burn",
+    "exclusion",
+]
 
 
 def _pil_to_tensor(img: Image.Image) -> torch.Tensor:
@@ -134,69 +150,129 @@ def _apply_color_correct(image, brightness, contrast, gamma, saturation):
     return x.clamp(0, 1)
 
 
-def _apply_color_correct_reference(image, temperature, hue, brightness, contrast, saturation, gamma):
+def _srgb_to_linear(rgb: torch.Tensor) -> torch.Tensor:
+    rgb = rgb.clamp(0.0, 1.0)
+    return torch.where(
+        rgb <= 0.04045,
+        rgb / 12.92,
+        ((rgb + 0.055) / 1.055).pow(2.4),
+    )
+
+
+def _linear_to_srgb(rgb: torch.Tensor) -> torch.Tensor:
+    rgb = rgb.clamp(0.0, 1.0)
+    return torch.where(
+        rgb <= 0.0031308,
+        rgb * 12.92,
+        1.055 * rgb.pow(1.0 / 2.4) - 0.055,
+    )
+
+
+def _apply_temperature_linear(rgb: torch.Tensor, temperature: torch.Tensor) -> torch.Tensor:
+    warm = temperature.clamp(min=0.0)
+    cool = (-temperature).clamp(min=0.0)
+    scales = torch.cat([
+        1.0 + warm,
+        1.0 + warm * 0.4,
+        1.0 + cool,
+    ], dim=-1)
+    return rgb * scales
+
+
+def _apply_hue_shift_rgb(rgb: torch.Tensor, hue_shift: torch.Tensor) -> torch.Tensor:
+    hsv = _rgb_to_hsv(rgb.clamp(0.0, 1.0))
+    hue = (hsv[..., 0] + hue_shift[..., 0]) % 1.0
+    shifted = torch.stack([hue, hsv[..., 1], hsv[..., 2]], dim=-1)
+    return _hsv_to_rgb(shifted)
+
+
+def _linear_luma(rgb: torch.Tensor) -> torch.Tensor:
+    weights = torch.tensor(LUMA_WEIGHTS, device=rgb.device, dtype=rgb.dtype).view(1, 1, 1, 3)
+    return (rgb * weights).sum(dim=-1, keepdim=True)
+
+
+def _param_all_close(v: ScalarOrList, target: float, tolerance: float = 1e-6) -> bool:
+    if isinstance(v, (list, tuple)):
+        return all(_param_all_close(item, target, tolerance) for item in v)
+    return abs(float(v) - target) <= tolerance
+
+
+def _apply_color_adjust(
+    image: torch.Tensor,
+    temperature: ScalarOrList,
+    hue: ScalarOrList,
+    brightness: ScalarOrList,
+    contrast: ScalarOrList,
+    saturation: ScalarOrList,
+    gamma: ScalarOrList,
+) -> torch.Tensor:
+    """Pure PyTorch color adjustment in linear RGB; alpha/extra channels pass through."""
     if image is None:
         raise ValueError("image is None")
     if image.dim() != 4:
         raise ValueError(f"Expected [B,H,W,C], got {tuple(image.shape)}")
+    if (
+        _param_all_close(temperature, 0.0)
+        and _param_all_close(hue, 0.0)
+        and _param_all_close(brightness, 0.0)
+        and _param_all_close(contrast, 0.0)
+        and _param_all_close(saturation, 0.0)
+        and _param_all_close(gamma, 1.0)
+    ):
+        return image
 
-    device = image.device
-    dtype = image.dtype
-    out = []
+    x = image.float().clamp(0.0, 1.0)
+    B = x.shape[0]
+    C = x.shape[-1]
+    d, dt = image.device, image.dtype
 
-    for fi, frame in enumerate(image.detach().cpu().float().clamp(0, 1)):
-        brightness_factor = 1.0 + (_scalar(brightness, index=fi) / 100.0)
-        contrast_factor = 1.0 + (_scalar(contrast, index=fi) / 100.0)
-        saturation_factor = 1.0 + (_scalar(saturation, index=fi) / 100.0)
-        temperature_factor = _scalar(temperature, index=fi) / 100.0
-        hue_shift = _scalar(hue, index=fi)
-        safe_gamma = max(0.2, min(2.2, _scalar(gamma, index=fi)))
-        rgb = (frame[..., :3].numpy() * 255.0 + 0.5).astype(np.uint8)
-        alpha = frame[..., 3:4].numpy() if frame.shape[-1] == 4 else None
+    brightness_t = 1.0 + _param_tensor(brightness, B, d, torch.float32) / 100.0
+    contrast_t = 1.0 + _param_tensor(contrast, B, d, torch.float32) / 100.0
+    saturation_t = 1.0 + _param_tensor(saturation, B, d, torch.float32) / 100.0
+    temperature_t = _param_tensor(temperature, B, d, torch.float32) / 100.0
+    hue_shift_t = _param_tensor(hue, B, d, torch.float32) / 360.0
+    gamma_t = _param_tensor(gamma, B, d, torch.float32).clamp(GAMMA_SAFE_MIN, GAMMA_MAX)
+    has_temperature = not _param_all_close(temperature, 0.0)
+    has_contrast = not _param_all_close(contrast, 0.0)
+    has_saturation = not _param_all_close(saturation, 0.0)
+    has_hue = not _param_all_close(hue, 0.0)
+    has_gamma = not _param_all_close(gamma, 1.0)
 
-        pil = Image.fromarray(rgb, mode="RGB")
-        pil = ImageEnhance.Brightness(pil).enhance(brightness_factor)
-        pil = ImageEnhance.Contrast(pil).enhance(contrast_factor)
+    rgb = _srgb_to_linear(x[..., :3])
+    extra = x[..., 3:] if C > 3 else None
 
-        modified = np.asarray(pil).astype(np.float32)
+    rgb = (rgb * brightness_t).clamp(0.0, 1.0)
+    if has_temperature:
+        rgb = _apply_temperature_linear(rgb, temperature_t).clamp(0.0, 1.0)
 
-        if temperature_factor > 0:
-            modified[:, :, 0] *= 1.0 + temperature_factor
-            modified[:, :, 1] *= 1.0 + temperature_factor * 0.4
-        elif temperature_factor < 0:
-            modified[:, :, 2] *= 1.0 - temperature_factor
+    if has_contrast:
+        mean_luma = _linear_luma(rgb).mean(dim=(1, 2), keepdim=True)
+        rgb = (mean_luma + (rgb - mean_luma) * contrast_t).clamp(0.0, 1.0)
 
-        modified = np.clip(modified, 0.0, 255.0) / 255.0
-        modified = np.clip(np.power(modified, safe_gamma), 0.0, 1.0)
+    if has_saturation:
+        luma = _linear_luma(rgb)
+        rgb = (luma + (rgb - luma) * saturation_t).clamp(0.0, 1.0)
+    if has_hue:
+        rgb = _apply_hue_shift_rgb(rgb, hue_shift_t).clamp(0.0, 1.0)
+    if has_gamma:
+        rgb = rgb.pow(1.0 / gamma_t).clamp(0.0, 1.0)
+    rgb = _linear_to_srgb(rgb)
 
-        if cv2 is not None:
-            hls_img = cv2.cvtColor(modified.astype(np.float32), cv2.COLOR_RGB2HLS)
-            hls_img[:, :, 2] = np.clip(saturation_factor * hls_img[:, :, 2], 0.0, 1.0)
-            modified = cv2.cvtColor(hls_img, cv2.COLOR_HLS2RGB) * 255.0
+    if extra is not None:
+        return torch.cat([rgb, extra], dim=-1).to(device=d, dtype=dt)
+    return rgb.to(device=d, dtype=dt)
 
-            hsv_img = cv2.cvtColor(modified.astype(np.float32), cv2.COLOR_RGB2HSV)
-            hsv_img[:, :, 0] = (hsv_img[:, :, 0] + hue_shift) % 360.0
-            modified = cv2.cvtColor(hsv_img, cv2.COLOR_HSV2RGB)
-            modified = modified / 255.0
-        else:
-            pil = Image.fromarray((modified * 255.0 + 0.5).astype(np.uint8), mode="RGB")
-            pil = ImageEnhance.Color(pil).enhance(saturation_factor)
-            if abs(hue_shift) > EPSILON:
-                hsv = pil.convert("HSV")
-                hsv_arr = np.asarray(hsv, dtype=np.uint8).copy()
-                shift = int(round((hue_shift / 360.0) * 255.0))
-                hsv_arr[:, :, 0] = ((hsv_arr[:, :, 0].astype(np.int16) + shift) % 256).astype(np.uint8)
-                pil = Image.fromarray(hsv_arr, mode="HSV").convert("RGB")
-            modified = np.asarray(pil).astype(np.float32) / 255.0
 
-        modified = np.clip(modified, 0.0, 1.0)
-
-        if alpha is not None:
-            modified = np.concatenate([modified, alpha], axis=-1)
-
-        out.append(torch.from_numpy(modified.astype(np.float32)).unsqueeze(0))
-
-    return torch.cat(out, dim=0).to(device=device, dtype=dtype)
+def _apply_color_correct_reference(
+    image: torch.Tensor,
+    temperature: ScalarOrList,
+    hue: ScalarOrList,
+    brightness: ScalarOrList,
+    contrast: ScalarOrList,
+    saturation: ScalarOrList,
+    gamma: ScalarOrList,
+) -> torch.Tensor:
+    return _apply_color_adjust(image, temperature, hue, brightness, contrast, saturation, gamma)
 
 
 def _gaussian_kernel1d(radius, sigma):
@@ -209,13 +285,103 @@ def _gaussian_kernel1d(radius, sigma):
     return k / torch.sum(k)
 
 
+def _gaussian_effective_radius(radius: int, sigma: float) -> int:
+    radius = int(max(0, radius))
+    if radius <= 0:
+        return 0
+    sigma = float(max(EPSILON, sigma))
+    return min(radius, max(1, int(math.ceil(sigma * 4.0))))
+
+
+def _box_blur_radii_for_gaussian(radius: int, sigma: float, passes: int = BOX_BLUR_APPROX_PASSES) -> tuple[int, ...]:
+    radius = int(max(0, radius))
+    passes = int(max(1, passes))
+    if radius <= 0:
+        return tuple(0 for _ in range(passes))
+
+    kernel = _gaussian_kernel1d(radius, sigma)
+    xs = torch.arange(-radius, radius + 1, dtype=kernel.dtype)
+    variance = torch.sum(kernel * xs * xs).item()
+    if variance <= EPSILON:
+        return tuple(0 for _ in range(passes))
+
+    effective_sigma = math.sqrt(max(0.0, variance))
+    ideal_width = math.sqrt((12.0 * effective_sigma * effective_sigma / passes) + 1.0)
+    lower_width = max(1, int(math.floor(ideal_width)))
+    if lower_width % 2 == 0:
+        lower_width -= 1
+    lower_width = max(1, lower_width)
+    upper_width = lower_width + 2
+
+    numerator = (
+        12.0 * effective_sigma * effective_sigma
+        - passes * lower_width * lower_width
+        - 4.0 * passes * lower_width
+        - 3.0 * passes
+    )
+    denominator = -4.0 * lower_width - 4.0
+    lower_count = int(round(numerator / denominator)) if abs(denominator) > EPSILON else passes
+    lower_count = max(0, min(passes, lower_count))
+
+    radii = []
+    for index in range(passes):
+        width = lower_width if index < lower_count else upper_width
+        radii.append(min(radius, max(0, width // 2)))
+    return tuple(radii)
+
+
+def _box_blur1d_nchw(x: torch.Tensor, radius: int, dim: int) -> torch.Tensor:
+    radius = int(max(0, radius))
+    if radius <= 0:
+        return x
+
+    kernel_size = radius * 2 + 1
+    accum_dtype = torch.float32 if x.dtype in (torch.float16, torch.bfloat16) else x.dtype
+
+    if dim == -1:
+        pad_mode = "reflect" if x.shape[-1] > radius else "replicate"
+        padded = torch.nn.functional.pad(x, (radius, radius, 0, 0), mode=pad_mode)
+        cumsum = padded.cumsum(dim=-1, dtype=accum_dtype)
+        prefix = torch.cat([torch.zeros_like(cumsum[..., :1]), cumsum], dim=-1)
+        return (prefix[..., kernel_size:] - prefix[..., :-kernel_size]) / float(kernel_size)
+
+    if dim == -2:
+        pad_mode = "reflect" if x.shape[-2] > radius else "replicate"
+        padded = torch.nn.functional.pad(x, (0, 0, radius, radius), mode=pad_mode)
+        cumsum = padded.cumsum(dim=-2, dtype=accum_dtype)
+        prefix = torch.cat([torch.zeros_like(cumsum[:, :, :1, :]), cumsum], dim=-2)
+        return (prefix[:, :, kernel_size:, :] - prefix[:, :, :-kernel_size, :]) / float(kernel_size)
+
+    raise ValueError(f"Unsupported blur dimension: {dim}")
+
+
+def _apply_box_blur_approx(image: torch.Tensor, radius: int, sigma: float) -> torch.Tensor:
+    radii = _box_blur_radii_for_gaussian(radius, sigma)
+    if not any(radii):
+        return image
+
+    x = image.permute(0, 3, 1, 2).contiguous()
+    for box_radius in radii:
+        if box_radius <= 0:
+            continue
+        x = _box_blur1d_nchw(x, box_radius, -1)
+        x = _box_blur1d_nchw(x, box_radius, -2)
+    return x.permute(0, 2, 3, 1).contiguous().clamp(0, 1)
+
+
 def _apply_blur(image, radius, sigma):
     if _has_list_param(radius, sigma):
         return torch.cat([
             _apply_blur(image[i:i+1], _scalar(radius, int, index=i), _scalar(sigma, index=i))
             for i in range(image.shape[0])
         ], dim=0)
-    k = _gaussian_kernel1d(radius, sigma).to(image.device)
+    radius = int(max(0, _scalar(radius, int)))
+    sigma = float(max(EPSILON, _scalar(sigma)))
+    effective_radius = _gaussian_effective_radius(radius, sigma) if radius > LARGE_BLUR_BOX_THRESHOLD else radius
+    if radius > LARGE_BLUR_BOX_THRESHOLD and effective_radius > LARGE_BLUR_BOX_THRESHOLD:
+        return _apply_box_blur_approx(image, effective_radius, sigma)
+    radius = effective_radius
+    k = _gaussian_kernel1d(radius, sigma).to(device=image.device, dtype=image.dtype)
     if k.numel() == 1:
         return image
 
@@ -736,23 +902,117 @@ def _apply_edge_detect(image: torch.Tensor, strength: float):
         return torch.cat([out_rgb, x[..., 3:4]], dim=-1).clamp(0, 1)
     return out_rgb.clamp(0, 1)
 
-def _apply_merge(a: torch.Tensor, b: torch.Tensor, mode: str, mix):
+def _resize_merge_foreground(image: torch.Tensor, out_w: int, out_h: int) -> torch.Tensor:
+    if image.shape[-1] == 4:
+        return _resize_premultiplied_rgba(image, out_w, out_h)
+    return _resize(image, out_w, out_h, mode="bicubic", antialias=True)
+
+
+def _fit_merge_foreground(image: torch.Tensor, reference: torch.Tensor, fit_mode: str = "stretch") -> torch.Tensor:
+    if image.shape[0] != reference.shape[0]:
+        if image.shape[0] == 1:
+            image = image.expand(reference.shape[0], -1, -1, -1)
+        else:
+            reps = math.ceil(reference.shape[0] / image.shape[0])
+            image = image.repeat(reps, 1, 1, 1)[:reference.shape[0]]
+
+    image = image.to(device=reference.device, dtype=reference.dtype)
+    target_h = int(reference.shape[1])
+    target_w = int(reference.shape[2])
+    source_h = int(image.shape[1])
+    source_w = int(image.shape[2])
+    if source_h == target_h and source_w == target_w:
+        return image
+
+    normalized = str(fit_mode or "stretch").strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in ("stretch", "scale", "resize", "fit_exact"):
+        return _resize_merge_foreground(image, target_w, target_h)
+
+    add_fit_alpha = image.shape[-1] == 3 and normalized in ("contain", "fit", "letterbox", "pad", "none", "center", "original")
+    if normalized in ("none", "center", "original"):
+        scaled = image
+    else:
+        scale = min(target_w / max(1, source_w), target_h / max(1, source_h))
+        if normalized in ("cover", "fill", "crop"):
+            scale = max(target_w / max(1, source_w), target_h / max(1, source_h))
+        scaled_w = max(1, int(round(source_w * scale)))
+        scaled_h = max(1, int(round(source_h * scale)))
+        scaled = _resize_merge_foreground(image, scaled_w, scaled_h)
+
+    out_channels = 4 if add_fit_alpha else scaled.shape[-1]
+    out = torch.zeros((scaled.shape[0], target_h, target_w, out_channels), device=reference.device, dtype=reference.dtype)
+    src_h = int(scaled.shape[1])
+    src_w = int(scaled.shape[2])
+    dst_x0 = max(0, (target_w - src_w) // 2)
+    dst_y0 = max(0, (target_h - src_h) // 2)
+    src_x0 = max(0, (src_w - target_w) // 2)
+    src_y0 = max(0, (src_h - target_h) // 2)
+    copy_w = min(target_w, src_w)
+    copy_h = min(target_h, src_h)
+    cropped = scaled[:, src_y0:src_y0 + copy_h, src_x0:src_x0 + copy_w, :]
+    out[:, dst_y0:dst_y0 + copy_h, dst_x0:dst_x0 + copy_w, :scaled.shape[-1]] = cropped
+    if add_fit_alpha:
+        out[:, dst_y0:dst_y0 + copy_h, dst_x0:dst_x0 + copy_w, 3:4] = 1.0
+    return out
+
+
+def _normalize_merge_mode(mode: str) -> str:
+    normalized = str(mode or "over").strip().lower().replace("-", "_").replace(" ", "_")
+    return "over" if normalized == "normal" else normalized
+
+
+def _blend_merge_rgb(base_rgb: torch.Tensor, top_rgb: torch.Tensor, mode: str) -> torch.Tensor:
+    normalized = _normalize_merge_mode(mode)
+    if normalized in ("over", "normal"):
+        return top_rgb
+    if normalized == "subtract":
+        return (base_rgb - top_rgb).clamp(0.0, 1.0)
+    if normalized == "vivid_light":
+        burn = _blend_merge_rgb(base_rgb, (top_rgb * 2.0).clamp(0.0, 1.0), "color_burn")
+        dodge = _blend_merge_rgb(base_rgb, (top_rgb * 2.0 - 1.0).clamp(0.0, 1.0), "color_dodge")
+        return torch.where(top_rgb <= 0.5, burn, dodge).clamp(0.0, 1.0)
+    if normalized == "pin_light":
+        return torch.where(
+            top_rgb <= 0.5,
+            torch.minimum(base_rgb, (top_rgb * 2.0).clamp(0.0, 1.0)),
+            torch.maximum(base_rgb, (top_rgb * 2.0 - 1.0).clamp(0.0, 1.0)),
+        ).clamp(0.0, 1.0)
+    if normalized == "hard_mix":
+        vivid = _blend_merge_rgb(base_rgb, top_rgb, "vivid_light")
+        return torch.where(vivid < 0.5, torch.zeros_like(vivid), torch.ones_like(vivid))
+    return _blend_rgb(base_rgb, top_rgb, normalized).clamp(0.0, 1.0)
+
+
+def _apply_merge(a: torch.Tensor, b: torch.Tensor, mode: str, mix, foreground_fit="stretch", blend_space="linear"):
     # a,b: [B,H,W,C]
     a = a.float().clamp(0,1)
-    b = _match_image_to_reference(b.float().clamp(0,1), a)
-    if _has_list_param(mode, mix):
+    b = b.float().clamp(0,1)
+    if b.shape[0] != a.shape[0]:
+        if b.shape[0] == 1:
+            b = b.expand(a.shape[0], -1, -1, -1)
+        else:
+            reps = math.ceil(a.shape[0] / b.shape[0])
+            b = b.repeat(reps, 1, 1, 1)[:a.shape[0]]
+    if _has_list_param(mode, mix, foreground_fit, blend_space):
         return torch.cat([
             _apply_merge(
                 a[i:i+1],
                 b[i:i+1],
                 _scalar(mode, str, index=i),
                 _scalar(mix, index=i),
+                _scalar(foreground_fit, str, index=i),
+                _scalar(blend_space, str, index=i),
             )
             for i in range(a.shape[0])
         ], dim=0)
-    mode = str(mode).lower()
+    b = _fit_merge_foreground(b, a, foreground_fit)
+    mode = _normalize_merge_mode(mode)
     m = _param_tensor(mix, a.shape[0], a.device, a.dtype)
-    ar, br = a[..., :3], b[..., :3]
+    ar_srgb, br_srgb = a[..., :3], b[..., :3]
+    linear = str(blend_space or "linear").strip().lower() in ("linear", "lin", "gamma_1", "gamma_1_0")
+    ar = _srgb_to_linear(ar_srgb) if linear else ar_srgb
+    br = _srgb_to_linear(br_srgb) if linear else br_srgb
+
     if mode == "over":
         # if b has alpha, over a
         if b.shape[-1] == 4:
@@ -760,24 +1020,15 @@ def _apply_merge(a: torch.Tensor, b: torch.Tensor, mode: str, mix):
             out = br*ba + ar*(1.0-ba)
         else:
             out = br
-    elif mode == "add":
-        out = ar + br
-    elif mode == "subtract":
-        out = ar - br
-    elif mode == "multiply":
-        out = ar * br
-    elif mode == "screen":
-        out = 1.0 - (1.0-ar)*(1.0-br)
-    elif mode == "difference":
-        out = (ar - br).abs()
-    elif mode == "max":
-        out = torch.maximum(ar, br)
-    elif mode == "min":
-        out = torch.minimum(ar, br)
     else:
-        out = br
+        out = _blend_merge_rgb(ar, br, mode)
+        if b.shape[-1] == 4:
+            ba = b[..., 3:4].clamp(0, 1)
+            out = out * ba + ar * (1.0 - ba)
     out = out.clamp(0,1)
     out = ar*(1.0-m) + out*m
+    out = _linear_to_srgb(out) if linear else out
+
     if a.shape[-1] == 4:
         aa = a[...,3:4]
         if b.shape[-1] == 4 and mode == "over":
@@ -874,9 +1125,24 @@ def _crop_pad(image: torch.Tensor, x: int, y: int, w: int, h: int, pad: int, pad
         cropped = t.permute(0,2,3,1).contiguous()
     return cropped
 
-def _resize(image: torch.Tensor, out_w: int, out_h: int):
+def _resize(image: torch.Tensor, out_w: int, out_h: int, mode: str = "bilinear", antialias: bool = False):
     x = image.permute(0,3,1,2).contiguous()
-    x = torch.nn.functional.interpolate(x, size=(int(out_h), int(out_w)), mode="bilinear", align_corners=False)
+    resize_mode = str(mode or "bilinear").lower()
+    if resize_mode not in ("nearest", "bilinear", "bicubic"):
+        resize_mode = "bilinear"
+    kwargs = {
+        "size": (int(out_h), int(out_w)),
+        "mode": resize_mode,
+    }
+    if resize_mode in ("bilinear", "bicubic"):
+        kwargs["align_corners"] = False
+        if antialias:
+            kwargs["antialias"] = True
+    try:
+        x = torch.nn.functional.interpolate(x, **kwargs)
+    except TypeError:
+        kwargs.pop("antialias", None)
+        x = torch.nn.functional.interpolate(x, **kwargs)
     return x.permute(0,2,3,1).contiguous().clamp(0,1)
 
 
@@ -1008,10 +1274,11 @@ def _apply_center_crop_resize(image: torch.Tensor, out_w: int, out_h: int, aspec
     crop_x = max(0, (src_w - crop_w) // 2)
     crop_y = max(0, (src_h - crop_h) // 2)
     cropped = image[:, crop_y:crop_y + crop_h, crop_x:crop_x + crop_w, :]
-    return _resize(cropped, target_w, target_h)
+    return _resize(cropped, target_w, target_h, mode="bicubic", antialias=True)
 
 def _apply_interactive_crop_resize(image: torch.Tensor, out_w, out_h, aspect_ratio: str,
-                                   center_x=0.5, center_y=0.5, scale=1.0):
+                                   center_x=0.5, center_y=0.5, scale=1.0,
+                                   resize_mode: str = "bicubic", antialias: bool = True):
     if image is None:
         raise ValueError("image is None")
     if image.dim() != 4:
@@ -1026,6 +1293,8 @@ def _apply_interactive_crop_resize(image: torch.Tensor, out_w, out_h, aspect_rat
                 center_x=_scalar(center_x, index=i),
                 center_y=_scalar(center_y, index=i),
                 scale=_scalar(scale, index=i),
+                resize_mode=resize_mode,
+                antialias=antialias,
             )
             for i in range(image.shape[0])
         ], dim=0)
@@ -1044,7 +1313,7 @@ def _apply_interactive_crop_resize(image: torch.Tensor, out_w, out_h, aspect_rat
         scale=scale,
     )
     cropped = image[:, crop_y:crop_y + crop_h, crop_x:crop_x + crop_w, :]
-    return _resize(cropped, target_w, target_h)
+    return _resize(cropped, target_w, target_h, mode=resize_mode, antialias=antialias)
 
 
 def _apply_interactive_crop_resize_with_mask_pair(image: torch.Tensor, mask: torch.Tensor, out_w: int, out_h: int,
@@ -1072,6 +1341,8 @@ def _apply_interactive_crop_resize_with_mask_pair(image: torch.Tensor, mask: tor
         center_x=center_x,
         center_y=center_y,
         scale=scale,
+        resize_mode="bilinear",
+        antialias=True,
     )[..., 0].clamp(0.0, 1.0)
 
     premult_rgb = _apply_interactive_crop_resize(
@@ -1082,6 +1353,8 @@ def _apply_interactive_crop_resize_with_mask_pair(image: torch.Tensor, mask: tor
         center_x=center_x,
         center_y=center_y,
         scale=scale,
+        resize_mode="bicubic",
+        antialias=True,
     )[..., :3]
     rgb = _unpremultiply_rgb_by_mask(premult_rgb, cropped_mask)
 
@@ -1094,6 +1367,8 @@ def _apply_interactive_crop_resize_with_mask_pair(image: torch.Tensor, mask: tor
             center_x=center_x,
             center_y=center_y,
             scale=scale,
+            resize_mode="bilinear",
+            antialias=True,
         )
         result = torch.cat([rgb, alpha], dim=-1)
     else:
@@ -1109,14 +1384,14 @@ def _apply_crop_reformat(image: torch.Tensor, x: int, y: int, crop_w: int, crop_
     if out_w <= 0 or out_h <= 0:
         return x0
     if mode == "stretch":
-        return _resize(x0, out_w, out_h)
+        return _resize(x0, out_w, out_h, mode="bicubic", antialias=True)
     # fit/fill keep aspect
     B,H,W,C = x0.shape
     scale_fit = min(out_w / max(1,W), out_h / max(1,H))
     scale_fill = max(out_w / max(1,W), out_h / max(1,H))
     s = scale_fit if mode == "fit" else scale_fill
     nw = max(1, int(round(W*s))); nh = max(1, int(round(H*s)))
-    xr = _resize(x0, nw, nh)
+    xr = _resize(x0, nw, nh, mode="bicubic", antialias=True)
     if mode == "fit":
         # letterbox to out size
         pad_x = max(0, out_w - nw); pad_y = max(0, out_h - nh)
@@ -1227,7 +1502,7 @@ def _soft_light_curve(x: torch.Tensor) -> torch.Tensor:
 
 
 def _blend_rgb(base_rgb: torch.Tensor, top_rgb: torch.Tensor, mode: str) -> torch.Tensor:
-    normalized = str(mode or "over").strip().lower()
+    normalized = str(mode or "over").strip().lower().replace("-", "_").replace(" ", "_")
     if normalized in ("over", "normal"):
         return top_rgb
     if normalized == "add":
@@ -1250,6 +1525,20 @@ def _blend_rgb(base_rgb: torch.Tensor, top_rgb: torch.Tensor, mode: str) -> torc
         ).clamp(0.0, 1.0)
     if normalized == "difference":
         return (base_rgb - top_rgb).abs().clamp(0.0, 1.0)
+    if normalized == "color_dodge":
+        return torch.where(
+            top_rgb >= 1.0 - EPSILON,
+            torch.ones_like(base_rgb),
+            (base_rgb / (1.0 - top_rgb).clamp(min=EPSILON)).clamp(0.0, 1.0),
+        )
+    if normalized == "color_burn":
+        return torch.where(
+            top_rgb <= EPSILON,
+            torch.zeros_like(base_rgb),
+            (1.0 - ((1.0 - base_rgb) / top_rgb.clamp(min=EPSILON))).clamp(0.0, 1.0),
+        )
+    if normalized == "exclusion":
+        return (base_rgb + top_rgb - 2.0 * base_rgb * top_rgb).clamp(0.0, 1.0)
     if normalized in ("lighten", "max"):
         return torch.maximum(base_rgb, top_rgb).clamp(0.0, 1.0)
     if normalized in ("darken", "min"):
@@ -1258,13 +1547,15 @@ def _blend_rgb(base_rgb: torch.Tensor, top_rgb: torch.Tensor, mode: str) -> torc
 
 
 def _make_comp_canvas(batch: int, height: int, width: int, device, dtype, background_color: str = "#000000") -> torch.Tensor:
+    canvas = torch.empty((batch, height, width, 4), device=device, dtype=dtype)
     rgb = torch.tensor(
         _hex_to_rgb01(background_color),
         device=device,
         dtype=dtype,
-    ).view(1, 1, 1, 3).expand(batch, height, width, 3).clone()
-    alpha = torch.zeros((batch, height, width, 1), device=device, dtype=dtype)
-    return torch.cat([rgb, alpha], dim=-1)
+    )
+    canvas[..., :3] = rgb
+    canvas[..., 3] = 0.0
+    return canvas
 
 
 def _compute_comp_rect(output_w: int, output_h: int, source_w: int, source_h: int,
