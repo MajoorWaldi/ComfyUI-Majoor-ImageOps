@@ -2,7 +2,7 @@ import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { buildRenderer } from "./renderer.js";
 import { buildAdapterRegistry } from "./registry.js";
-import { detectSourceUpstream, getInputOriginSlot, getUpstreamNode, isGraphTooLarge, findDependents } from "./graph.js";
+import { detectSourceUpstream, getInputOriginSlot, getUpstreamNode, getUpstreamNodes, isGraphTooLarge, findDependents } from "./graph.js";
 import { resolveNodeStreamPreview } from "./nodestream.js";
 import { attachProgressBus } from "./progress.js";
 import { getPreviewConfig } from "./config.js";
@@ -358,6 +358,18 @@ function registerImageOpsLivePreview() {
       failRender("Live preview error (check console)", err);
     });
   }
+  function findUpstreamProceduralNode(node) {
+    const seen = /* @__PURE__ */ new Set();
+    const queue = [...getUpstreamNodes(node)];
+    while (queue.length) {
+      const cur = queue.shift();
+      if (!cur || seen.has(cur.id)) continue;
+      seen.add(cur.id);
+      if (hasProceduralAnimation(cur)) return cur;
+      queue.push(...getUpstreamNodes(cur));
+    }
+    return null;
+  }
   function startLoopIfVideo(node) {
     const st = ensurePreviewWidget(node, progress, canvasSize);
     if (!st) return;
@@ -368,15 +380,16 @@ function registerImageOpsLivePreview() {
       return;
     }
     const src = detectSourceUpstream(node);
-    if ((!src || src.kind !== "video" && !src.animated) && !st.nativeAnimated && !hasProceduralAnimation(node)) {
+    const upstreamProcedural = findUpstreamProceduralNode(node);
+    if ((!src || src.kind !== "video" && !src.animated) && !st.nativeAnimated && !hasProceduralAnimation(node) && !upstreamProcedural) {
       stopRAF(st);
       schedule(node, () => renderNode(node, 0), 10);
       return;
     }
     let tick = 0;
     let lastLoopTick = null;
-    const proceduralFrameCount = getProceduralFrameCount(node);
-    const proceduralFps = proceduralFrameCount != null ? getProceduralPlaybackFps(node) ?? 12 : null;
+    const proceduralFrameCount = getProceduralFrameCount(node) ?? (upstreamProcedural ? getProceduralFrameCount(upstreamProcedural) : null);
+    const proceduralFps = proceduralFrameCount != null ? getProceduralPlaybackFps(node) ?? (upstreamProcedural ? getProceduralPlaybackFps(upstreamProcedural) : null) ?? 12 : null;
     const startedAt = performance.now();
     const loop = () => {
       if (proceduralFps != null) {

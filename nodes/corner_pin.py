@@ -198,7 +198,7 @@ class ImageOpsCornerPin:
                 "filter": (_CORNER_PIN_FILTERS, {"default": "bilinear"}),
                 "supersample": ("INT", {"default": 1, "min": 1, "max": _CORNER_PIN_SUPERSAMPLE_MAX, "step": 1, "tooltip": "Render at 2x-4x and downsample to reduce perspective aliasing."}),
                 "fill_mode": (_CORNER_PIN_FILL_MODES, {"default": "transparent", "tooltip": "How to fill uncovered areas outside the pinned quad."}),
-                "fill_color": ("STRING", {"default": "#000000"}),
+                "fill_color": ("COLOR", {"default": "#000000"}),
                 "invert_mask": ("BOOLEAN", {"default": False}),
             },
             "optional": {

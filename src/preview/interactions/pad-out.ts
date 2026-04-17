@@ -58,6 +58,7 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     let bottom = drag.startPadBottom;
 
     if (drag.mode === "move") {
+      // Move source image within fixed output size: redistribute padding.
       const totalX = drag.startPadLeft + drag.startPadRight;
       const totalY = drag.startPadTop + drag.startPadBottom;
       left = Math.max(0, Math.min(totalX, Math.round(drag.startPadLeft + deltaX)));
@@ -65,17 +66,22 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
       top = Math.max(0, Math.min(totalY, Math.round(drag.startPadTop + deltaY)));
       bottom = totalY - top;
     } else {
-      if (drag.mode === "w" || drag.mode === "nw" || drag.mode === "sw") {
-        left = Math.max(0, Math.round(drag.startPadLeft + deltaX));
-      }
-      if (drag.mode === "e" || drag.mode === "ne" || drag.mode === "se") {
-        right = Math.max(0, Math.round(drag.startPadRight - deltaX));
-      }
+      // Outer frame resize: pulling an edge OUTWARD adds padding on that side.
+      // Drag outer-top UP (negative deltaY)  → pad_top increases.  startPadTop - deltaY
+      // Drag outer-bottom DOWN (positive)    → pad_bottom increases. startPadBottom + deltaY
+      // Drag outer-left LEFT (negative deltaX) → pad_left increases. startPadLeft - deltaX
+      // Drag outer-right RIGHT (positive)    → pad_right increases.  startPadRight + deltaX
       if (drag.mode === "n" || drag.mode === "nw" || drag.mode === "ne") {
-        top = Math.max(0, Math.round(drag.startPadTop + deltaY));
+        top = Math.max(0, Math.round(drag.startPadTop - deltaY));
       }
       if (drag.mode === "s" || drag.mode === "sw" || drag.mode === "se") {
-        bottom = Math.max(0, Math.round(drag.startPadBottom - deltaY));
+        bottom = Math.max(0, Math.round(drag.startPadBottom + deltaY));
+      }
+      if (drag.mode === "w" || drag.mode === "nw" || drag.mode === "sw") {
+        left = Math.max(0, Math.round(drag.startPadLeft - deltaX));
+      }
+      if (drag.mode === "e" || drag.mode === "ne" || drag.mode === "se") {
+        right = Math.max(0, Math.round(drag.startPadRight + deltaX));
       }
     }
 

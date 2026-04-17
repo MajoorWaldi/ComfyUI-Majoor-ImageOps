@@ -24,6 +24,8 @@ function getProceduralFrameCount(node) {
   const batchSize = Math.max(1, Math.round(numeric("batch_size", 1)));
   const frameLength = Math.max(0, Math.round(numeric("frame_length", 0)));
   const frameCount = frameLength > 0 ? frameLength : batchSize;
+  const animSpeed = numeric("animation_speed", 0);
+  if (animSpeed !== 0) return 1e6;
   return Math.max(frameCount, animatedLength);
 }
 function hasProceduralAnimation(node) {
@@ -39,6 +41,7 @@ function hasProceduralAnimation(node) {
   };
   const frameCount = getProceduralFrameCount(node) ?? 1;
   if (frameCount <= 1) return false;
+  if (numeric("animation_speed", 0) !== 0) return true;
   if (numeric("seed_step", 0) !== 0) return true;
   if (numeric("frame_offset_x", 0) !== 0) return true;
   if (numeric("frame_offset_y", 0) !== 0) return true;

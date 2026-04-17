@@ -113,7 +113,10 @@ function ensureState(node) {
     cornerPinInteractiveHooked: false,
     padOutGeometry: null,
     padOutDrag: null,
-    padOutInteractiveHooked: false
+    padOutInteractiveHooked: false,
+    padOutSourceWidth: 0,
+    padOutSourceHeight: 0,
+    padOutSourceCanvas: null
   });
   return node.__imageops_state;
 }

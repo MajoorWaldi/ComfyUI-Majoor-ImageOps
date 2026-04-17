@@ -15,6 +15,7 @@ from .mask_convert import ImageOpsMaskConvert
 from .noise import ImageOpsNoise
 from .padout import ImageOpsPadOut
 from .preview import ImageOpsPreview
+from .spherize import ImageOpsSpherize
 
 __all__ = [
     "ImageOpsBlur",
@@ -33,4 +34,5 @@ __all__ = [
     "ImageOpsNoise",
     "ImageOpsPadOut",
     "ImageOpsPreview",
+    "ImageOpsSpherize",
 ]

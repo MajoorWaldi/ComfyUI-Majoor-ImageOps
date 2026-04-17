@@ -15,4 +15,5 @@ export const IMAGEOPS_CLASSES = new Set([
   "ImageOpsNoise",
   "ImageOpsPadOut",
   "ImageOpsPreview",
+  "ImageOpsSpherize",
 ]);

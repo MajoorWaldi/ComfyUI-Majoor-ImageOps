@@ -1,5 +1,5 @@
 import { clampCropCenter, clampCropScale, resolveCropAspectRatio } from "../crop.js";
-import { findWidget, widgetNumber, widgetString, widgetBoolean, hideWidgetForGood, setWidgetValue } from "../shared/widgets.js";
+import { findWidget, widgetNumber, widgetString, widgetBoolean, hideWidgetForGood, setWidgetValue, setWidgetBooleanValue } from "../shared/widgets.js";
 import { ensureState } from "../shared/state.js";
 import { markCanvasDirty } from "../shared/canvas.js";
 const NODE_CLASS = "ImageOpsCrop";
@@ -116,7 +116,11 @@ function syncCropWidgets(node, changedName) {
   let width = Math.max(1, Math.round(widgetNumber(node, "width", 1024)));
   let height = Math.max(1, Math.round(widgetNumber(node, "height", 1024)));
   const preset = widgetString(node, "aspect_ratio", "custom");
-  const sync = widgetBoolean(node, "sync_dimensions", true);
+  let sync = widgetBoolean(node, "sync_dimensions", true);
+  if (changedName === "aspect_ratio" && preset === "custom" && sync) {
+    setWidgetBooleanValue(findWidget(node, "sync_dimensions"), false);
+    sync = false;
+  }
   if (preset === "custom") {
     if (!sync || st.cropAspectRatio == null || changedName === "aspect_ratio" || changedName === "sync_dimensions") {
       st.cropAspectRatio = Math.max(1, width) / Math.max(1, height);

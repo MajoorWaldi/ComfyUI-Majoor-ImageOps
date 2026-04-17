@@ -78,12 +78,31 @@ def _make_schema_input(name: str, spec):
     opts = spec[1] if isinstance(spec, (tuple, list)) and len(spec) > 1 and isinstance(spec[1], dict) else {}
     kwargs = dict(opts)
 
+    # Remap legacy INPUT_TYPES option keys that changed in the Node 2.0 API.
+    # forceInput (legacy camelCase) -> force_input (new snake_case on WidgetInput).
+    force_input_val = kwargs.pop("forceInput", None)
+    # display: "slider"/"number" -> display_mode: NumberDisplay enum (Int/Float only).
+    display_val = kwargs.pop("display", None)
+    display_mode = None
+    if display_val is not None:
+        _nd = getattr(_node20_io, "NumberDisplay", None)
+        if _nd is not None:
+            try:
+                display_mode = _nd(display_val)
+            except (ValueError, KeyError):
+                pass
+
     if isinstance(raw_type, (list, tuple)) and not isinstance(raw_type, str):
         factory = _field_factory("Combo")
-        return factory.Input(name, choices=list(raw_type), **kwargs) if factory else None
+        if not factory:
+            return None
+        # Combo.Input uses 'options', not 'choices'.
+        if force_input_val is not None:
+            kwargs["force_input"] = force_input_val
+        return factory.Input(name, options=list(raw_type), **kwargs)
 
     type_name = str(raw_type or "STRING").upper()
-    if "COLOR" in name.lower() and type_name == "STRING":
+    if type_name == "COLOR" or ("COLOR" in name.lower() and type_name == "STRING"):
         factory = _field_factory("Color")
     elif type_name in {"BOOLEAN", "BOOL"}:
         factory = _field_factory("Boolean")
@@ -98,7 +117,25 @@ def _make_schema_input(name: str, spec):
     else:
         factory = _field_factory("String")
 
-    return factory.Input(name, **kwargs) if factory else None
+    if not factory:
+        return None
+
+    # For numeric widget types, forward the remapped display_mode.
+    if display_mode is not None and type_name in {"INT", "FLOAT"}:
+        kwargs["display_mode"] = display_mode
+
+    # Image/Mask use the base Input class (no force_input param).
+    # Pass forceInput via extra_dict so it still appears in the serialised schema.
+    if "IMAGE" in type_name or "VIDEO" in type_name or type_name == "MASK":
+        if force_input_val is not None:
+            existing = kwargs.pop("extra_dict", {}) or {}
+            kwargs["extra_dict"] = {"forceInput": force_input_val, **existing}
+    else:
+        # All WidgetInput subclasses accept force_input directly.
+        if force_input_val is not None:
+            kwargs["force_input"] = force_input_val
+
+    return factory.Input(name, **kwargs)
 
 
 def _make_schema_output(name: str, output_type: str):
@@ -220,6 +257,7 @@ ImageOpsMaskConvert = _load_module(f"{_PKG}.nodes.mask_convert", _nodes_dir / "m
 ImageOpsNoise = _load_module(f"{_PKG}.nodes.noise", _nodes_dir / "noise.py").ImageOpsNoise
 ImageOpsPadOut = _load_module(f"{_PKG}.nodes.padout", _nodes_dir / "padout.py").ImageOpsPadOut
 ImageOpsPreview = _load_module(f"{_PKG}.nodes.preview", _nodes_dir / "preview.py").ImageOpsPreview
+ImageOpsSpherize = _load_module(f"{_PKG}.nodes.spherize", _nodes_dir / "spherize.py").ImageOpsSpherize
 
 NODE_CLASS_MAPPINGS = {
     "ImageOpsBlur": ImageOpsBlur,
@@ -238,6 +276,7 @@ NODE_CLASS_MAPPINGS = {
     "ImageOpsNoise": ImageOpsNoise,
     "ImageOpsPadOut": ImageOpsPadOut,
     "ImageOpsPreview": ImageOpsPreview,
+    "ImageOpsSpherize": ImageOpsSpherize,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -259,6 +298,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageOpsNoise": "〽️ ImageOps Noise",
     "ImageOpsPadOut": "〽️ ImageOps PadOut",
     "ImageOpsPreview": "〽️ ImageOps Preview",
+    "ImageOpsSpherize": "〽️ ImageOps Spherize",
 }
 
 for _node_id, _node_cls in list(NODE_CLASS_MAPPINGS.items()):

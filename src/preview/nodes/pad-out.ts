@@ -7,29 +7,52 @@ export function isNode(node: ComfyNode): boolean {
 }
 
 export function getPadOutInfoText(_node: ComfyNode, width: number, height: number): string {
-  return `PadOut preview (${width}x${height})`;
+  return `PadOut (${width}×${height})`;
 }
 
 export function getPadOutInteractionMode(geometry: PadOutPreviewGeometry | null, x: number, y: number): PadOutDragMode | "move" | null {
   if (!geometry) return null;
   const scaleX = geometry.fitDrawWidth / Math.max(1, geometry.outputWidth);
   const scaleY = geometry.fitDrawHeight / Math.max(1, geometry.outputHeight);
-  const left = geometry.fitDx + geometry.padLeft * scaleX;
-  const top = geometry.fitDy + geometry.padTop * scaleY;
-  const right = left + geometry.sourceWidth * scaleX;
-  const bottom = top + geometry.sourceHeight * scaleY;
-  const threshold = 12;
-  const near = (px: number, py: number): boolean => Math.abs(x - px) <= threshold && Math.abs(y - py) <= threshold;
 
-  if (near(left, top)) return "nw";
-  if (near(right, top)) return "ne";
-  if (near(left, bottom)) return "sw";
-  if (near(right, bottom)) return "se";
-  if (Math.abs(y - top) <= threshold && x >= left && x <= right) return "n";
-  if (Math.abs(x - right) <= threshold && y >= top && y <= bottom) return "e";
-  if (Math.abs(y - bottom) <= threshold && x >= left && x <= right) return "s";
-  if (Math.abs(x - left) <= threshold && y >= top && y <= bottom) return "w";
-  if (x >= left && x <= right && y >= top && y <= bottom) return "move";
+  // Outer frame (output canvas boundary) — resize handles.
+  const oLeft   = geometry.fitDx;
+  const oTop    = geometry.fitDy;
+  const oRight  = geometry.fitDx + geometry.fitDrawWidth;
+  const oBottom = geometry.fitDy + geometry.fitDrawHeight;
+  const oMidX   = (oLeft + oRight) / 2;
+  const oMidY   = (oTop + oBottom) / 2;
+
+  // Inner source image box — move handle.
+  const iLeft   = geometry.fitDx + geometry.padLeft * scaleX;
+  const iTop    = geometry.fitDy + geometry.padTop * scaleY;
+  const iRight  = iLeft + geometry.sourceWidth * scaleX;
+  const iBottom = iTop + geometry.sourceHeight * scaleY;
+
+  const T = 12;
+  const near = (px: number, py: number): boolean => Math.abs(x - px) <= T && Math.abs(y - py) <= T;
+
+  // Outer frame corners (highest priority).
+  if (near(oLeft,  oTop))    return "nw";
+  if (near(oRight, oTop))    return "ne";
+  if (near(oLeft,  oBottom)) return "sw";
+  if (near(oRight, oBottom)) return "se";
+
+  // Outer frame mid-edges.
+  if (near(oMidX, oTop)    && x >= oLeft && x <= oRight) return "n";
+  if (near(oRight, oMidY)  && y >= oTop  && y <= oBottom) return "e";
+  if (near(oMidX, oBottom) && x >= oLeft && x <= oRight) return "s";
+  if (near(oLeft,  oMidY)  && y >= oTop  && y <= oBottom) return "w";
+
+  // Outer frame edges (wider hit zone when no mid-edge matched).
+  if (Math.abs(y - oTop)    <= T && x > oLeft + T && x < oRight - T) return "n";
+  if (Math.abs(x - oRight)  <= T && y > oTop  + T && y < oBottom - T) return "e";
+  if (Math.abs(y - oBottom) <= T && x > oLeft + T && x < oRight - T) return "s";
+  if (Math.abs(x - oLeft)   <= T && y > oTop  + T && y < oBottom - T) return "w";
+
+  // Inner source image: drag to reposition within the output canvas.
+  if (x >= iLeft && x <= iRight && y >= iTop && y <= iBottom) return "move";
+
   return null;
 }
 

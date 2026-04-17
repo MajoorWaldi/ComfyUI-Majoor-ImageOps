@@ -1,5 +1,24 @@
 import type { ComfyNode, ComfyWidget } from "../../types.js";
 
+function syncWidgetElement(widget: ComfyWidget | null, value: string | number | boolean): void {
+  const element = widget?.element as (HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null | undefined);
+  if (!element) return;
+
+  if (typeof value === "boolean") {
+    if ("checked" in element) {
+      (element as HTMLInputElement).checked = value;
+    }
+    if ("value" in element) {
+      element.value = value ? "true" : "false";
+    }
+    return;
+  }
+
+  if ("value" in element) {
+    element.value = String(value);
+  }
+}
+
 export function findWidget(node: ComfyNode, name: string) {
   return node?.widgets?.find((w) => w?.name === name) ?? null;
 }
@@ -58,14 +77,17 @@ export function hideWidgetForGood(node: ComfyNode, widget: ComfyWidget | null, s
 export function setWidgetValue(widget: ComfyWidget | null, value: number): void {
   if (!widget) return;
   widget.value = value;
+  syncWidgetElement(widget, value);
 }
 
 export function setWidgetStringValue(widget: ComfyWidget | null, value: string): void {
   if (!widget) return;
   widget.value = value;
+  syncWidgetElement(widget, value);
 }
 
 export function setWidgetBooleanValue(widget: ComfyWidget | null, value: boolean): void {
   if (!widget) return;
   widget.value = value;
+  syncWidgetElement(widget, value);
 }

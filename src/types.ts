@@ -253,6 +253,9 @@ export interface NodeState {
   padOutGeometry: PadOutPreviewGeometry | null;
   padOutDrag: PadOutDragState | null;
   padOutInteractiveHooked: boolean;
+  padOutSourceWidth: number;
+  padOutSourceHeight: number;
+  padOutSourceCanvas: HTMLCanvasElement | null;
 }
 
 export interface CropPreviewGeometry {

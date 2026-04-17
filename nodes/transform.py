@@ -326,7 +326,7 @@ class ImageOpsTransform:
                 "filter": (["nearest", "bilinear", "bicubic"],),
                 "expand": ("BOOLEAN", {"default": False}),
                 "fill_mode": (_TRANSFORM_FILL_MODES, {"default": "transparent", "tooltip": "How to fill uncovered areas when scale, rotate, or translate leaves holes."}),
-                "fill_color": ("STRING", {"default": "#000000"}),
+                "fill_color": ("COLOR", {"default": "#000000"}),
                 "invert_mask": ("BOOLEAN", {"default": False}),
             },
             "optional": {

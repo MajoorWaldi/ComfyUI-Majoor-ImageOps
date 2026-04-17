@@ -57,17 +57,17 @@ function attachInteractions(node, ctx) {
       top = Math.max(0, Math.min(totalY, Math.round(drag.startPadTop + deltaY)));
       bottom = totalY - top;
     } else {
-      if (drag.mode === "w" || drag.mode === "nw" || drag.mode === "sw") {
-        left = Math.max(0, Math.round(drag.startPadLeft + deltaX));
-      }
-      if (drag.mode === "e" || drag.mode === "ne" || drag.mode === "se") {
-        right = Math.max(0, Math.round(drag.startPadRight - deltaX));
-      }
       if (drag.mode === "n" || drag.mode === "nw" || drag.mode === "ne") {
-        top = Math.max(0, Math.round(drag.startPadTop + deltaY));
+        top = Math.max(0, Math.round(drag.startPadTop - deltaY));
       }
       if (drag.mode === "s" || drag.mode === "sw" || drag.mode === "se") {
-        bottom = Math.max(0, Math.round(drag.startPadBottom - deltaY));
+        bottom = Math.max(0, Math.round(drag.startPadBottom + deltaY));
+      }
+      if (drag.mode === "w" || drag.mode === "nw" || drag.mode === "sw") {
+        left = Math.max(0, Math.round(drag.startPadLeft - deltaX));
+      }
+      if (drag.mode === "e" || drag.mode === "ne" || drag.mode === "se") {
+        right = Math.max(0, Math.round(drag.startPadRight + deltaX));
       }
     }
     setWidgetValue(findWidget(node, "pad_left"), left);

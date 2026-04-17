@@ -114,6 +114,8 @@ export function imageOpsAdapter(): Adapter {
         return ops.comp(ctx, canvasSize, node, inputs);
       } else if (cls === "ImageOpsDistort") {
         return ops.distort(ctx, canvasSize, node, inputs, tick ?? 0);
+      } else if (cls === "ImageOpsSpherize") {
+        return ops.spherize(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsNoise") {
         return ops.noise(ctx, canvasSize, node, tick ?? 0);
       } else if (cls === "ImageOpsDraw") {

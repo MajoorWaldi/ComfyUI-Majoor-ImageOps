@@ -30,6 +30,11 @@ export function getProceduralFrameCount(node: ComfyNode): number | null {
   const batchSize = Math.max(1, Math.round(numeric("batch_size", 1)));
   const frameLength = Math.max(0, Math.round(numeric("frame_length", 0)));
   const frameCount = frameLength > 0 ? frameLength : batchSize;
+
+  // animation_speed != 0 means infinite animation — return a large cycle so tick is never clamped to 0.
+  const animSpeed = numeric("animation_speed", 0);
+  if (animSpeed !== 0) return 1_000_000;
+
   return Math.max(frameCount, animatedLength);
 }
 
@@ -48,6 +53,7 @@ export function hasProceduralAnimation(node: ComfyNode): boolean {
 
   const frameCount = getProceduralFrameCount(node) ?? 1;
   if (frameCount <= 1) return false;
+  if (numeric("animation_speed", 0) !== 0) return true;
   if (numeric("seed_step", 0) !== 0) return true;
   if (numeric("frame_offset_x", 0) !== 0) return true;
   if (numeric("frame_offset_y", 0) !== 0) return true;

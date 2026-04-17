@@ -341,29 +341,21 @@ class ImageOpsNoise:
             "required": {
                 "width": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 64}),
                 "height": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 64}),
-                "batch_size": ("INT", {"default": 1, "min": 1, "max": 256, "step": 1}),
-                "frame_length": ("INT", {"default": 0, "min": 0, "max": 256, "step": 1, "tooltip": "Animation length in frames. Set to 0 to use batch_size for backward compatibility."}),
+                "frame_length": ("INT", {"default": 1, "min": 1, "max": 256, "step": 1, "tooltip": "Number of frames to generate."}),
                 "fps": ("FLOAT", {"default": 12.0, "min": 1.0, "max": 120.0, "step": 0.1, "round": 0.001}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 2147483647, "step": 1}),
-                "seed_step": ("INT", {"default": 0, "min": 0, "max": 1048576, "step": 1, "tooltip": "Amount added to seed every frame. Keep at 0 for stable/smooth animation; use frame_offset_z to animate the noise field itself."}),
                 "basis": (_NOISE_BASIS, {"default": "perlin"}),
                 "fractal_mode": (_NOISE_FRACTAL_MODES, {"default": "fbm"}),
                 "scale": ("FLOAT", {"default": 160.0, "min": 1.0, "max": 4096.0, "step": 1.0, "round": 0.01}),
                 "octaves": ("INT", {"default": 5, "min": 1, "max": 12, "step": 1}),
-                "lacunarity": ("FLOAT", {"default": 2.0, "min": 1.01, "max": 4.0, "step": 0.01, "round": 0.001}),
                 "gain": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01, "round": 0.001}),
-                "offset_x": ("FLOAT", {"default": 0.0, "min": -65536.0, "max": 65536.0, "step": 1.0, "round": 0.01}),
-                "offset_y": ("FLOAT", {"default": 0.0, "min": -65536.0, "max": 65536.0, "step": 1.0, "round": 0.01}),
-                "offset_z": ("FLOAT", {"default": 0.0, "min": -65536.0, "max": 65536.0, "step": 1.0, "round": 0.01, "tooltip": "Temporal/depth noise offset for smooth 3D noise animation."}),
-                "frame_offset_x": ("FLOAT", {"default": 0.0, "min": -4096.0, "max": 4096.0, "step": 0.5, "round": 0.01}),
-                "frame_offset_y": ("FLOAT", {"default": 0.0, "min": -4096.0, "max": 4096.0, "step": 0.5, "round": 0.01}),
-                "frame_offset_z": ("FLOAT", {"default": 0.0, "min": -4096.0, "max": 4096.0, "step": 0.5, "round": 0.01, "tooltip": "Per-frame Z/depth motion. Use seed_step=0 for smooth temporal evolution."}),
-                "seamless": ("BOOLEAN", {"default": False, "tooltip": "Wrap X/Y lattice coordinates so generated noise tiles as a repeating texture."}),
+                "offset_z": ("FLOAT", {"default": 0.0, "min": -65536.0, "max": 65536.0, "step": 1.0, "round": 0.01, "tooltip": "Static Z offset into the noise field."}),
+                "animation_speed": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 512.0, "step": 0.1, "round": 0.01, "tooltip": "Z offset added per frame. Higher = faster animation. 0 = still image."}),
+                "seamless": ("BOOLEAN", {"default": False, "tooltip": "Wrap X/Y lattice so the texture tiles seamlessly."}),
                 "contrast": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 4.0, "step": 0.01, "round": 0.001}),
                 "invert": ("BOOLEAN", {"default": False}),
-                "low_color": ("STRING", {"default": "#000000"}),
-                "high_color": ("STRING", {"default": "#FFFFFF"}),
-                "compute_device": (_NOISE_COMPUTE_DEVICES, {"default": "auto", "tooltip": "auto uses CUDA for synthesis when available, otherwise CPU."}),
+                "low_color": ("COLOR", {"default": "#000000"}),
+                "high_color": ("COLOR", {"default": "#FFFFFF"}),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -374,44 +366,45 @@ class ImageOpsNoise:
         self,
         width=1024,
         height=1024,
-        batch_size=1,
-        frame_length=0,
+        frame_length=1,
         fps=12.0,
         seed=0,
-        seed_step=0,
         basis="perlin",
         fractal_mode="fbm",
         scale=160.0,
         octaves=5,
-        lacunarity=2.0,
         gain=0.5,
-        offset_x=0.0,
-        offset_y=0.0,
         offset_z=0.0,
-        frame_offset_x=0.0,
-        frame_offset_y=0.0,
-        frame_offset_z=0.0,
+        animation_speed=1.0,
         seamless=False,
         contrast=1.0,
         invert=False,
         low_color="#000000",
         high_color="#FFFFFF",
-        compute_device="auto",
+        # legacy / compat params (ignored if present in old workflows)
+        batch_size=None,
+        seed_step=None,
+        lacunarity=None,
+        offset_x=None,
+        offset_y=None,
+        frame_offset_x=None,
+        frame_offset_y=None,
+        frame_offset_z=None,
+        compute_device=None,
         unique_id=None,
     ):
         target_w = max(1, _scalar(width, int))
         target_h = max(1, _scalar(height, int))
-        legacy_batch = max(1, _scalar(batch_size, int))
-        requested_frame_length = max(0, _scalar(frame_length, int))
-        frame_count = requested_frame_length if requested_frame_length > 0 else legacy_batch
+        frame_count = max(1, _scalar(frame_length, int))
         preview_fps = max(1.0, _scalar(fps, float))
-        device = _resolve_noise_device(_scalar(compute_device, str))
+        device = _resolve_noise_device(_scalar(compute_device, str) if compute_device is not None else "auto")
         progress = start_progress(total=frame_count, unique_id=unique_id)
+        anim_speed = _scalar(animation_speed, float) if frame_offset_z is None else _scalar(frame_offset_z, float)
 
         masks = []
         images = []
         for frame_index in range(frame_count):
-            frame_seed = _scalar(seed, int, index=frame_index) + frame_index * _scalar(seed_step, int, index=frame_index)
+            frame_seed = _scalar(seed, int, index=frame_index)
             frame_gray = _synthesize_noise(
                 basis=_scalar(basis, str, index=frame_index),
                 fractal_mode=_scalar(fractal_mode, str, index=frame_index),
@@ -419,11 +412,11 @@ class ImageOpsNoise:
                 height=target_h,
                 scale=_scalar(scale, float, index=frame_index),
                 octaves=_scalar(octaves, int, index=frame_index),
-                lacunarity=_scalar(lacunarity, float, index=frame_index),
+                lacunarity=2.0,
                 gain=_scalar(gain, float, index=frame_index),
-                offset_x=_scalar(offset_x, float, index=frame_index) + frame_index * _scalar(frame_offset_x, float, index=frame_index),
-                offset_y=_scalar(offset_y, float, index=frame_index) + frame_index * _scalar(frame_offset_y, float, index=frame_index),
-                offset_z=_scalar(offset_z, float, index=frame_index) + frame_index * _scalar(frame_offset_z, float, index=frame_index),
+                offset_x=0.0,
+                offset_y=0.0,
+                offset_z=_scalar(offset_z, float, index=frame_index) + frame_index * anim_speed,
                 seed=frame_seed,
                 seamless=_scalar(seamless, bool, index=frame_index),
                 device=device,

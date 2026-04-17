@@ -232,15 +232,17 @@ function drawCornerPinBounds(node, ctx, width, height, sourceWidth, sourceHeight
   ctx.restore();
   return geometry;
 }
-function drawPadOutBounds(node, ctx, width, height, outputWidth, outputHeight) {
+function drawPadOutBounds(node, ctx, width, height, outputWidth, outputHeight, fixedSourceWidth = 0, fixedSourceHeight = 0) {
   if (!isPadOutNode(node)) return null;
   const padLeft = Math.max(0, Math.round(widgetNumber(node, "pad_left", 0)));
   const padTop = Math.max(0, Math.round(widgetNumber(node, "pad_top", 0)));
   const padRight = Math.max(0, Math.round(widgetNumber(node, "pad_right", 0)));
   const padBottom = Math.max(0, Math.round(widgetNumber(node, "pad_bottom", 0)));
-  const sourceWidth = Math.max(1, outputWidth - padLeft - padRight);
-  const sourceHeight = Math.max(1, outputHeight - padTop - padBottom);
-  const fit = getFitPlacement(width, height, outputWidth, outputHeight);
+  const sourceWidth = fixedSourceWidth > 0 ? fixedSourceWidth : Math.max(1, outputWidth - padLeft - padRight);
+  const sourceHeight = fixedSourceHeight > 0 ? fixedSourceHeight : Math.max(1, outputHeight - padTop - padBottom);
+  const effectiveOutputWidth = sourceWidth + padLeft + padRight;
+  const effectiveOutputHeight = sourceHeight + padTop + padBottom;
+  const fit = getFitPlacement(width, height, effectiveOutputWidth, effectiveOutputHeight);
   const scaleX = fit.drawWidth / Math.max(1, outputWidth);
   const scaleY = fit.drawHeight / Math.max(1, outputHeight);
   const left = fit.dx + padLeft * scaleX;
@@ -248,30 +250,43 @@ function drawPadOutBounds(node, ctx, width, height, outputWidth, outputHeight) {
   const innerWidth = sourceWidth * scaleX;
   const innerHeight = sourceHeight * scaleY;
   ctx.save();
-  ctx.fillStyle = "rgba(0,0,0,0.28)";
+  ctx.fillStyle = "rgba(0,0,0,0.32)";
   ctx.beginPath();
   ctx.rect(fit.dx, fit.dy, fit.drawWidth, fit.drawHeight);
   ctx.rect(left, top, innerWidth, innerHeight);
   ctx.fill("evenodd");
-  ctx.strokeStyle = "rgba(98, 224, 255, 0.96)";
-  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = "rgba(98, 224, 255, 0.88)";
+  ctx.lineWidth = 1.4;
+  ctx.setLineDash([5, 3]);
   ctx.strokeRect(left + 0.5, top + 0.5, innerWidth, innerHeight);
-  const points = [
-    { x: left, y: top },
-    { x: left + innerWidth, y: top },
-    { x: left, y: top + innerHeight },
-    { x: left + innerWidth, y: top + innerHeight }
+  ctx.setLineDash([]);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.strokeRect(fit.dx + 0.5, fit.dy + 0.5, fit.drawWidth, fit.drawHeight);
+  ctx.setLineDash([]);
+  const mx = fit.dx + fit.drawWidth / 2;
+  const my = fit.dy + fit.drawHeight / 2;
+  const outerHandles = [
+    { x: fit.dx, y: fit.dy },
+    { x: mx, y: fit.dy },
+    { x: fit.dx + fit.drawWidth, y: fit.dy },
+    { x: fit.dx + fit.drawWidth, y: my },
+    { x: fit.dx + fit.drawWidth, y: fit.dy + fit.drawHeight },
+    { x: mx, y: fit.dy + fit.drawHeight },
+    { x: fit.dx, y: fit.dy + fit.drawHeight },
+    { x: fit.dx, y: my }
   ];
-  ctx.fillStyle = "rgba(98, 224, 255, 0.95)";
-  for (const point of points) {
-    ctx.fillRect(point.x - 3, point.y - 3, 6, 6);
+  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+  for (const pt of outerHandles) {
+    ctx.fillRect(pt.x - 4, pt.y - 4, 8, 8);
   }
   ctx.restore();
   return {
     sourceWidth,
     sourceHeight,
-    outputWidth,
-    outputHeight,
+    outputWidth: effectiveOutputWidth,
+    outputHeight: effectiveOutputHeight,
     padLeft,
     padTop,
     padRight,
@@ -301,7 +316,37 @@ function blit(node, st, source, canvasSize, sourceWidth, sourceHeight) {
       sourceHeight ?? source.naturalHeight ?? source.videoHeight ?? source.height ?? 1
     )
   );
+  const isNewSource = source !== st.previewLastSource;
   st.previewLastSource = source;
+  let padOutFit = null;
+  let padOutPl = 0, padOutPt = 0, padOutPr = 0, padOutPb = 0;
+  let padOutSw = 0, padOutSh = 0;
+  if (isPadOutNode(node)) {
+    padOutPl = Math.max(0, Math.round(widgetNumber(node, "pad_left", 0)));
+    padOutPt = Math.max(0, Math.round(widgetNumber(node, "pad_top", 0)));
+    padOutPr = Math.max(0, Math.round(widgetNumber(node, "pad_right", 0)));
+    padOutPb = Math.max(0, Math.round(widgetNumber(node, "pad_bottom", 0)));
+    if (isNewSource) {
+      st.padOutSourceWidth = Math.max(1, resolvedWidth - padOutPl - padOutPr);
+      st.padOutSourceHeight = Math.max(1, resolvedHeight - padOutPt - padOutPb);
+      const sw = st.padOutSourceWidth, sh = st.padOutSourceHeight;
+      const srcCanvas = document.createElement("canvas");
+      srcCanvas.width = sw;
+      srcCanvas.height = sh;
+      srcCanvas.getContext("2d")?.drawImage(source, padOutPl, padOutPt, sw, sh, 0, 0, sw, sh);
+      st.padOutSourceCanvas = srcCanvas;
+    }
+    padOutSw = st.padOutSourceWidth;
+    padOutSh = st.padOutSourceHeight;
+    if (padOutSw > 0) {
+      padOutFit = getFitPlacement(
+        canvasSize,
+        canvasSize,
+        padOutSw + padOutPl + padOutPr,
+        padOutSh + padOutPt + padOutPb
+      );
+    }
+  }
   const fit = getFitPlacement(canvasSize, canvasSize, resolvedWidth, resolvedHeight);
   const noZoomPan = isDrawNode(node);
   const zoom = noZoomPan ? 1 : Math.max(0.35, st.previewZoom ?? 1);
@@ -316,7 +361,23 @@ function blit(node, st, source, canvasSize, sourceWidth, sourceHeight) {
     ctx.translate(-canvasSize / 2, -canvasSize / 2);
   }
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(source, fit.dx, fit.dy, fit.drawWidth, fit.drawHeight);
+  if (padOutFit && st.padOutSourceCanvas && padOutSw > 0) {
+    const ow = padOutSw + padOutPl + padOutPr;
+    const oh = padOutSh + padOutPt + padOutPb;
+    const scX = padOutFit.drawWidth / Math.max(1, ow);
+    const scY = padOutFit.drawHeight / Math.max(1, oh);
+    ctx.fillStyle = "rgb(128,128,128)";
+    ctx.fillRect(padOutFit.dx, padOutFit.dy, padOutFit.drawWidth, padOutFit.drawHeight);
+    ctx.drawImage(
+      st.padOutSourceCanvas,
+      padOutFit.dx + padOutPl * scX,
+      padOutFit.dy + padOutPt * scY,
+      padOutSw * scX,
+      padOutSh * scY
+    );
+  } else {
+    ctx.drawImage(source, fit.dx, fit.dy, fit.drawWidth, fit.drawHeight);
+  }
   if (isDrawNode(node)) {
     st.drawGeometry = {
       sourceWidth: resolvedWidth,
@@ -331,10 +392,12 @@ function blit(node, st, source, canvasSize, sourceWidth, sourceHeight) {
   }
   st.cropGeometry = drawCropBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
   st.cornerPinGeometry = drawCornerPinBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
-  st.padOutGeometry = drawPadOutBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
+  const effOW = padOutSw > 0 ? padOutSw + padOutPl + padOutPr : resolvedWidth;
+  const effOH = padOutSh > 0 ? padOutSh + padOutPt + padOutPb : resolvedHeight;
+  st.padOutGeometry = drawPadOutBounds(node, ctx, canvasSize, canvasSize, effOW, effOH, padOutSw, padOutSh);
   drawTransformBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
   drawCompBounds(node, ctx, canvasSize, canvasSize, st.compOutputWidth || resolvedWidth, st.compOutputHeight || resolvedHeight, st.compLayers);
-  drawOutputFormatBox(ctx, fit);
+  drawOutputFormatBox(ctx, padOutFit ?? fit);
   if (hasTransform) ctx.restore();
 }
 function tryRenderNativePreview(node, st, canvasSize) {

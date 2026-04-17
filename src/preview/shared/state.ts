@@ -116,6 +116,9 @@ export function ensureState(node: ComfyNode): NodeState {
     padOutGeometry: null,
     padOutDrag: null,
     padOutInteractiveHooked: false,
+    padOutSourceWidth: 0,
+    padOutSourceHeight: 0,
+    padOutSourceCanvas: null,
   };
   return node.__imageops_state!;
 }

@@ -117,8 +117,8 @@ def _make_edge_pad(source: torch.Tensor, left: int, top: int, right: int, bottom
 
 class ImageOpsPadOut:
     CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("image", "mask")
+    RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT")
+    RETURN_NAMES = ("image", "mask", "width", "height")
     FUNCTION = "apply"
 
     @classmethod
@@ -132,7 +132,7 @@ class ImageOpsPadOut:
                 "pad_bottom": ("INT", {"default": 128, "min": 0, "max": 4096, "step": 1}),
                 "target_format": (_PADOUT_TARGET_FORMATS, {"default": "custom", "tooltip": "Add extra padding to hit a target aspect ratio without scaling the image."}),
                 "fill_mode": (_PADOUT_FILL_MODES, {"default": "constant"}),
-                "fill_color": ("STRING", {"default": "#000000"}),
+                "fill_color": ("COLOR", {"default": "#000000"}),
                 "blur_radius": ("INT", {"default": 32, "min": 0, "max": 512, "step": 1, "tooltip": "Used by blurry padding."}),
                 "invert_mask": ("BOOLEAN", {"default": False}),
             },
@@ -172,7 +172,7 @@ class ImageOpsPadOut:
             if _scalar(invert_mask, bool):
                 mask = 1.0 - mask
             progress.finish()
-            return build_node_preview_result(source, (source, mask), prefix="imageops_padout")
+            return build_node_preview_result(source, (source, mask, source_w, source_h), prefix="imageops_padout")
 
         left = max(0, _scalar(pad_left, int))
         top = max(0, _scalar(pad_top, int))
@@ -218,4 +218,4 @@ class ImageOpsPadOut:
             mask = 1.0 - mask
 
         progress.finish()
-        return build_node_preview_result(out, (out, mask.clamp(0.0, 1.0)), prefix="imageops_padout")
+        return build_node_preview_result(out, (out, mask.clamp(0.0, 1.0), out_w, out_h), prefix="imageops_padout")

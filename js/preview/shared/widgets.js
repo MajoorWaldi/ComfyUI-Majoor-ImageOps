@@ -1,3 +1,19 @@
+function syncWidgetElement(widget, value) {
+  const element = widget?.element;
+  if (!element) return;
+  if (typeof value === "boolean") {
+    if ("checked" in element) {
+      element.checked = value;
+    }
+    if ("value" in element) {
+      element.value = value ? "true" : "false";
+    }
+    return;
+  }
+  if ("value" in element) {
+    element.value = String(value);
+  }
+}
 function findWidget(node, name) {
   return node?.widgets?.find((w) => w?.name === name) ?? null;
 }
@@ -48,14 +64,17 @@ function hideWidgetForGood(node, widget, suffix = "") {
 function setWidgetValue(widget, value) {
   if (!widget) return;
   widget.value = value;
+  syncWidgetElement(widget, value);
 }
 function setWidgetStringValue(widget, value) {
   if (!widget) return;
   widget.value = value;
+  syncWidgetElement(widget, value);
 }
 function setWidgetBooleanValue(widget, value) {
   if (!widget) return;
   widget.value = value;
+  syncWidgetElement(widget, value);
 }
 export {
   findWidget,
