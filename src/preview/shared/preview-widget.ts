@@ -9,6 +9,29 @@ import { isNode as isCompNode } from "../nodes/comp.js";
 import { styleSoftButton, styleSoftField, styleSoftRange, styleInlineAction, createColorSwatch } from "./dom-styles.js";
 import { COMP_BLEND_MODES } from "../comp.js";
 
+export function getNodePreviewMinHeight(node: ComfyNode): number {
+  if (isDrawNode(node)) return 220;
+  if (isColorCorrectNode(node)) return 490;
+  if (isCompNode(node)) return 400;
+  if (isPreviewNode(node)) return 360;
+  return 320;
+}
+
+export function getNodePreviewTargetSize(
+  node: ComfyNode,
+  root: HTMLElement | null,
+  fallbackWidth: number = 360,
+): [number, number] {
+  const minWidth = 360;
+  const minHeight = getNodePreviewMinHeight(node);
+  const measuredWidth = root ? Math.max(root.offsetWidth, root.scrollWidth) + 12 : 0;
+  const measuredHeight = root ? Math.max(root.offsetHeight, root.scrollHeight) + 12 : 0;
+  return [
+    Math.max(minWidth, fallbackWidth, measuredWidth),
+    Math.max(minHeight, measuredHeight),
+  ];
+}
+
 export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canvasSize: number): NodeState | null {
   if (!IMAGEOPS_CLASSES.has(node.comfyClass)) return null;
   const st = ensureState(node);
@@ -131,12 +154,30 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
   let colorSatLabel: HTMLDivElement | null = null;
   let colorSwatch: HTMLDivElement | null = null;
   let colorResetButton: HTMLButtonElement | null = null;
+  let colorTemperatureInput: HTMLInputElement | null = null;
+  let colorTemperatureLabel: HTMLDivElement | null = null;
+  let colorTintInput: HTMLInputElement | null = null;
+  let colorTintLabel: HTMLDivElement | null = null;
+  let colorContrastInput: HTMLInputElement | null = null;
+  let colorContrastLabel: HTMLDivElement | null = null;
+  let colorSaturationInput: HTMLInputElement | null = null;
+  let colorSaturationValueLabel: HTMLDivElement | null = null;
+  let colorVibranceInput: HTMLInputElement | null = null;
+  let colorVibranceLabel: HTMLDivElement | null = null;
+  let colorGammaInput: HTMLInputElement | null = null;
+  let colorGammaLabel: HTMLDivElement | null = null;
+  let colorShadowWheelCanvas: HTMLCanvasElement | null = null;
+  let colorShadowLabel: HTMLDivElement | null = null;
+  let colorMidtoneWheelCanvas: HTMLCanvasElement | null = null;
+  let colorMidtoneLabel: HTMLDivElement | null = null;
+  let colorHighlightWheelCanvas: HTMLCanvasElement | null = null;
+  let colorHighlightLabel: HTMLDivElement | null = null;
   let colorControls: HTMLDivElement | null = null;
   if (colorCorrectNode) {
     colorControls = document.createElement("div");
     colorControls.style.marginTop = "8px";
     colorControls.style.display = "grid";
-    colorControls.style.gridTemplateColumns = "minmax(132px, 152px) minmax(0,1fr)";
+    colorControls.style.gridTemplateColumns = "minmax(0,1fr)";
     colorControls.style.gap = "10px";
     colorControls.style.alignItems = "stretch";
 
@@ -182,7 +223,7 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
     colorHueLabel = document.createElement("div");
     colorHueLabel.style.fontSize = "11px";
     colorHueLabel.style.opacity = "0.86";
-    colorHueLabel.textContent = "Hue 0°";
+    colorHueLabel.textContent = "Hue 0 deg";
 
     colorSatLabel = document.createElement("div");
     colorSatLabel.style.fontSize = "11px";
@@ -205,8 +246,156 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
     colorMeta.appendChild(readoutRow);
     colorMeta.appendChild(colorResetButton);
 
-    colorControls.appendChild(colorWheelCanvas);
-    colorControls.appendChild(colorMeta);
+    const globalWheelRow = document.createElement("div");
+    globalWheelRow.style.display = "grid";
+    globalWheelRow.style.gridTemplateColumns = "minmax(132px, 152px) minmax(0,1fr)";
+    globalWheelRow.style.gap = "10px";
+    globalWheelRow.style.alignItems = "stretch";
+    globalWheelRow.appendChild(colorWheelCanvas);
+    globalWheelRow.appendChild(colorMeta);
+    colorControls.appendChild(globalWheelRow);
+
+    const makeRangeRow = (
+      labelText: string,
+      input: HTMLInputElement,
+      valueLabel: HTMLDivElement,
+      min: number,
+      max: number,
+      step: number,
+      value: number,
+      accent: string,
+    ): HTMLDivElement => {
+      const row = document.createElement("div");
+      row.style.display = "grid";
+      row.style.gridTemplateColumns = "68px minmax(0,1fr) 40px";
+      row.style.gap = "8px";
+      row.style.alignItems = "center";
+
+      const label = document.createElement("div");
+      label.textContent = labelText;
+      label.style.fontSize = "11px";
+      label.style.opacity = "0.8";
+
+      input.type = "range";
+      input.min = String(min);
+      input.max = String(max);
+      input.step = String(step);
+      input.value = String(value);
+      styleSoftRange(input);
+      input.style.accentColor = accent;
+
+      valueLabel.style.fontSize = "11px";
+      valueLabel.style.opacity = "0.84";
+      valueLabel.style.textAlign = "right";
+      valueLabel.textContent = String(value);
+
+      row.appendChild(label);
+      row.appendChild(input);
+      row.appendChild(valueLabel);
+      return row;
+    };
+
+    const primariesCard = document.createElement("div");
+    primariesCard.style.display = "grid";
+    primariesCard.style.gap = "8px";
+
+    const primariesTop = document.createElement("div");
+    primariesTop.style.display = "flex";
+    primariesTop.style.alignItems = "center";
+    primariesTop.style.justifyContent = "space-between";
+    primariesTop.style.gap = "8px";
+
+    const primariesTitle = document.createElement("div");
+    primariesTitle.textContent = "Primaries";
+    primariesTitle.style.fontSize = "12px";
+    primariesTitle.style.fontWeight = "600";
+    primariesTitle.style.letterSpacing = "0.02em";
+    primariesTop.appendChild(primariesTitle);
+    primariesTop.appendChild(colorResetButton);
+    primariesCard.appendChild(primariesTop);
+
+    colorTemperatureInput = document.createElement("input");
+    colorTemperatureLabel = document.createElement("div");
+    primariesCard.appendChild(makeRangeRow("Temp", colorTemperatureInput, colorTemperatureLabel, -100, 100, 1, 0, "#ffb347"));
+
+    colorTintInput = document.createElement("input");
+    colorTintLabel = document.createElement("div");
+    primariesCard.appendChild(makeRangeRow("Tint", colorTintInput, colorTintLabel, -100, 100, 1, 0, "#d77dff"));
+
+    colorContrastInput = document.createElement("input");
+    colorContrastLabel = document.createElement("div");
+    primariesCard.appendChild(makeRangeRow("Contrast", colorContrastInput, colorContrastLabel, -100, 100, 1, 0, "#8bd3ff"));
+
+    colorSaturationInput = document.createElement("input");
+    colorSaturationValueLabel = document.createElement("div");
+    primariesCard.appendChild(makeRangeRow("Sat", colorSaturationInput, colorSaturationValueLabel, -100, 100, 1, 0, "#7dffb3"));
+
+    colorVibranceInput = document.createElement("input");
+    colorVibranceLabel = document.createElement("div");
+    primariesCard.appendChild(makeRangeRow("Vibrance", colorVibranceInput, colorVibranceLabel, -100, 100, 1, 0, "#9bff67"));
+
+    colorGammaInput = document.createElement("input");
+    colorGammaLabel = document.createElement("div");
+    primariesCard.appendChild(makeRangeRow("Gamma", colorGammaInput, colorGammaLabel, 0.2, 2.2, 0.01, 1, "#ffd166"));
+
+    colorControls.appendChild(primariesCard);
+
+    const wheelsTitle = document.createElement("div");
+    wheelsTitle.textContent = "3-Way Color";
+    wheelsTitle.style.fontSize = "12px";
+    wheelsTitle.style.fontWeight = "600";
+    wheelsTitle.style.letterSpacing = "0.02em";
+    wheelsTitle.style.marginTop = "2px";
+    colorControls.appendChild(wheelsTitle);
+
+    const wheelsGrid = document.createElement("div");
+    wheelsGrid.style.display = "grid";
+    wheelsGrid.style.gridTemplateColumns = "repeat(3, minmax(0,1fr))";
+    wheelsGrid.style.gap = "10px";
+
+    const makeWheelCard = (title: string): [HTMLDivElement, HTMLCanvasElement, HTMLDivElement] => {
+      const card = document.createElement("div");
+      card.style.display = "grid";
+      card.style.gap = "6px";
+      card.style.justifyItems = "center";
+
+      const cardTitle = document.createElement("div");
+      cardTitle.textContent = title;
+      cardTitle.style.fontSize = "11px";
+      cardTitle.style.opacity = "0.82";
+
+      const wheel = document.createElement("canvas");
+      wheel.width = 120;
+      wheel.height = 120;
+      wheel.style.width = "100%";
+      wheel.style.maxWidth = "120px";
+      wheel.style.aspectRatio = "1";
+      wheel.style.borderRadius = "999px";
+      wheel.style.cursor = "crosshair";
+      wheel.style.background = "radial-gradient(circle at center, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.18) 100%)";
+      wheel.style.border = "1px solid rgba(255,255,255,0.1)";
+      wheel.style.boxSizing = "border-box";
+
+      const label = document.createElement("div");
+      label.style.fontSize = "11px";
+      label.style.opacity = "0.84";
+      label.textContent = `${title} 0%`;
+
+      card.appendChild(cardTitle);
+      card.appendChild(wheel);
+      card.appendChild(label);
+      return [card, wheel, label];
+    };
+
+    let wheelCard: HTMLDivElement;
+    [wheelCard, colorShadowWheelCanvas, colorShadowLabel] = makeWheelCard("Shadows");
+    wheelsGrid.appendChild(wheelCard);
+    [wheelCard, colorMidtoneWheelCanvas, colorMidtoneLabel] = makeWheelCard("Midtones");
+    wheelsGrid.appendChild(wheelCard);
+    [wheelCard, colorHighlightWheelCanvas, colorHighlightLabel] = makeWheelCard("Highlights");
+    wheelsGrid.appendChild(wheelCard);
+
+    colorControls.appendChild(wheelsGrid);
   }
 
   let compAddButton: HTMLButtonElement | null = null;
@@ -546,7 +735,7 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
   if (compControls) root.appendChild(compControls);
   root.appendChild(progressWrap);
 
-  const domMinHeight = drawNode ? 480 : colorCorrectNode ? 490 : compNode ? 400 : previewNode ? 360 : 320;
+  const domMinHeight = getNodePreviewMinHeight(node);
   node.addDOMWidget("preview", "ImageOpsPreview", root, {
     serialize: false,
     hideOnZoom: false,
@@ -607,6 +796,24 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
   st.colorSatLabel = colorSatLabel;
   st.colorSwatch = colorSwatch;
   st.colorResetButton = colorResetButton;
+  st.colorTemperatureInput = colorTemperatureInput;
+  st.colorTemperatureLabel = colorTemperatureLabel;
+  st.colorTintInput = colorTintInput;
+  st.colorTintLabel = colorTintLabel;
+  st.colorContrastInput = colorContrastInput;
+  st.colorContrastLabel = colorContrastLabel;
+  st.colorSaturationInput = colorSaturationInput;
+  st.colorSaturationValueLabel = colorSaturationValueLabel;
+  st.colorVibranceInput = colorVibranceInput;
+  st.colorVibranceLabel = colorVibranceLabel;
+  st.colorGammaInput = colorGammaInput;
+  st.colorGammaLabel = colorGammaLabel;
+  st.colorShadowWheelCanvas = colorShadowWheelCanvas;
+  st.colorShadowLabel = colorShadowLabel;
+  st.colorMidtoneWheelCanvas = colorMidtoneWheelCanvas;
+  st.colorMidtoneLabel = colorMidtoneLabel;
+  st.colorHighlightWheelCanvas = colorHighlightWheelCanvas;
+  st.colorHighlightLabel = colorHighlightLabel;
   st.compAddButton = compAddButton;
   st.compResetButton = compResetButton;
   st.compResizeButton = compResizeButton;
@@ -618,7 +825,7 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
 
   try {
     const cs = (node as any).computeSize?.() ?? [360, domMinHeight];
-    node.setSize?.([Math.max(cs[0], 360), Math.max(cs[1], domMinHeight)]);
+    node.setSize?.(getNodePreviewTargetSize(node, root, Math.max(cs[0], 360)));
     node.resizable = true;
   } catch {}
 
@@ -626,7 +833,7 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
   setTimeout(() => {
     try {
       const cs2 = (node as any).computeSize?.() ?? [360, domMinHeight];
-      node.setSize?.([Math.max(cs2[0], 360), Math.max(cs2[1], domMinHeight)]);
+      node.setSize?.(getNodePreviewTargetSize(node, root, Math.max(cs2[0], 360)));
       (node.graph as any)?.setDirtyCanvas(true, true);
     } catch {}
   }, 100);
@@ -637,3 +844,4 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
 
   return st;
 }
+

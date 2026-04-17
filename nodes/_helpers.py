@@ -179,6 +179,17 @@ def _apply_temperature_linear(rgb: torch.Tensor, temperature: torch.Tensor) -> t
     return rgb * scales
 
 
+def _apply_tint_linear(rgb: torch.Tensor, tint: torch.Tensor) -> torch.Tensor:
+    green = tint.clamp(min=0.0)
+    magenta = (-tint).clamp(min=0.0)
+    scales = torch.cat([
+        1.0 + magenta * 0.5,
+        1.0 + green,
+        1.0 + magenta * 0.5,
+    ], dim=-1)
+    return rgb * scales
+
+
 def _apply_hue_shift_rgb(rgb: torch.Tensor, hue_shift: torch.Tensor) -> torch.Tensor:
     hsv = _rgb_to_hsv(rgb.clamp(0.0, 1.0))
     hue = (hsv[..., 0] + hue_shift[..., 0]) % 1.0
@@ -191,6 +202,61 @@ def _linear_luma(rgb: torch.Tensor) -> torch.Tensor:
     return (rgb * weights).sum(dim=-1, keepdim=True)
 
 
+def _apply_vibrance_linear(rgb: torch.Tensor, vibrance: torch.Tensor) -> torch.Tensor:
+    amount = vibrance.clamp(min=-1.0, max=1.0)
+    luma = _linear_luma(rgb)
+    max_rgb = rgb.amax(dim=-1, keepdim=True)
+    min_rgb = rgb.amin(dim=-1, keepdim=True)
+    chroma = (max_rgb - min_rgb).clamp(0.0, 1.0)
+    boost = 1.0 + amount * (1.0 - chroma)
+    return (luma + (rgb - luma) * boost).clamp(0.0, 1.0)
+
+
+def _wheel_tint_rgb(
+    rgb: torch.Tensor,
+    hue_deg: ScalarOrList,
+    amount: ScalarOrList,
+    mask: torch.Tensor,
+) -> torch.Tensor:
+    B = rgb.shape[0]
+    d = rgb.device
+    hue = _param_tensor(hue_deg, B, d, torch.float32) / 360.0
+    sat = (_param_tensor(amount, B, d, torch.float32).abs() / 100.0).clamp(0.0, 1.0)
+    hsv = torch.cat([
+        torch.remainder(hue, 1.0),
+        sat,
+        torch.ones_like(sat),
+    ], dim=-1)
+    tint_rgb = _hsv_to_rgb(hsv).clamp(0.0, 1.0)
+    tint_linear = _srgb_to_linear(tint_rgb).clamp(0.0, 1.0)
+    influence = sat * mask
+    scale = 1.0 + (tint_linear - 0.5) * influence * 0.85
+    return (rgb * scale).clamp(0.0, 1.0)
+
+
+def _apply_three_way_color_grade(
+    rgb: torch.Tensor,
+    shadows_hue: ScalarOrList,
+    shadows_amount: ScalarOrList,
+    midtones_hue: ScalarOrList,
+    midtones_amount: ScalarOrList,
+    highlights_hue: ScalarOrList,
+    highlights_amount: ScalarOrList,
+) -> torch.Tensor:
+    luma = _linear_luma(rgb)
+    shadow_mask = ((0.5 - luma) / 0.5).clamp(0.0, 1.0)
+    shadow_mask = shadow_mask * shadow_mask
+    highlight_mask = ((luma - 0.5) / 0.5).clamp(0.0, 1.0)
+    highlight_mask = highlight_mask * highlight_mask
+    mid_mask = (1.0 - shadow_mask - highlight_mask).clamp(0.0, 1.0)
+
+    out = rgb
+    out = _wheel_tint_rgb(out, shadows_hue, shadows_amount, shadow_mask)
+    out = _wheel_tint_rgb(out, midtones_hue, midtones_amount, mid_mask)
+    out = _wheel_tint_rgb(out, highlights_hue, highlights_amount, highlight_mask)
+    return out.clamp(0.0, 1.0)
+
+
 def _param_all_close(v: ScalarOrList, target: float, tolerance: float = 1e-6) -> bool:
     if isinstance(v, (list, tuple)):
         return all(_param_all_close(item, target, tolerance) for item in v)
@@ -200,11 +266,19 @@ def _param_all_close(v: ScalarOrList, target: float, tolerance: float = 1e-6) ->
 def _apply_color_adjust(
     image: torch.Tensor,
     temperature: ScalarOrList,
+    tint: ScalarOrList,
     hue: ScalarOrList,
     brightness: ScalarOrList,
     contrast: ScalarOrList,
     saturation: ScalarOrList,
+    vibrance: ScalarOrList,
     gamma: ScalarOrList,
+    shadows_hue: ScalarOrList = 0.0,
+    shadows_amount: ScalarOrList = 0.0,
+    midtones_hue: ScalarOrList = 0.0,
+    midtones_amount: ScalarOrList = 0.0,
+    highlights_hue: ScalarOrList = 0.0,
+    highlights_amount: ScalarOrList = 0.0,
 ) -> torch.Tensor:
     """Pure PyTorch color adjustment in linear RGB; alpha/extra channels pass through."""
     if image is None:
@@ -213,11 +287,16 @@ def _apply_color_adjust(
         raise ValueError(f"Expected [B,H,W,C], got {tuple(image.shape)}")
     if (
         _param_all_close(temperature, 0.0)
+        and _param_all_close(tint, 0.0)
         and _param_all_close(hue, 0.0)
         and _param_all_close(brightness, 0.0)
         and _param_all_close(contrast, 0.0)
         and _param_all_close(saturation, 0.0)
+        and _param_all_close(vibrance, 0.0)
         and _param_all_close(gamma, 1.0)
+        and _param_all_close(shadows_amount, 0.0)
+        and _param_all_close(midtones_amount, 0.0)
+        and _param_all_close(highlights_amount, 0.0)
     ):
         return image
 
@@ -230,13 +309,22 @@ def _apply_color_adjust(
     contrast_t = 1.0 + _param_tensor(contrast, B, d, torch.float32) / 100.0
     saturation_t = 1.0 + _param_tensor(saturation, B, d, torch.float32) / 100.0
     temperature_t = _param_tensor(temperature, B, d, torch.float32) / 100.0
+    tint_t = _param_tensor(tint, B, d, torch.float32) / 100.0
+    vibrance_t = _param_tensor(vibrance, B, d, torch.float32) / 100.0
     hue_shift_t = _param_tensor(hue, B, d, torch.float32) / 360.0
     gamma_t = _param_tensor(gamma, B, d, torch.float32).clamp(GAMMA_SAFE_MIN, GAMMA_MAX)
     has_temperature = not _param_all_close(temperature, 0.0)
+    has_tint = not _param_all_close(tint, 0.0)
     has_contrast = not _param_all_close(contrast, 0.0)
     has_saturation = not _param_all_close(saturation, 0.0)
+    has_vibrance = not _param_all_close(vibrance, 0.0)
     has_hue = not _param_all_close(hue, 0.0)
     has_gamma = not _param_all_close(gamma, 1.0)
+    has_three_way = (
+        not _param_all_close(shadows_amount, 0.0)
+        or not _param_all_close(midtones_amount, 0.0)
+        or not _param_all_close(highlights_amount, 0.0)
+    )
 
     rgb = _srgb_to_linear(x[..., :3])
     extra = x[..., 3:] if C > 3 else None
@@ -244,6 +332,8 @@ def _apply_color_adjust(
     rgb = (rgb * brightness_t).clamp(0.0, 1.0)
     if has_temperature:
         rgb = _apply_temperature_linear(rgb, temperature_t).clamp(0.0, 1.0)
+    if has_tint:
+        rgb = _apply_tint_linear(rgb, tint_t).clamp(0.0, 1.0)
 
     if has_contrast:
         mean_luma = _linear_luma(rgb).mean(dim=(1, 2), keepdim=True)
@@ -252,8 +342,20 @@ def _apply_color_adjust(
     if has_saturation:
         luma = _linear_luma(rgb)
         rgb = (luma + (rgb - luma) * saturation_t).clamp(0.0, 1.0)
+    if has_vibrance:
+        rgb = _apply_vibrance_linear(rgb, vibrance_t).clamp(0.0, 1.0)
     if has_hue:
         rgb = _apply_hue_shift_rgb(rgb, hue_shift_t).clamp(0.0, 1.0)
+    if has_three_way:
+        rgb = _apply_three_way_color_grade(
+            rgb,
+            shadows_hue,
+            shadows_amount,
+            midtones_hue,
+            midtones_amount,
+            highlights_hue,
+            highlights_amount,
+        )
     if has_gamma:
         rgb = rgb.pow(1.0 / gamma_t).clamp(0.0, 1.0)
     rgb = _linear_to_srgb(rgb)
@@ -266,13 +368,15 @@ def _apply_color_adjust(
 def _apply_color_correct_reference(
     image: torch.Tensor,
     temperature: ScalarOrList,
+    tint: ScalarOrList,
     hue: ScalarOrList,
     brightness: ScalarOrList,
     contrast: ScalarOrList,
     saturation: ScalarOrList,
+    vibrance: ScalarOrList,
     gamma: ScalarOrList,
 ) -> torch.Tensor:
-    return _apply_color_adjust(image, temperature, hue, brightness, contrast, saturation, gamma)
+    return _apply_color_adjust(image, temperature, tint, hue, brightness, contrast, saturation, vibrance, gamma)
 
 
 def _gaussian_kernel1d(radius, sigma):

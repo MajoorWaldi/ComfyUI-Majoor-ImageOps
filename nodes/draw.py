@@ -257,18 +257,9 @@ class ImageOpsDraw:
         video=None,
         unique_id=None,
     ):
-        del (
-            sync_dimensions,
-            tool,
-            brush_edge,
-            brush_color,
-            brush_opacity,
-            brush_size,
-            brush_pressure_size,
-            brush_pressure_opacity,
-            brush_tilt_size,
-            overlay_format,
-        )
+        # These widget values are owned by the frontend paint UI and serialized into
+        # overlay_data / overlay_layers. Keep them in the signature for workflow
+        # compatibility, but the backend compositor only needs the resolved overlay payload.
         progress = start_progress(unique_id=unique_id)
 
         source = None

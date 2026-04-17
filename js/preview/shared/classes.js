@@ -14,7 +14,6 @@ const IMAGEOPS_CLASSES = /* @__PURE__ */ new Set([
   "ImageOpsMaskConvert",
   "ImageOpsNoise",
   "ImageOpsPadOut",
-  "ImageOpsPadOutStitch",
   "ImageOpsPreview"
 ]);
 export {

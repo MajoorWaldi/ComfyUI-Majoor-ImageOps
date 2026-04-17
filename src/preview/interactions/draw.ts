@@ -17,9 +17,6 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
   st.drawInteractiveHooked = true;
 
   const canvas: HTMLCanvasElement = st.canvas;
-  const drawRoot = canvas.parentElement as HTMLElement | null;
-  const drawBypassInput = drawRoot?.querySelector<HTMLInputElement>('input[data-draw-bypass="1"]');
-  const drawInvertMaskInput = drawRoot?.querySelector<HTMLInputElement>('input[data-draw-invert-mask="1"]');
 
   if (!st.drawGeometry || !st.drawCanvas) {
     void ctx.renderDrawNode(node, 0);
@@ -99,18 +96,6 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     const linked = !widgetBoolean(node, "sync_dimensions", true);
     setWidgetBooleanValue(findWidget(node, "sync_dimensions"), linked);
     ctx.syncDrawWidgets(node, "sync_dimensions");
-    ctx.refreshNode(node);
-  });
-
-  drawBypassInput?.addEventListener("change", () => {
-    setWidgetBooleanValue(findWidget(node, "bypass"), !!drawBypassInput.checked);
-    ctx.syncDrawWidgets(node);
-    ctx.refreshNode(node);
-  });
-
-  drawInvertMaskInput?.addEventListener("change", () => {
-    setWidgetBooleanValue(findWidget(node, "invert_mask"), !!drawInvertMaskInput.checked);
-    ctx.syncDrawWidgets(node);
     ctx.refreshNode(node);
   });
 

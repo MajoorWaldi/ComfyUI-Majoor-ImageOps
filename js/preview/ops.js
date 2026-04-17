@@ -86,14 +86,6 @@ function markPreparedMaskCanvas(canvas) {
 function isPreparedMaskCanvas(canvas) {
   return !!canvas && canvas.__imageopsPreparedMask === true;
 }
-function markPadOutStitcherCanvas(canvas, mask) {
-  const stitcherCanvas = canvas;
-  stitcherCanvas.__imageopsPadOutMask = mask;
-  return stitcherCanvas;
-}
-function getPadOutStitcherMask(canvas) {
-  return canvas?.__imageopsPadOutMask ?? null;
-}
 function normalizeFilterName(filter) {
   const value = String(filter || "bilinear").toLowerCase();
   if (value === "nearest") return "nearest-exact";
@@ -481,7 +473,7 @@ function renderNoiseCanvas(node, maskOnly = false, frameIndex = 0, canvasSize = 
     basis: strAny(node, ["basis"], "perlin", resolvedFrameIndex),
     fractalMode: strAny(node, ["fractal_mode"], "fbm", resolvedFrameIndex),
     seed: numAny(node, ["seed"], 0, resolvedFrameIndex),
-    seedStep: numAny(node, ["seed_step"], 1, resolvedFrameIndex),
+    seedStep: numAny(node, ["seed_step"], 0, resolvedFrameIndex),
     scale: numAny(node, ["scale"], 160, resolvedFrameIndex),
     octaves: numAny(node, ["octaves"], 5, resolvedFrameIndex),
     lacunarity: numAny(node, ["lacunarity"], 2, resolvedFrameIndex),
@@ -797,14 +789,31 @@ function applyColorCorrect(ctx, W, H, brightness, contrast, gamma, saturation) {
   }
   putImageData(ctx, img);
 }
-function applyColorCorrectReference(ctx, W, H, temperature, hue, brightness, contrast, saturation, gamma) {
+function applyColorCorrectReference(ctx, W, H, temperature, tint, hue, brightness, contrast, saturation, vibrance, gamma, shadowsHue, shadowsAmount, midtonesHue, midtonesAmount, highlightsHue, highlightsAmount) {
   const { luma_weights: LW } = getOpsConstants();
   const img = getImageData(ctx, W, H);
   const d = img.data;
   const brightnessFactor = 1 + brightness / 100;
   const contrastFactor = 1 + contrast / 100;
   const temperatureFactor = temperature / 100;
+  const tintFactor = tint / 100;
+  const vibranceFactor = vibrance / 100;
   const safeGamma = Math.max(0.2, Math.min(2.2, gamma));
+  const wheelTint = (hueDeg, amount) => {
+    const sat = clamp01(amount / 100);
+    const rad = (hueDeg % 360 + 360) % 360;
+    const sector = rad / 60;
+    const c = sat;
+    const x = c * (1 - Math.abs(sector % 2 - 1));
+    let rp = 0, gp = 0, bp = 0;
+    if (sector < 1) [rp, gp, bp] = [c, x, 0];
+    else if (sector < 2) [rp, gp, bp] = [x, c, 0];
+    else if (sector < 3) [rp, gp, bp] = [0, c, x];
+    else if (sector < 4) [rp, gp, bp] = [0, x, c];
+    else if (sector < 5) [rp, gp, bp] = [x, 0, c];
+    else [rp, gp, bp] = [c, 0, x];
+    return [rp, gp, bp];
+  };
   let meanLuma = 0;
   const pixelCount = Math.max(1, W * H);
   for (let i = 0; i < d.length; i += 4) {
@@ -827,6 +836,33 @@ function applyColorCorrectReference(ctx, W, H, temperature, hue, brightness, con
     } else if (temperatureFactor < 0) {
       b *= 1 - temperatureFactor;
     }
+    if (tintFactor > 0) {
+      r *= 1 + tintFactor * 0.25;
+      b *= 1 + tintFactor * 0.35;
+      g *= 1 - tintFactor * 0.2;
+    } else if (tintFactor < 0) {
+      g *= 1 + -tintFactor * 0.3;
+      r *= 1 - -tintFactor * 0.12;
+      b *= 1 - -tintFactor * 0.08;
+    }
+    const luma = luma01(r, g, b, LW);
+    const maxChroma = Math.max(r, g, b);
+    const minChroma = Math.min(r, g, b);
+    const chroma = maxChroma - minChroma;
+    const muted = 1 - clamp01(chroma);
+    const vibranceBoost = 1 + vibranceFactor * muted;
+    r = luma + (r - luma) * vibranceBoost;
+    g = luma + (g - luma) * vibranceBoost;
+    b = luma + (b - luma) * vibranceBoost;
+    const shadowMask = Math.max(0, Math.min(1, (0.5 - luma) / 0.5)) ** 2;
+    const highlightMask = Math.max(0, Math.min(1, (luma - 0.5) / 0.5)) ** 2;
+    const midMask = Math.max(0, Math.min(1, 1 - shadowMask - highlightMask));
+    const [sr, sg, sb] = wheelTint(shadowsHue, shadowsAmount);
+    const [mr, mg, mb] = wheelTint(midtonesHue, midtonesAmount);
+    const [hr, hg, hb] = wheelTint(highlightsHue, highlightsAmount);
+    r *= 1 + ((sr - 0.5) * shadowMask + (mr - 0.5) * midMask + (hr - 0.5) * highlightMask) * 0.85;
+    g *= 1 + ((sg - 0.5) * shadowMask + (mg - 0.5) * midMask + (hg - 0.5) * highlightMask) * 0.85;
+    b *= 1 + ((sb - 0.5) * shadowMask + (mb - 0.5) * midMask + (hb - 0.5) * highlightMask) * 0.85;
     d[i] = Math.round(clamp01(Math.pow(clamp01(r), safeGamma)) * 255);
     d[i + 1] = Math.round(clamp01(Math.pow(clamp01(g), safeGamma)) * 255);
     d[i + 2] = Math.round(clamp01(Math.pow(clamp01(b), safeGamma)) * 255);
@@ -1746,46 +1782,6 @@ function blurMaskAlphaCanvas(maskCanvas, radius) {
 function emptyMaskCanvas(width, height) {
   return markPreparedMaskCanvas(makeCanvas(width, height));
 }
-function renderPadOutStitchCanvases(node, inputs = [], frameIndex = 0) {
-  const stitcherCanvas = inputs[0] ?? null;
-  const outpainted = inputs[1] ?? stitcherCanvas ?? makeCanvas(1, 1);
-  const fallbackOriginal = inputs[2] ?? null;
-  const width = outpainted.width || 1;
-  const height = outpainted.height || 1;
-  const stitcherMask = getPadOutStitcherMask(stitcherCanvas);
-  const rawPadoutMask = stitcherMask ?? inputs[3] ?? null;
-  const canvasSource = stitcherCanvas ?? fallbackOriginal;
-  if (!rawPadoutMask) {
-    return { image: outpainted, mask: emptyMaskCanvas(width, height) };
-  }
-  const padoutMask = buildMaskAlphaCanvas(rawPadoutMask, width, height);
-  const originalRegion = strAny(node, ["original_region"], "black_is_original", frameIndex).toLowerCase().replace(/[-\s]+/g, "_");
-  const preserveMask = stitcherMask ? invertMaskAlphaCanvas(padoutMask) : originalRegion === "white_is_original" ? padoutMask : invertMaskAlphaCanvas(padoutMask);
-  const outpaintMask = invertMaskAlphaCanvas(preserveMask);
-  const outputMask = boolAny(node, ["invert_mask"], false, frameIndex) ? preserveMask : outpaintMask;
-  if (!canvasSource || boolAny(node, ["bypass"], false, frameIndex)) {
-    return { image: outpainted, mask: outputMask };
-  }
-  const bounds = computeMaskBounds(preserveMask);
-  if (!bounds) {
-    return { image: outpainted, mask: outputMask };
-  }
-  const placed = makeCanvas(width, height);
-  const pctx = placed.getContext("2d");
-  pctx.drawImage(outpainted, 0, 0, width, height);
-  setResampleMode(pctx, "bicubic");
-  if (stitcherMask) {
-    pctx.drawImage(canvasSource, 0, 0, width, height);
-  } else {
-    pctx.drawImage(canvasSource, bounds.x, bounds.y, bounds.width, bounds.height);
-  }
-  const featherRadius = Math.max(0, numAny(node, ["feather_radius"], 0, frameIndex));
-  const compositeMask = featherRadius > 0 ? blurMaskAlphaCanvas(preserveMask, featherRadius) : preserveMask;
-  return {
-    image: compositeProcessedWithMask(outpainted, placed, compositeMask),
-    mask: outputMask
-  };
-}
 function renderCompPreview(node, inputLayers) {
   const slots = getCompSlots(node);
   const allLayers = syncCompLayers(str(node, "layers_json", ""), slots);
@@ -2237,11 +2233,19 @@ const ops = {
           width,
           height,
           numAny(node, ["temperature"], 0, frameIndex),
+          numAny(node, ["tint"], 0, frameIndex),
           numAny(node, ["hue", "hue_deg"], 0, frameIndex),
           numAny(node, ["brightness"], 0, frameIndex),
           numAny(node, ["contrast"], 0, frameIndex),
           numAny(node, ["saturation", "sat"], 0, frameIndex),
-          numAny(node, ["gamma"], 1, frameIndex)
+          numAny(node, ["vibrance"], 0, frameIndex),
+          numAny(node, ["gamma"], 1, frameIndex),
+          numAny(node, ["shadows_hue"], 0, frameIndex),
+          numAny(node, ["shadows_amount"], 0, frameIndex),
+          numAny(node, ["midtones_hue"], 0, frameIndex),
+          numAny(node, ["midtones_amount"], 0, frameIndex),
+          numAny(node, ["highlights_hue"], 0, frameIndex),
+          numAny(node, ["highlights_amount"], 0, frameIndex)
         );
       }),
       { frameIndex }
@@ -2323,14 +2327,6 @@ const ops = {
   padOut(ctx, W, node, inputs = [], frameIndex = 0) {
     const source = inputs[0] ?? ctx.canvas;
     return renderPadOutCanvases(node, source, frameIndex).image;
-  },
-  padOutStitcher(ctx, W, node, inputs = [], frameIndex = 0) {
-    const source = inputs[0] ?? ctx.canvas;
-    const { image, mask } = renderPadOutCanvases(node, source, frameIndex, false);
-    return markPadOutStitcherCanvas(image, mask);
-  },
-  padOutStitch(ctx, W, node, inputs = [], frameIndex = 0) {
-    return renderPadOutStitchCanvases(node, inputs, frameIndex).image;
   },
   cornerPin(ctx, W, node, inputs = [], frameIndex = 0) {
     const source = inputs[0] ?? ctx.canvas;
@@ -2648,9 +2644,6 @@ const ops = {
     }
     if (cls === "ImageOpsPadOut") {
       return renderPadOutCanvases(node, source, frameIndex).mask;
-    }
-    if (cls === "ImageOpsPadOutStitch") {
-      return renderPadOutStitchCanvases(node, inputs, frameIndex).mask;
     }
     if (cls === "ImageOpsCornerPin") {
       return renderCornerPinCanvases(node, source, frameIndex).mask;

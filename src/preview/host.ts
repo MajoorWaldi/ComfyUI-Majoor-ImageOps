@@ -24,7 +24,7 @@ import { widgetNumber, widgetString } from "./shared/widgets.js";
 import { getProceduralFrameCount, hasProceduralAnimation, getProceduralPlaybackFps } from "./shared/animation.js";
 import { getInputIndexByName, getNativePreviewImage } from "./shared/media.js";
 import { isNode as isPreviewNode, hidePreviewWidgets, syncPreviewWidgets } from "./nodes/preview.js";
-import { isNode as isColorCorrectNode, syncColorCorrectWidgets } from "./nodes/color-correct.js";
+import { isNode as isColorCorrectNode, hideColorCorrectWidgets, syncColorCorrectWidgets } from "./nodes/color-correct.js";
 import { isNode as isCropNode, hideCropGeometryWidgets, syncCropWidgets, setCropOutputDimensions, getCropInfoText } from "./nodes/crop.js";
 import { isNode as isDrawNode, hideDrawWidgets, syncDrawWidgets, updateDrawOverlayWidget } from "./nodes/draw.js";
 import {
@@ -45,7 +45,7 @@ import { isNode as isPadOutNode, getPadOutInfoText } from "./nodes/pad-out.js";
 import { ensureState, setInfo, schedule, stopRAF, markPreviewInteraction, getRenderCanvasSize, buildPreviewRenderKey } from "./shared/state.js";
 import { markCanvasDirty } from "./shared/canvas.js";
 import { IMAGEOPS_CLASSES } from "./shared/classes.js";
-import { ensurePreviewWidget } from "./shared/preview-widget.js";
+import { ensurePreviewWidget, getNodePreviewMinHeight, getNodePreviewTargetSize } from "./shared/preview-widget.js";
 import { blit, tryRenderNativePreview } from "./shared/bounds.js";
 import { attachPreviewNavigation } from "./shared/navigation.js";
 import {
@@ -464,6 +464,7 @@ export function registerImageOpsLivePreview(): void {
       syncDrawWidgets(node);
     }
     if (isColorCorrectNode(node)) {
+      hideColorCorrectWidgets(node);
       syncColorCorrectWidgets(node);
     }
     if (isCompNode(node)) {
@@ -547,6 +548,7 @@ export function registerImageOpsLivePreview(): void {
           attachDrawInteractionsExt(node, drawCtx);
         }
         if (isColorCorrectNode(node) && prop === "onConfigure") {
+          hideColorCorrectWidgets(node);
           attachColorCorrectInteractionsExt(node, nodeCtx);
           syncColorCorrectWidgets(node);
         }
@@ -571,12 +573,13 @@ export function registerImageOpsLivePreview(): void {
           syncPreviewWidgets(node);
         }
         if (prop === "onConfigure") {
-          const minH = isDrawNode(node) ? 480 : isColorCorrectNode(node) ? 490 : isCompNode(node) ? 400 : isPreviewNode(node) ? 360 : 320;
+          const minH = getNodePreviewMinHeight(node);
           // Defer so any post-configure size restoration by ComfyUI happens first.
           setTimeout(() => {
             try {
               const cs = (node as any).computeSize?.() ?? [360, minH];
-              (node as any).setSize?.([Math.max(cs[0], 360), Math.max(cs[1], minH)]);
+              const root = ensureState(node).canvas?.parentElement as HTMLElement | null;
+              (node as any).setSize?.(getNodePreviewTargetSize(node, root, Math.max(cs[0], 360)));
               (node.graph as any)?.setDirtyCanvas(true, true);
             } catch {}
           }, 100);

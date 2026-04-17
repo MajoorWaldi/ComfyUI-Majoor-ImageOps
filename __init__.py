@@ -10,9 +10,15 @@ To stay ComfyUI-proof, we create an internal package namespace and load node mod
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 import types
 from pathlib import Path
+
+try:
+    from comfy_api.latest import io as _node20_io
+except Exception:  # pragma: no cover - compatibility fallback when ComfyUI is older/missing stubs
+    _node20_io = None
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -42,6 +48,153 @@ def _load_module(mod_name: str, file_path: Path) -> types.ModuleType:
     sys.modules[mod_name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _humanize_node_id(node_id: str) -> str:
+    label = re.sub(r"(?<!^)(?=[A-Z])", " ", str(node_id or "")).strip()
+    return label.replace("Ajust", "Color Correct").strip()
+
+
+def _field_factory(kind: str):
+    if _node20_io is None:
+        return None
+    direct = getattr(_node20_io, kind, None)
+    if direct is not None:
+        return direct
+    fallback_map = {
+        "Float": "Int",
+        "Color": "String",
+        "Bool": "Boolean",
+        "Combo": "String",
+    }
+    return getattr(_node20_io, fallback_map.get(kind, "String"), None)
+
+
+def _make_schema_input(name: str, spec):
+    if _node20_io is None:
+        return None
+
+    raw_type = spec[0] if isinstance(spec, (tuple, list)) and spec else "STRING"
+    opts = spec[1] if isinstance(spec, (tuple, list)) and len(spec) > 1 and isinstance(spec[1], dict) else {}
+    kwargs = dict(opts)
+
+    if isinstance(raw_type, (list, tuple)) and not isinstance(raw_type, str):
+        factory = _field_factory("Combo")
+        return factory.Input(name, choices=list(raw_type), **kwargs) if factory else None
+
+    type_name = str(raw_type or "STRING").upper()
+    if "COLOR" in name.lower() and type_name == "STRING":
+        factory = _field_factory("Color")
+    elif type_name in {"BOOLEAN", "BOOL"}:
+        factory = _field_factory("Boolean")
+    elif type_name == "INT":
+        factory = _field_factory("Int")
+    elif type_name == "FLOAT":
+        factory = _field_factory("Float")
+    elif type_name == "MASK":
+        factory = _field_factory("Mask")
+    elif "IMAGE" in type_name or "VIDEO" in type_name:
+        factory = _field_factory("Image")
+    else:
+        factory = _field_factory("String")
+
+    return factory.Input(name, **kwargs) if factory else None
+
+
+def _make_schema_output(name: str, output_type: str):
+    if _node20_io is None:
+        return None
+    kind = str(output_type or "STRING").upper()
+    if kind == "MASK":
+        factory = _field_factory("Mask")
+    elif "IMAGE" in kind or "VIDEO" in kind:
+        factory = _field_factory("Image")
+    else:
+        factory = _field_factory("String")
+    return factory.Output(name, display_name=name) if factory else None
+
+
+def _make_hidden_fields(hidden_spec: dict | None):
+    if _node20_io is None or not hidden_spec:
+        return []
+    hidden_obj = getattr(_node20_io, "Hidden", None)
+    if hidden_obj is None:
+        return []
+    out = []
+    for name in hidden_spec:
+        token = getattr(hidden_obj, name, None)
+        if token is not None:
+            out.append(token)
+    return out
+
+
+def _build_legacy_schema(node_id: str, cls, display_name: str):
+    if _node20_io is None:
+        return None
+
+    legacy_inputs = cls.INPUT_TYPES() if callable(getattr(cls, "INPUT_TYPES", None)) else {}
+    required = legacy_inputs.get("required", {}) if isinstance(legacy_inputs, dict) else {}
+    optional = legacy_inputs.get("optional", {}) if isinstance(legacy_inputs, dict) else {}
+    hidden = legacy_inputs.get("hidden", {}) if isinstance(legacy_inputs, dict) else {}
+
+    inputs = []
+    for group in (required, optional):
+        for input_name, input_spec in group.items():
+            field = _make_schema_input(input_name, input_spec)
+            if field is not None:
+                inputs.append(field)
+
+    return_names = tuple(getattr(cls, "RETURN_NAMES", ()) or ())
+    return_types = tuple(getattr(cls, "RETURN_TYPES", ()) or ())
+    outputs = []
+    for index, output_type in enumerate(return_types):
+        name = return_names[index] if index < len(return_names) else f"output_{index + 1}"
+        field = _make_schema_output(name, output_type)
+        if field is not None:
+            outputs.append(field)
+
+    schema_kwargs = {
+        "node_id": node_id,
+        "display_name": display_name,
+        "category": getattr(cls, "CATEGORY", "image/imageops"),
+        "inputs": inputs,
+        "outputs": outputs,
+        "accept_all_inputs": True,
+    }
+    hidden_fields = _make_hidden_fields(hidden)
+    if hidden_fields:
+        schema_kwargs["hidden"] = hidden_fields
+    return _node20_io.Schema(**schema_kwargs)
+
+
+def _wrap_legacy_node20(node_id: str, cls, display_name: str):
+    if callable(getattr(cls, "define_schema", None)) and callable(getattr(cls, "execute", None)):
+        return cls
+    if _node20_io is None:
+        return cls
+
+    comfy_node_base = getattr(_node20_io, "ComfyNode", object)
+    bases = (cls,) if not isinstance(comfy_node_base, type) or issubclass(cls, comfy_node_base) else (cls, comfy_node_base)
+
+    class Node20Compat(*bases):
+        @classmethod
+        def define_schema(inner_cls):
+            return _build_legacy_schema(node_id, cls, display_name)
+
+        @classmethod
+        def execute(inner_cls, **kwargs):
+            fn_name = getattr(cls, "FUNCTION", None)
+            if not fn_name:
+                raise AttributeError(f"{node_id} is missing FUNCTION for Node 2.0 compatibility")
+            instance = cls()
+            fn = getattr(instance, fn_name)
+            return fn(**kwargs)
+
+    Node20Compat.__name__ = cls.__name__
+    Node20Compat.__qualname__ = cls.__qualname__
+    Node20Compat.__module__ = cls.__module__
+    Node20Compat.__doc__ = cls.__doc__
+    return Node20Compat
 
 
 # Create internal package + nodes package so node files' relative imports work.
@@ -88,25 +241,29 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "ImageOpsBlur": "ImageOps Blur",
-    "ImageOpsChannel": "ImageOps Channels",
-    "ImageOpsCornerPin": "ImageOps Corner Pin",
-    "ImageOpsComp": "ImageOps Comp",
-    "ImageOpsCrop": "ImageOps Resize/Crop",
-    "ImageOpsDistort": "ImageOps Distort",
-    "ImageOpsDraw": "ImageOps Paint",
-    "ImageOpsTransform": "ImageOps Transform",
+    "ImageOpsBlur": "〽️ ImageOps Blur",
+    "ImageOpsChannel": "〽️ ImageOps Channels",
+    "ImageOpsCornerPin": "〽️ ImageOps Corner Pin",
+    "ImageOpsComp": "〽️ ImageOps Comp",
+    "ImageOpsCrop": "〽️ ImageOps Resize/Crop",
+    "ImageOpsDistort": "〽️ ImageOps Distort",
+    "ImageOpsDraw": "〽️ ImageOps Paint",
+    "ImageOpsTransform": "〽️ ImageOps Transform",
     # Keep the legacy class key for workflow compatibility, but expose the
     # corrected node name in the UI.
-    "ImageOpsColorAjust": "ImageOps Color Correct",
-    "ImageOpsInvert": "ImageOps Invert",
-    "ImageOpsClamp": "ImageOps Clamp",
-    "ImageOpsMerge": "ImageOps Merge",
-    "ImageOpsMaskConvert": "ImageOps Mask Convert",
-    "ImageOpsNoise": "ImageOps Noise",
-    "ImageOpsPadOut": "ImageOps PadOut",
-    "ImageOpsPreview": "ImageOps Preview",
+    "ImageOpsColorAjust": "〽️ ImageOps Color Correct",
+    "ImageOpsInvert": "〽️ ImageOps Invert",
+    "ImageOpsClamp": "〽️ ImageOps Clamp",
+    "ImageOpsMerge": "〽️ ImageOps Merge",
+    "ImageOpsMaskConvert": "〽️ ImageOps Mask Convert",
+    "ImageOpsNoise": "〽️ ImageOps Noise",
+    "ImageOpsPadOut": "〽️ ImageOps PadOut",
+    "ImageOpsPreview": "〽️ ImageOps Preview",
 }
+
+for _node_id, _node_cls in list(NODE_CLASS_MAPPINGS.items()):
+    _display = NODE_DISPLAY_NAME_MAPPINGS.get(_node_id, _humanize_node_id(_node_id))
+    NODE_CLASS_MAPPINGS[_node_id] = _wrap_legacy_node20(_node_id, _node_cls, _display)
 
 __all__ = [
     "NODE_CLASS_MAPPINGS",

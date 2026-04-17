@@ -42,7 +42,6 @@
 | **ImageOps Transform** | `ImageOpsTransform` | Translate, rotate, scale with filter options (nearest/bilinear/bicubic) |
 | **ImageOps Corner Pin** | `ImageOpsCornerPin` | Perspective corner pinning with batched homography warp, bicubic filtering, supersampling, and alpha-safe edges |
 | **ImageOps Pad Out** | `ImageOpsPadOut` | Add per-side borders with constant, edge-extended, reflected, or blurry fill and optional target aspect ratios |
-| **ImageOps PadOut Stitch** | `ImageOpsPadOutStitch` | Restore the original image into an outpainted PadOut canvas using the PadOut mask |
 | **ImageOps Invert** | `ImageOpsInvert` | Invert colors and/or alpha channel |
 | **ImageOps Clamp** | `ImageOpsClamp` | Clamp pixel values to min/max range |
 | **ImageOps Merge** | `ImageOpsMerge` | Linear-light two-input compositing with production blend modes and foreground fit controls |
