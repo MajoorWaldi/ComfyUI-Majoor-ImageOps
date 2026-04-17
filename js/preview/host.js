@@ -207,7 +207,6 @@ function registerImageOpsLivePreview() {
       finishRender();
     };
     st.renderInFlight = true;
-    st.renderNonce += 1;
     if (isPreviewNode(node)) {
       if (isGraphTooLarge(node?.graph, cfg.maxGraphNodes)) {
         setInfo(st, "Live preview disabled: graph too large");
@@ -298,6 +297,7 @@ function registerImageOpsLivePreview() {
           st.compOutputWidth = Math.max(1, Math.round(widgetNumber(node, "width", 1024)));
           st.compOutputHeight = Math.max(1, Math.round(widgetNumber(node, "height", 1024)));
           updateCompControls(node);
+          commitRender();
           finishRender();
           return;
         }

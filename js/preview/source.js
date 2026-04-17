@@ -81,6 +81,7 @@ async function ensureImageElement(node, url) {
   st.lastImageURL = url;
   st.imageEl = img;
   if (st.lastBitmapURL !== url) {
+    st.lastBitmap?.close();
     st.lastBitmapURL = void 0;
     st.lastBitmap = void 0;
   }

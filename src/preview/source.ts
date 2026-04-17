@@ -98,6 +98,9 @@ export async function ensureImageElement(node: ComfyNode, url: string): Promise<
   st.lastImageURL = url;
   st.imageEl = img;
   if (st.lastBitmapURL !== url) {
+    // Close the old bitmap before dropping the reference — ImageBitmap holds GPU memory
+    // and is not automatically released by GC without an explicit .close() call.
+    st.lastBitmap?.close();
     st.lastBitmapURL = undefined;
     st.lastBitmap = undefined;
   }

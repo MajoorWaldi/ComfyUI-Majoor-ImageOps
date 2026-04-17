@@ -7,7 +7,7 @@ import {
   ensureCompInputs,
   getCompCursor,
 } from "../nodes/comp.js";
-import { getCanvasPointer } from "../shared/geometry.js";
+import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
 
 function safeSetPointerCapture(el: HTMLElement, pointerId: number): void {
   try { el.setPointerCapture?.(pointerId); } catch { /* ignore */ }
@@ -28,6 +28,11 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
   st.compInteractiveHooked = true;
 
   const canvas: HTMLCanvasElement = st.canvas;
+
+  const worldPt = (event: PointerEvent) => {
+    const raw = getCanvasPointer(canvas, event);
+    return screenToWorld(raw.x, raw.y, st.previewZoom ?? 1, st.previewPanX ?? 0, st.previewPanY ?? 0, canvas.width);
+  };
 
   st.compAddButton?.addEventListener("click", (event: MouseEvent) => {
     event.preventDefault();
@@ -103,7 +108,7 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
   });
 
   canvas.addEventListener("pointerdown", (event: PointerEvent) => {
-    const point = getCanvasPointer(canvas, event);
+    const point = worldPt(event);
     const hit = ctx.getCompHit(node, canvas.width, canvas.height, point.x, point.y);
     if (!hit) return;
     event.preventDefault();
@@ -145,7 +150,7 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
   });
 
   canvas.addEventListener("pointermove", (event: PointerEvent) => {
-    const point = getCanvasPointer(canvas, event);
+    const point = worldPt(event);
     const drag = st.compDrag;
     if (!drag || drag.pointerId !== event.pointerId) {
       canvas.style.cursor = getCompCursor(ctx.getCompHit(node, canvas.width, canvas.height, point.x, point.y)?.mode ?? null);
@@ -232,7 +237,7 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
     if (!st.compDrag || st.compDrag.pointerId !== event.pointerId) return;
     st.compDrag = null;
     safeReleasePointerCapture(canvas, event.pointerId);
-    const point = getCanvasPointer(canvas, event);
+    const point = worldPt(event);
     canvas.style.cursor = getCompCursor(ctx.getCompHit(node, canvas.width, canvas.height, point.x, point.y)?.mode ?? null);
     ctx.markPreviewInteraction(node);
     ctx.markCanvasDirty();

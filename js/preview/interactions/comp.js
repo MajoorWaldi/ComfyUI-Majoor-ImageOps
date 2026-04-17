@@ -6,7 +6,7 @@ import {
   ensureCompInputs,
   getCompCursor
 } from "../nodes/comp.js";
-import { getCanvasPointer } from "../shared/geometry.js";
+import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
 function safeSetPointerCapture(el, pointerId) {
   try {
     el.setPointerCapture?.(pointerId);
@@ -29,6 +29,10 @@ function attachInteractions(node, ctx) {
   if (!st?.canvas || st.compInteractiveHooked) return;
   st.compInteractiveHooked = true;
   const canvas = st.canvas;
+  const worldPt = (event) => {
+    const raw = getCanvasPointer(canvas, event);
+    return screenToWorld(raw.x, raw.y, st.previewZoom ?? 1, st.previewPanX ?? 0, st.previewPanY ?? 0, canvas.width);
+  };
   st.compAddButton?.addEventListener("click", (event) => {
     event.preventDefault();
     ensureCompInputs(node, Math.max(1, getCompSlots(node).length + 1));
@@ -97,7 +101,7 @@ function attachInteractions(node, ctx) {
     }, 0);
   });
   canvas.addEventListener("pointerdown", (event) => {
-    const point = getCanvasPointer(canvas, event);
+    const point = worldPt(event);
     const hit = ctx.getCompHit(node, canvas.width, canvas.height, point.x, point.y);
     if (!hit) return;
     event.preventDefault();
@@ -138,7 +142,7 @@ function attachInteractions(node, ctx) {
     ctx.markCanvasDirty();
   });
   canvas.addEventListener("pointermove", (event) => {
-    const point = getCanvasPointer(canvas, event);
+    const point = worldPt(event);
     const drag = st.compDrag;
     if (!drag || drag.pointerId !== event.pointerId) {
       canvas.style.cursor = getCompCursor(ctx.getCompHit(node, canvas.width, canvas.height, point.x, point.y)?.mode ?? null);
@@ -219,7 +223,7 @@ function attachInteractions(node, ctx) {
     if (!st.compDrag || st.compDrag.pointerId !== event.pointerId) return;
     st.compDrag = null;
     safeReleasePointerCapture(canvas, event.pointerId);
-    const point = getCanvasPointer(canvas, event);
+    const point = worldPt(event);
     canvas.style.cursor = getCompCursor(ctx.getCompHit(node, canvas.width, canvas.height, point.x, point.y)?.mode ?? null);
     ctx.markPreviewInteraction(node);
     ctx.markCanvasDirty();

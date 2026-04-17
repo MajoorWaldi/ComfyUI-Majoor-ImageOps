@@ -1,5 +1,5 @@
 import type { ComfyNode, NodeInteractionContext } from "../../types.js";
-import { getCanvasPointer } from "../shared/geometry.js";
+import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
 import { findWidget, setWidgetValue } from "../shared/widgets.js";
 import { isNode, getPadOutInteractionMode, getPadOutCursor } from "../nodes/pad-out.js";
 
@@ -10,10 +10,15 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
   st.padOutInteractiveHooked = true;
   const canvas = st.canvas;
 
+  const worldPt = (event: PointerEvent) => {
+    const raw = getCanvasPointer(canvas, event);
+    return screenToWorld(raw.x, raw.y, st.previewZoom ?? 1, st.previewPanX ?? 0, st.previewPanY ?? 0, canvas.width);
+  };
+
   canvas.addEventListener("pointerdown", (event: PointerEvent) => {
     const geometry = st.padOutGeometry;
     if (!geometry) return;
-    const point = getCanvasPointer(canvas, event);
+    const point = worldPt(event);
     const mode = getPadOutInteractionMode(geometry, point.x, point.y);
     if (!mode) return;
     event.preventDefault();
@@ -33,7 +38,7 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
   });
 
   canvas.addEventListener("pointermove", (event: PointerEvent) => {
-    const point = getCanvasPointer(canvas, event);
+    const point = worldPt(event);
     const drag = st.padOutDrag;
     const geometry = st.padOutGeometry;
     if (!drag || drag.pointerId !== event.pointerId || !geometry) {
@@ -86,7 +91,7 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     if (!st.padOutDrag || st.padOutDrag.pointerId !== event.pointerId) return;
     st.padOutDrag = null;
     canvas.releasePointerCapture?.(event.pointerId);
-    const point = getCanvasPointer(canvas, event);
+    const point = worldPt(event);
     canvas.style.cursor = getPadOutCursor(getPadOutInteractionMode(st.padOutGeometry, point.x, point.y));
     ctx.refreshNode(node);
   };

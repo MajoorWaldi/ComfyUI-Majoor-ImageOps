@@ -9,6 +9,29 @@ export function clampPreviewZoom(zoom: number): number {
   return Math.max(0.35, Math.min(6, zoom));
 }
 
+/**
+ * Converts a screen-space canvas pixel position (from getCanvasPointer) to world-space
+ * (the pre-zoom/pan coordinate space in which geometry objects store their positions).
+ *
+ * Inverse of the blit transform:
+ *   screen = zoom * (world - half) + half + pan
+ *   world  = (screen - pan - half) / zoom + half
+ */
+export function screenToWorld(
+  x: number,
+  y: number,
+  zoom: number,
+  panX: number,
+  panY: number,
+  canvasSize: number,
+): { x: number; y: number } {
+  const half = canvasSize / 2;
+  return {
+    x: (x - panX - half) / zoom + half,
+    y: (y - panY - half) / zoom + half,
+  };
+}
+
 export function getFitPlacement(width: number, height: number, sourceWidth: number, sourceHeight: number): FitPlacement {
   const safeWidth = Math.max(1, sourceWidth);
   const safeHeight = Math.max(1, sourceHeight);

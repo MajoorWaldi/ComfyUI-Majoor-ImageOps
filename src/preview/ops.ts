@@ -322,6 +322,14 @@ function noiseLerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
+// Precomputed 3D gradient table — 16 entries (padded from Perlin's 12 unit vectors).
+// Using a table eliminates Math.cos, Math.sin, Math.sqrt per gradient evaluation
+// (previously called twice per lattice corner). With 5 Perlin octaves this saves
+// ~80 trig/sqrt calls per pixel.
+const NOISE_GRAD3_X = new Float32Array([ 1,-1, 1,-1,  1,-1, 1,-1,  0, 0, 0, 0,  1,-1, 0, 0]);
+const NOISE_GRAD3_Y = new Float32Array([ 1, 1,-1,-1,  0, 0, 0, 0,  1,-1, 1,-1,  1, 1,-1, 1]);
+const NOISE_GRAD3_Z = new Float32Array([ 0, 0, 0, 0,  1, 1,-1,-1,  1, 1,-1,-1,  0, 0, 1,-1]);
+
 function noiseHash3D(x: number, y: number, z: number, seed: number): number {
   let h = (
     Math.imul(x | 0, 374761393)
@@ -391,14 +399,9 @@ function sampleValueNoise(x: number, y: number, z: number, seed: number, periodX
 function gradientDot3(ix: number, iy: number, iz: number, x: number, y: number, z: number, seed: number, periodX: number = 0, periodY: number = 0): number {
   const hashX = wrapNoiseIndex(ix, periodX);
   const hashY = wrapNoiseIndex(iy, periodY);
-  const h0 = noiseHash3D(hashX, hashY, iz, seed);
-  const h1 = noiseHash3D(hashX + 19, hashY - 31, iz + 47, seed + 1009);
-  const angle = h0 * Math.PI * 2;
-  const gz = h1 * 2 - 1;
-  const radial = Math.sqrt(Math.max(0, 1 - gz * gz));
-  const gx = radial * Math.cos(angle);
-  const gy = radial * Math.sin(angle);
-  return gx * (x - ix) + gy * (y - iy) + gz * (z - iz);
+  const h = noiseHash3D(hashX, hashY, iz, seed);
+  const gi = Math.floor(h * 16) & 15;
+  return NOISE_GRAD3_X[gi] * (x - ix) + NOISE_GRAD3_Y[gi] * (y - iy) + NOISE_GRAD3_Z[gi] * (z - iz);
 }
 
 function samplePerlinNoise(x: number, y: number, z: number, seed: number, periodX: number = 0, periodY: number = 0): number {
@@ -583,9 +586,15 @@ function renderNoiseFieldCanvas(
   return canvas;
 }
 
-function renderNoiseCanvas(node: ComfyNode, maskOnly: boolean = false, frameIndex: number = 0): HTMLCanvasElement {
-  const width = Math.max(1, Math.round(numAny(node, ["width"], 1024)));
-  const height = Math.max(1, Math.round(numAny(node, ["height"], 1024)));
+function renderNoiseCanvas(node: ComfyNode, maskOnly: boolean = false, frameIndex: number = 0, canvasSize: number = 512): HTMLCanvasElement {
+  const fullWidth = Math.max(1, Math.round(numAny(node, ["width"], 1024)));
+  const fullHeight = Math.max(1, Math.round(numAny(node, ["height"], 1024)));
+  // Cap render resolution to the preview canvas size — the full node dimensions
+  // can be thousands of pixels, but the preview widget is much smaller.
+  // This is the primary driver of animation fluidity: 1024→384 cuts pixel work by 7×.
+  const scaleFactor = Math.min(1, Math.max(1, canvasSize) / Math.max(fullWidth, fullHeight));
+  const width = Math.max(1, Math.round(fullWidth * scaleFactor));
+  const height = Math.max(1, Math.round(fullHeight * scaleFactor));
   const batchSize = Math.max(1, Math.round(numAny(node, ["batch_size"], 1)));
   const frameLength = Math.max(0, Math.round(numAny(node, ["frame_length"], 0)));
   const frameCount = frameLength > 0 ? frameLength : batchSize;
@@ -2995,7 +3004,7 @@ export const ops = {
     return renderDistortCanvas(node, inputs, frameIndex).image;
   },
   noise(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, frameIndex: number = 0): HTMLCanvasElement {
-    return renderNoiseCanvas(node, false, frameIndex);
+    return renderNoiseCanvas(node, false, frameIndex, W);
   },
   async draw(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, inputs: HTMLCanvasElement[]): Promise<HTMLCanvasElement> {
     return await renderDrawPreview(node, inputs[0] ?? null);
@@ -3020,7 +3029,7 @@ export const ops = {
     }
 
     if (cls === "ImageOpsNoise") {
-      return renderNoiseCanvas(node, true, frameIndex);
+      return renderNoiseCanvas(node, true, frameIndex, W);
     }
 
     if (cls === "ImageOpsDistort") {

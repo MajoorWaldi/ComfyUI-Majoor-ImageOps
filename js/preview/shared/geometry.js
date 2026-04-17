@@ -1,6 +1,13 @@
 function clampPreviewZoom(zoom) {
   return Math.max(0.35, Math.min(6, zoom));
 }
+function screenToWorld(x, y, zoom, panX, panY, canvasSize) {
+  const half = canvasSize / 2;
+  return {
+    x: (x - panX - half) / zoom + half,
+    y: (y - panY - half) / zoom + half
+  };
+}
 function getFitPlacement(width, height, sourceWidth, sourceHeight) {
   const safeWidth = Math.max(1, sourceWidth);
   const safeHeight = Math.max(1, sourceHeight);
@@ -45,5 +52,6 @@ export {
   drawFitSource,
   drawOutputFormatBox,
   getCanvasPointer,
-  getFitPlacement
+  getFitPlacement,
+  screenToWorld
 };

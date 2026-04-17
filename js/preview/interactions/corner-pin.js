@@ -1,4 +1,4 @@
-import { getCanvasPointer } from "../shared/geometry.js";
+import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
 import {
   isNode,
   getCornerPinHit,
@@ -23,10 +23,14 @@ function attachInteractions(node, ctx) {
   if (!st?.canvas || st.cornerPinInteractiveHooked) return;
   st.cornerPinInteractiveHooked = true;
   const canvas = st.canvas;
+  const worldPt = (event) => {
+    const raw = getCanvasPointer(canvas, event);
+    return screenToWorld(raw.x, raw.y, st.previewZoom ?? 1, st.previewPanX ?? 0, st.previewPanY ?? 0, canvas.width);
+  };
   canvas.addEventListener("pointerdown", (event) => {
     const geometry = st.cornerPinGeometry;
     if (!geometry) return;
-    const point = getCanvasPointer(canvas, event);
+    const point = worldPt(event);
     const hit = getCornerPinHit(node, geometry, point.x, point.y);
     if (!hit) return;
     event.preventDefault();
@@ -36,7 +40,7 @@ function attachInteractions(node, ctx) {
     canvas.style.cursor = "grabbing";
   });
   canvas.addEventListener("pointermove", (event) => {
-    const point = getCanvasPointer(canvas, event);
+    const point = worldPt(event);
     const drag = st.cornerPinDrag;
     const geometry = st.cornerPinGeometry;
     if (!drag || drag.pointerId !== event.pointerId || !geometry) {
@@ -53,7 +57,7 @@ function attachInteractions(node, ctx) {
     if (!st.cornerPinDrag || st.cornerPinDrag.pointerId !== event.pointerId) return;
     st.cornerPinDrag = null;
     safeReleasePointerCapture(canvas, event.pointerId);
-    const point = getCanvasPointer(canvas, event);
+    const point = worldPt(event);
     canvas.style.cursor = getCornerPinHit(node, st.cornerPinGeometry, point.x, point.y) ? "grab" : "default";
     ctx.refreshNode(node);
   };

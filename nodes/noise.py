@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-
 import torch
 
 from ._helpers import _hex_to_rgb01, _scalar
@@ -126,15 +124,33 @@ def _value_noise(
     return _lerp(y0, y1, w).clamp(-1.0, 1.0)
 
 
+_GRAD3_GX = [1.0, -1.0, 1.0, -1.0,  1.0, -1.0, 1.0, -1.0,  0.0, 0.0, 0.0, 0.0,  1.0, -1.0, 0.0, 0.0]
+_GRAD3_GY = [1.0, 1.0, -1.0, -1.0,  0.0, 0.0, 0.0, 0.0,  1.0, -1.0, 1.0, -1.0,  1.0, 1.0, -1.0, 1.0]
+_GRAD3_GZ = [0.0, 0.0, 0.0, 0.0,  1.0, 1.0, -1.0, -1.0,  1.0, 1.0, -1.0, -1.0,  0.0, 0.0, 1.0, -1.0]
+
+# Cache gradient tables per device to avoid repeated tensor creation in the hot path.
+_GRAD3_CACHE: dict = {}
+
+
+def _get_grad3_tensors(device: torch.device):
+    key = str(device)
+    if key not in _GRAD3_CACHE:
+        _GRAD3_CACHE[key] = (
+            torch.tensor(_GRAD3_GX, dtype=torch.float32, device=device),
+            torch.tensor(_GRAD3_GY, dtype=torch.float32, device=device),
+            torch.tensor(_GRAD3_GZ, dtype=torch.float32, device=device),
+        )
+    return _GRAD3_CACHE[key]
+
+
 def _gradient_dot3(ix, iy, iz, dx, dy, dz, seed: int) -> torch.Tensor:
-    h0 = _hash_lattice3(ix, iy, iz, seed)
-    h1 = _hash_lattice3(ix + 19, iy - 31, iz + 47, seed + 1009)
-    theta = h0 * (math.pi * 2.0)
-    gz = h1 * 2.0 - 1.0
-    radial = (1.0 - gz * gz).clamp_min(0.0).sqrt()
-    gx = radial * torch.cos(theta)
-    gy = radial * torch.sin(theta)
-    return gx * dx + gy * dy + gz * dz
+    # Single hash call + table lookup replaces 2× _hash_lattice3 + cos/sin/sqrt.
+    # Eliminates ~3 vectorised trig/sqrt ops per lattice corner; with 8 corners ×
+    # 5 octaves that is ~120 fewer tensor ops per Perlin frame.
+    h = _hash_lattice3(ix, iy, iz, seed)
+    gi = (h * 16.0).long().clamp_(0, 15)
+    gx_t, gy_t, gz_t = _get_grad3_tensors(h.device)
+    return gx_t[gi] * dx + gy_t[gi] * dy + gz_t[gi] * dz
 
 
 def _perlin_noise(

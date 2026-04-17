@@ -12,7 +12,7 @@ import {
   cropRectFromAnchor,
   freeCropRectFromAnchor,
 } from "../nodes/crop.js";
-import { getCanvasPointer } from "../shared/geometry.js";
+import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
 import { findWidget, widgetNumber } from "../shared/widgets.js";
 
 export function attachInteractions(node: ComfyNode, ctx: CropInteractionContext): void {
@@ -21,6 +21,13 @@ export function attachInteractions(node: ComfyNode, ctx: CropInteractionContext)
   st.cropInteractiveHooked = true;
 
   const canvas: HTMLCanvasElement = st.canvas;
+
+  // Convert a screen-space pointer event to world-space (pre-zoom/pan) canvas coordinates.
+  // Geometry objects store world-space positions, so all pointer comparisons must use these.
+  const worldPt = (event: PointerEvent) => {
+    const raw = getCanvasPointer(canvas, event);
+    return screenToWorld(raw.x, raw.y, st.previewZoom ?? 1, st.previewPanX ?? 0, st.previewPanY ?? 0, canvas.width);
+  };
 
   st.cropResetButton?.addEventListener("click", (event: MouseEvent) => {
     event.preventDefault();
@@ -33,7 +40,7 @@ export function attachInteractions(node: ComfyNode, ctx: CropInteractionContext)
   canvas.addEventListener("pointerdown", (event: PointerEvent) => {
     const geometry = st.cropGeometry;
     if (!geometry) return;
-    const point = getCanvasPointer(canvas, event);
+    const point = worldPt(event);
     const mode = getCropInteractionMode(geometry, point.x, point.y);
     if (!mode) return;
 
@@ -59,7 +66,7 @@ export function attachInteractions(node: ComfyNode, ctx: CropInteractionContext)
   });
 
   canvas.addEventListener("pointermove", (event: PointerEvent) => {
-    const point = getCanvasPointer(canvas, event);
+    const point = worldPt(event);
     const drag = st.cropDrag;
     const geometry = st.cropGeometry;
 
@@ -141,7 +148,7 @@ export function attachInteractions(node: ComfyNode, ctx: CropInteractionContext)
     if (!st.cropDrag || st.cropDrag.pointerId !== event.pointerId) return;
     st.cropDrag = null;
     canvas.releasePointerCapture?.(event.pointerId);
-    const point = getCanvasPointer(canvas, event);
+    const point = worldPt(event);
     canvas.style.cursor = getCropCursor(getCropInteractionMode(st.cropGeometry, point.x, point.y));
     ctx.refreshNode(node);
   };

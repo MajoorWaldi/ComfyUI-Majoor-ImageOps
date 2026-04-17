@@ -275,6 +275,9 @@ function noiseFade(t) {
 function noiseLerp(a, b, t) {
   return a + (b - a) * t;
 }
+const NOISE_GRAD3_X = new Float32Array([1, -1, 1, -1, 1, -1, 1, -1, 0, 0, 0, 0, 1, -1, 0, 0]);
+const NOISE_GRAD3_Y = new Float32Array([1, 1, -1, -1, 0, 0, 0, 0, 1, -1, 1, -1, 1, 1, -1, 1]);
+const NOISE_GRAD3_Z = new Float32Array([0, 0, 0, 0, 1, 1, -1, -1, 1, 1, -1, -1, 0, 0, 1, -1]);
 function noiseHash3D(x, y, z, seed) {
   let h = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(z | 0, 2246822519) + Math.imul(seed | 0, 1442695041) | 0;
   h ^= h >>> 13;
@@ -332,14 +335,9 @@ function sampleValueNoise(x, y, z, seed, periodX = 0, periodY = 0) {
 function gradientDot3(ix, iy, iz, x, y, z, seed, periodX = 0, periodY = 0) {
   const hashX = wrapNoiseIndex(ix, periodX);
   const hashY = wrapNoiseIndex(iy, periodY);
-  const h0 = noiseHash3D(hashX, hashY, iz, seed);
-  const h1 = noiseHash3D(hashX + 19, hashY - 31, iz + 47, seed + 1009);
-  const angle = h0 * Math.PI * 2;
-  const gz = h1 * 2 - 1;
-  const radial = Math.sqrt(Math.max(0, 1 - gz * gz));
-  const gx = radial * Math.cos(angle);
-  const gy = radial * Math.sin(angle);
-  return gx * (x - ix) + gy * (y - iy) + gz * (z - iz);
+  const h = noiseHash3D(hashX, hashY, iz, seed);
+  const gi = Math.floor(h * 16) & 15;
+  return NOISE_GRAD3_X[gi] * (x - ix) + NOISE_GRAD3_Y[gi] * (y - iy) + NOISE_GRAD3_Z[gi] * (z - iz);
 }
 function samplePerlinNoise(x, y, z, seed, periodX = 0, periodY = 0) {
   const x0 = Math.floor(x);
@@ -467,9 +465,12 @@ function renderNoiseFieldCanvas(width, height, grayValues, low, high, maskOnly =
   context.putImageData(image, 0, 0);
   return canvas;
 }
-function renderNoiseCanvas(node, maskOnly = false, frameIndex = 0) {
-  const width = Math.max(1, Math.round(numAny(node, ["width"], 1024)));
-  const height = Math.max(1, Math.round(numAny(node, ["height"], 1024)));
+function renderNoiseCanvas(node, maskOnly = false, frameIndex = 0, canvasSize = 512) {
+  const fullWidth = Math.max(1, Math.round(numAny(node, ["width"], 1024)));
+  const fullHeight = Math.max(1, Math.round(numAny(node, ["height"], 1024)));
+  const scaleFactor = Math.min(1, Math.max(1, canvasSize) / Math.max(fullWidth, fullHeight));
+  const width = Math.max(1, Math.round(fullWidth * scaleFactor));
+  const height = Math.max(1, Math.round(fullHeight * scaleFactor));
   const batchSize = Math.max(1, Math.round(numAny(node, ["batch_size"], 1)));
   const frameLength = Math.max(0, Math.round(numAny(node, ["frame_length"], 0)));
   const frameCount = frameLength > 0 ? frameLength : batchSize;
@@ -2582,7 +2583,7 @@ const ops = {
     return renderDistortCanvas(node, inputs, frameIndex).image;
   },
   noise(ctx, W, node, frameIndex = 0) {
-    return renderNoiseCanvas(node, false, frameIndex);
+    return renderNoiseCanvas(node, false, frameIndex, W);
   },
   async draw(ctx, W, node, inputs) {
     return await renderDrawPreview(node, inputs[0] ?? null);
@@ -2603,7 +2604,7 @@ const ops = {
       return boolAny(node, ["reverse"], false, frameIndex) ? imageToMaskPreviewCanvas(source, node, frameIndex) : source;
     }
     if (cls === "ImageOpsNoise") {
-      return renderNoiseCanvas(node, true, frameIndex);
+      return renderNoiseCanvas(node, true, frameIndex, W);
     }
     if (cls === "ImageOpsDistort") {
       return renderDistortCanvas(node, inputs, frameIndex).mask;

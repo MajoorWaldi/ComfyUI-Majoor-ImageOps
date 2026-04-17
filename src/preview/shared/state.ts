@@ -28,7 +28,6 @@ export function ensureState(node: ComfyNode): NodeState {
     lastRenderTick: null,
     renderInFlight: false,
     queuedRenderTick: null,
-    renderNonce: 0,
     isPreview: isPreviewNode(node),
     nativeAnimated: false,
     nativeDirty: false,

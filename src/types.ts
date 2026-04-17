@@ -165,7 +165,6 @@ export interface NodeState {
   lastRenderTick: number | null;
   renderInFlight: boolean;
   queuedRenderTick: number | null;
-  renderNonce: number;
   isPreview: boolean;
   nativeAnimated: boolean;
   nativeDirty: boolean;
