@@ -44,6 +44,14 @@ def _default_layer(slot: str, index: int) -> dict[str, Any]:
         "opacity": 1.0,
         "mode": "over",
         "enabled": True,
+        "tl_x": None,
+        "tl_y": None,
+        "tr_x": None,
+        "tr_y": None,
+        "bl_x": None,
+        "bl_y": None,
+        "br_x": None,
+        "br_y": None,
     }
 
 
@@ -64,6 +72,9 @@ def _normalize_layer(entry: dict[str, Any], slot: str, index: int) -> dict[str, 
     mode = str(data.get("mode", default["mode"]) or "over").strip().lower().replace("-", "_").replace(" ", "_")
     data["mode"] = mode if mode in COMP_BLEND_MODES else "over"
     data["enabled"] = bool(data.get("enabled", True))
+    for key in ("tl_x", "tl_y", "tr_x", "tr_y", "bl_x", "bl_y", "br_x", "br_y"):
+        value = data.get(key)
+        data[key] = None if value in (None, "") else max(-2.0, min(3.0, _scalar(value)))
     return data
 
 
@@ -241,6 +252,14 @@ class ImageOpsComp(io.ComfyNode):
                 center_y=layer.get("center_y", 0.5),
                 scale=layer.get("scale", 1.0),
                 rotate_deg=layer.get("rotate_deg", 0.0),
+                tl_x=layer.get("tl_x"),
+                tl_y=layer.get("tl_y"),
+                tr_x=layer.get("tr_x"),
+                tr_y=layer.get("tr_y"),
+                bl_x=layer.get("bl_x"),
+                bl_y=layer.get("bl_y"),
+                br_x=layer.get("br_x"),
+                br_y=layer.get("br_y"),
             )
             progress.update()
 

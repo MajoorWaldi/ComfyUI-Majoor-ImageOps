@@ -1,5 +1,5 @@
 // Graph traversal helpers for ImageOps Live Preview (v6)
-import type { ComfyNode, ComfyLink, ComfyWidget, LGraph, MediaSource } from "../types.js";
+import type { ComfyNode, ComfyLink, ComfyOutputSlot, ComfyWidget, LGraph, MediaSource } from "../types.js";
 
 const MAX_RECURSION = 64;
 const DEFAULT_INPUT_SCAN = 4;
@@ -7,8 +7,83 @@ const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "
 const VIDEO_EXTS = new Set(["mp4", "mov", "webm", "mkv", "avi", "m4v", "flv", "wmv", "mpg", "mpeg"]);
 const MAYBE_ANIMATED_IMAGE_EXTS = new Set(["gif"]);
 
+function normalizeLinkId(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  return String(value);
+}
+
+function toFiniteNumber(value: unknown): number | undefined {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : undefined;
+}
+
+function normalizeGraphLink(link: unknown): ComfyLink | null {
+  if (!link) return null;
+  if (Array.isArray(link)) {
+    const [id, origin_id, origin_slot, target_id, target_slot] = link;
+    return {
+      id: toFiniteNumber(id),
+      origin_id: toFiniteNumber(origin_id),
+      origin_slot: toFiniteNumber(origin_slot),
+      target_id: toFiniteNumber(target_id),
+      target_slot: toFiniteNumber(target_slot),
+    };
+  }
+  if (typeof link === "object") return link as ComfyLink;
+  return null;
+}
+
+function outputLinkIds(output: ComfyOutputSlot | undefined): string[] {
+  const links = Array.isArray(output?.links)
+    ? output.links
+    : output?.links != null
+      ? [output.links]
+      : output?.link != null
+        ? [output.link]
+        : [];
+  return links.map((value) => normalizeLinkId(value)).filter((value): value is string => !!value);
+}
+
+function resolveInputLinkFallback(node: ComfyNode, inputIndex: number): ComfyLink | null {
+  const linkId = normalizeLinkId(node?.inputs?.[inputIndex]?.link ?? null);
+  if (!linkId) return null;
+
+  const graph = node?.graph as (LGraph & { links?: Record<string, unknown> | unknown[]; _links?: Record<string, unknown> | unknown[] }) | undefined;
+  const stores = [graph?.links, graph?._links];
+  for (const store of stores) {
+    if (!store) continue;
+    const entry = Array.isArray(store)
+      ? store[toFiniteNumber(linkId) ?? -1]
+      : (store as Record<string, unknown>)[linkId] ?? (store as Record<string, unknown>)[String(toFiniteNumber(linkId) ?? linkId)];
+    const normalized = normalizeGraphLink(entry);
+    if (normalized) return normalized;
+  }
+
+  for (const upstream of (graph?._nodes ?? [])) {
+    for (let slot = 0; slot < (upstream.outputs?.length ?? 0); slot++) {
+      if (outputLinkIds(upstream.outputs?.[slot]).includes(linkId)) {
+        return {
+          id: toFiniteNumber(linkId),
+          origin_id: upstream.id,
+          origin_slot: slot,
+          target_id: node.id,
+          target_slot: inputIndex,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
 export function getInputLink(node: ComfyNode, inputIndex: number = 0): ComfyLink | null {
-  try { return node?.getInputLink?.(inputIndex) ?? null; } catch { return null; }
+  try {
+    const direct = normalizeGraphLink(node?.getInputLink?.(inputIndex) ?? null);
+    if (direct) return direct;
+  } catch {
+    // Fall back to serialized link data below.
+  }
+  return resolveInputLinkFallback(node, inputIndex);
 }
 
 export function getInputOriginSlot(node: ComfyNode, inputIndex: number = 0, fallback: number | null = null): number | null {

@@ -3,12 +3,12 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from ._helpers import EPSILON, MEDIA_INPUT_TYPE, _param_tensor, _scalar, _select_media_tensor
+from ._helpers import EPSILON, MEDIA_INPUT_TYPE, _hex_to_rgb01, _invert_homography_batch, _param_tensor, _scalar, _select_media_tensor, _solve_homography_batch
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 
 _CORNER_PIN_FILTERS = ["nearest", "bilinear", "bicubic"]
-_CORNER_PIN_EDGE_MODES = ["border", "reflection", "zeros"]
+_CORNER_PIN_FILL_MODES = ["transparent", "mirror", "stretch", "expand", "color"]
 _CORNER_PIN_SUPERSAMPLE_MAX = 4
 
 
@@ -17,83 +17,75 @@ def _normalize_filter(filter_mode: str) -> str:
     return normalized if normalized in ("nearest", "bilinear", "bicubic") else "bilinear"
 
 
-def _normalize_padding(edge_mode: str) -> str:
-    normalized = str(edge_mode or "zeros").strip().lower()
-    return normalized if normalized in ("border", "reflection", "zeros") else "zeros"
+def _normalize_fill_mode(fill_mode: str | None, legacy_edge_mode: str | None = None) -> str:
+    raw = fill_mode if fill_mode not in (None, "") else legacy_edge_mode
+    normalized = str(raw or "transparent").strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in ("border", "expand", "edge", "edge_extend", "replicate", "extend"):
+        return "expand"
+    if normalized in ("reflect", "reflection", "mirror"):
+        return "mirror"
+    if normalized in ("stretch", "fill", "cover"):
+        return "stretch"
+    if normalized in ("color", "colour", "constant", "solid"):
+        return "color"
+    return "transparent"
+
+
+def _normalize_padding(fill_mode: str | None, legacy_edge_mode: str | None = None) -> str:
+    normalized = _normalize_fill_mode(fill_mode, legacy_edge_mode)
+    if normalized == "expand":
+        return "border"
+    if normalized == "mirror":
+        return "reflection"
+    return "zeros"
 
 
 def _normalize_supersample(value) -> int:
     return max(1, min(_CORNER_PIN_SUPERSAMPLE_MAX, int(round(float(value)))))
 
 
-def _solve_homography_batch(src_points: torch.Tensor, dst_points: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    batch = int(dst_points.shape[0])
-    dtype = src_points.dtype
-    device = src_points.device
-    A = torch.zeros((batch, 8, 8), dtype=dtype, device=device)
-    b = torch.zeros((batch, 8), dtype=dtype, device=device)
+def _make_fill_background(source: torch.Tensor, fill_mode, fill_color) -> torch.Tensor | None:
+    normalized = _normalize_fill_mode(_scalar(fill_mode, str), None)
+    if normalized == "stretch":
+        background = source.float().clamp(0.0, 1.0).clone()
+        if background.shape[-1] >= 4:
+            background[..., 3] = 1.0
+        return background.to(device=source.device, dtype=source.dtype)
+    if normalized != "color":
+        return None
 
-    x = src_points[:, 0].view(1, 4).expand(batch, 4)
-    y = src_points[:, 1].view(1, 4).expand(batch, 4)
-    u = dst_points[:, :, 0]
-    v = dst_points[:, :, 1]
-
-    A[:, 0::2, 0] = x
-    A[:, 0::2, 1] = y
-    A[:, 0::2, 2] = 1.0
-    A[:, 0::2, 6] = -u * x
-    A[:, 0::2, 7] = -u * y
-    b[:, 0::2] = u
-
-    A[:, 1::2, 3] = x
-    A[:, 1::2, 4] = y
-    A[:, 1::2, 5] = 1.0
-    A[:, 1::2, 6] = -v * x
-    A[:, 1::2, 7] = -v * y
-    b[:, 1::2] = v
-
-    try:
-        solved, info = torch.linalg.solve_ex(A, b)
-        valid = info.eq(0)
-    except (AttributeError, RuntimeError):
-        try:
-            solved = torch.linalg.solve(A, b)
-            valid = torch.ones((batch,), device=device, dtype=torch.bool)
-        except RuntimeError:
-            solved = torch.matmul(torch.linalg.pinv(A), b.unsqueeze(-1)).squeeze(-1)
-            valid = torch.isfinite(solved).all(dim=1)
-
-    H = torch.zeros((batch, 3, 3), dtype=dtype, device=device)
-    H[:, 0, 0] = solved[:, 0]
-    H[:, 0, 1] = solved[:, 1]
-    H[:, 0, 2] = solved[:, 2]
-    H[:, 1, 0] = solved[:, 3]
-    H[:, 1, 1] = solved[:, 4]
-    H[:, 1, 2] = solved[:, 5]
-    H[:, 2, 0] = solved[:, 6]
-    H[:, 2, 1] = solved[:, 7]
-    H[:, 2, 2] = 1.0
-
-    valid = valid & torch.isfinite(H).flatten(1).all(dim=1)
-    identity = torch.eye(3, dtype=dtype, device=device).expand(batch, 3, 3)
-    H = torch.where(valid.view(batch, 1, 1), H, identity)
-    return H, valid
+    batch, height, width, channels = source.shape
+    background = torch.zeros((batch, height, width, channels), device=source.device, dtype=torch.float32)
+    r, g, b = _hex_to_rgb01(_scalar(fill_color, str))
+    if channels >= 1:
+        background[..., 0] = r
+    if channels >= 2:
+        background[..., 1] = g
+    if channels >= 3:
+        background[..., 2] = b
+    if channels >= 4:
+        background[..., 3] = 1.0
+    return background.to(device=source.device, dtype=source.dtype)
 
 
-def _invert_homography_batch(H: torch.Tensor, valid: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    batch = int(H.shape[0])
-    try:
-        Hinv, info = torch.linalg.inv_ex(H)
-        valid = valid & info.eq(0)
-    except (AttributeError, RuntimeError):
-        try:
-            Hinv = torch.linalg.inv(H)
-        except RuntimeError:
-            Hinv = torch.linalg.pinv(H)
-    valid = valid & torch.isfinite(Hinv).flatten(1).all(dim=1)
-    identity = torch.eye(3, dtype=H.dtype, device=H.device).expand(batch, 3, 3)
-    Hinv = torch.where(valid.view(batch, 1, 1), Hinv, identity)
-    return Hinv, valid
+def _composite_fill(result: torch.Tensor, coverage_mask: torch.Tensor, background: torch.Tensor | None) -> torch.Tensor:
+    if background is None:
+        return result
+
+    fg = result.float().clamp(0.0, 1.0)
+    bg = background.float().clamp(0.0, 1.0)
+    blend = coverage_mask.unsqueeze(-1).float().clamp(0.0, 1.0)
+
+    if fg.shape[-1] >= 4:
+        fg_alpha = torch.maximum(fg[..., 3:4].clamp(0.0, 1.0), blend)
+        bg_alpha = bg[..., 3:4].clamp(0.0, 1.0) if bg.shape[-1] >= 4 else torch.ones_like(fg_alpha)
+        out_alpha = fg_alpha + bg_alpha * (1.0 - fg_alpha)
+        premul_rgb = fg[..., :3] * fg_alpha + bg[..., :3] * bg_alpha * (1.0 - fg_alpha)
+        safe_alpha = torch.where(out_alpha > EPSILON, out_alpha, torch.ones_like(out_alpha))
+        out_rgb = torch.where(out_alpha > EPSILON, premul_rgb / safe_alpha, torch.zeros_like(premul_rgb))
+        return torch.cat([out_rgb.clamp(0.0, 1.0), out_alpha.clamp(0.0, 1.0)], dim=-1).to(device=result.device, dtype=result.dtype)
+
+    return (fg * blend + bg * (1.0 - blend)).clamp(0.0, 1.0).to(device=result.device, dtype=result.dtype)
 
 
 def _build_corner_pin_grid(height: int, width: int, Hinv: torch.Tensor, supersample: int = 1) -> tuple[torch.Tensor, torch.Tensor]:
@@ -204,7 +196,8 @@ class ImageOpsCornerPin:
                 "br_y": ("FLOAT", {"default": 1.0, "min": -2.0, "max": 2.0, "step": 0.001}),
                 "filter": (_CORNER_PIN_FILTERS, {"default": "bilinear"}),
                 "supersample": ("INT", {"default": 1, "min": 1, "max": _CORNER_PIN_SUPERSAMPLE_MAX, "step": 1, "tooltip": "Render at 2x-4x and downsample to reduce perspective aliasing."}),
-                "edge_mode": (_CORNER_PIN_EDGE_MODES, {"default": "zeros"}),
+                "fill_mode": (_CORNER_PIN_FILL_MODES, {"default": "transparent", "tooltip": "How to fill uncovered areas outside the pinned quad."}),
+                "fill_color": ("STRING", {"default": "#000000"}),
                 "invert_mask": ("BOOLEAN", {"default": False}),
             },
             "optional": {
@@ -229,7 +222,9 @@ class ImageOpsCornerPin:
         br_y=1.0,
         filter="bilinear",
         supersample=1,
-        edge_mode="zeros",
+        fill_mode="transparent",
+        fill_color="#000000",
+        edge_mode="transparent",
         invert_mask=False,
         video=None,
         unique_id=None,
@@ -240,6 +235,7 @@ class ImageOpsCornerPin:
         width = int(source.shape[2])
         channels = int(source.shape[3])
 
+        resolved_fill_mode = _normalize_fill_mode(fill_mode, edge_mode)
         progress = start_progress(total=max(1, batch), unique_id=unique_id)
 
         if _scalar(bypass, bool):
@@ -275,7 +271,7 @@ class ImageOpsCornerPin:
         for frame_index in range(batch):
             key = (
                 _normalize_filter(_scalar(filter, str, index=frame_index)),
-                _normalize_padding(_scalar(edge_mode, str, index=frame_index)),
+                _normalize_padding(_scalar(fill_mode, str, index=frame_index), _scalar(edge_mode, str, index=frame_index)),
                 _normalize_supersample(_scalar(supersample, int, index=frame_index)),
             )
             groups.setdefault(key, []).append(frame_index)
@@ -300,6 +296,10 @@ class ImageOpsCornerPin:
         mask = valid_nchw[:, 0, :, :].clamp(0.0, 1.0)
         if channels >= 4:
             mask = (mask * result[..., 3].clamp(0.0, 1.0)).clamp(0.0, 1.0)
+
+        result = _composite_fill(result, mask, _make_fill_background(source, resolved_fill_mode, fill_color))
+        if resolved_fill_mode != "transparent":
+            mask = result[..., 3].clamp(0.0, 1.0) if channels >= 4 else torch.ones_like(mask)
 
         mask = torch.where(valid_h.view(batch, 1, 1), mask, torch.ones_like(mask))
         invert = _param_tensor(invert_mask, batch, source.device, source.dtype).view(batch, 1, 1)

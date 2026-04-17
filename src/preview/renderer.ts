@@ -247,6 +247,9 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
 
   function signature(node: ComfyNode, tick: number, outputSlot: number | null): string {
     const parts: (string | number)[] = [node.id, String(node.comfyClass ?? ""), tick, outputSlot ?? -1];
+    for (const input of (node.inputs ?? [])) {
+      parts.push(`in:${input?.name ?? ""}:${input?.link ?? "null"}`);
+    }
     for (const w of (node.widgets ?? [])) {
       const v = w?.value;
       if (v == null) continue;

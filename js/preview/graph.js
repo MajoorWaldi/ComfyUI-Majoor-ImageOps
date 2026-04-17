@@ -3,12 +3,66 @@ const DEFAULT_INPUT_SCAN = 4;
 const IMAGE_EXTS = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"]);
 const VIDEO_EXTS = /* @__PURE__ */ new Set(["mp4", "mov", "webm", "mkv", "avi", "m4v", "flv", "wmv", "mpg", "mpeg"]);
 const MAYBE_ANIMATED_IMAGE_EXTS = /* @__PURE__ */ new Set(["gif"]);
+function normalizeLinkId(value) {
+  if (value == null || value === "") return null;
+  return String(value);
+}
+function toFiniteNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : void 0;
+}
+function normalizeGraphLink(link) {
+  if (!link) return null;
+  if (Array.isArray(link)) {
+    const [id, origin_id, origin_slot, target_id, target_slot] = link;
+    return {
+      id: toFiniteNumber(id),
+      origin_id: toFiniteNumber(origin_id),
+      origin_slot: toFiniteNumber(origin_slot),
+      target_id: toFiniteNumber(target_id),
+      target_slot: toFiniteNumber(target_slot)
+    };
+  }
+  if (typeof link === "object") return link;
+  return null;
+}
+function outputLinkIds(output) {
+  const links = Array.isArray(output?.links) ? output.links : output?.links != null ? [output.links] : output?.link != null ? [output.link] : [];
+  return links.map((value) => normalizeLinkId(value)).filter((value) => !!value);
+}
+function resolveInputLinkFallback(node, inputIndex) {
+  const linkId = normalizeLinkId(node?.inputs?.[inputIndex]?.link ?? null);
+  if (!linkId) return null;
+  const graph = node?.graph;
+  const stores = [graph?.links, graph?._links];
+  for (const store of stores) {
+    if (!store) continue;
+    const entry = Array.isArray(store) ? store[toFiniteNumber(linkId) ?? -1] : store[linkId] ?? store[String(toFiniteNumber(linkId) ?? linkId)];
+    const normalized = normalizeGraphLink(entry);
+    if (normalized) return normalized;
+  }
+  for (const upstream of graph?._nodes ?? []) {
+    for (let slot = 0; slot < (upstream.outputs?.length ?? 0); slot++) {
+      if (outputLinkIds(upstream.outputs?.[slot]).includes(linkId)) {
+        return {
+          id: toFiniteNumber(linkId),
+          origin_id: upstream.id,
+          origin_slot: slot,
+          target_id: node.id,
+          target_slot: inputIndex
+        };
+      }
+    }
+  }
+  return null;
+}
 function getInputLink(node, inputIndex = 0) {
   try {
-    return node?.getInputLink?.(inputIndex) ?? null;
+    const direct = normalizeGraphLink(node?.getInputLink?.(inputIndex) ?? null);
+    if (direct) return direct;
   } catch {
-    return null;
   }
+  return resolveInputLinkFallback(node, inputIndex);
 }
 function getInputOriginSlot(node, inputIndex = 0, fallback = null) {
   const link = getInputLink(node, inputIndex);

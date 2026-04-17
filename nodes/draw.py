@@ -280,6 +280,14 @@ class ImageOpsDraw:
         batch = int(source.shape[0])
         target_h = int(source.shape[1])
         target_w = int(source.shape[2])
+
+        if _scalar(bypass, bool):
+            mask = torch.zeros((batch, target_h, target_w), device=source.device, dtype=source.dtype)
+            if _scalar(invert_mask, bool):
+                mask = 1.0 - mask
+            progress.finish()
+            return build_node_preview_result(source, (source, source, mask), prefix="imageops_draw")
+
         overlay = _decode_overlay_rgba(
             overlay_data,
             overlay_layers,
@@ -289,13 +297,6 @@ class ImageOpsDraw:
             device=source.device,
             dtype=source.dtype,
         )
-
-        if _scalar(bypass, bool):
-            mask = torch.zeros((batch, target_h, target_w), device=source.device, dtype=source.dtype)
-            if _scalar(invert_mask, bool):
-                mask = 1.0 - mask
-            progress.finish()
-            return build_node_preview_result(source, (source, source, mask), prefix="imageops_draw")
 
         result, mask = _composite_overlay(source, overlay)
         if _scalar(invert_mask, bool):

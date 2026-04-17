@@ -73,6 +73,6 @@ class ImageOpsMerge:
         B = _coerce_media_to_tensor(B, "B")
         out = _apply_merge(A, B, mode, mix, foreground_fit, blend_space)
         out = _apply_mask_to_image(A, out, effect_mask)
-        output_mask = effect_mask if effect_mask is not None else _resolve_mask_output_source(mask, out, invert_mask=invert_mask)
+        output_mask = effect_mask if effect_mask is not None else output_mask_source
         progress.finish()
         return build_node_preview_result(out, (out, output_mask), prefix="imageops_merge")

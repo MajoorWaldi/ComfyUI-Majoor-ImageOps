@@ -287,10 +287,13 @@ def _gaussian_kernel1d(radius, sigma):
 
 def _gaussian_effective_radius(radius: int, sigma: float) -> int:
     radius = int(max(0, radius))
+    sigma = float(max(0.0, sigma))
+    sigma_radius = max(1, int(math.ceil(sigma * 4.0))) if sigma > 0.0 else 0
     if radius <= 0:
-        return 0
-    sigma = float(max(EPSILON, sigma))
-    return min(radius, max(1, int(math.ceil(sigma * 4.0))))
+        return sigma_radius
+    if sigma_radius <= 0:
+        return radius
+    return min(radius, sigma_radius)
 
 
 def _box_blur_radii_for_gaussian(radius: int, sigma: float, passes: int = BOX_BLUR_APPROX_PASSES) -> tuple[int, ...]:
@@ -376,9 +379,12 @@ def _apply_blur(image, radius, sigma):
             for i in range(image.shape[0])
         ], dim=0)
     radius = int(max(0, _scalar(radius, int)))
-    sigma = float(max(EPSILON, _scalar(sigma)))
-    effective_radius = _gaussian_effective_radius(radius, sigma) if radius > LARGE_BLUR_BOX_THRESHOLD else radius
-    if radius > LARGE_BLUR_BOX_THRESHOLD and effective_radius > LARGE_BLUR_BOX_THRESHOLD:
+    raw_sigma = float(_scalar(sigma))
+    effective_radius = _gaussian_effective_radius(radius, raw_sigma)
+    if effective_radius <= 0:
+        return image
+    sigma = float(max(EPSILON, raw_sigma))
+    if effective_radius > LARGE_BLUR_BOX_THRESHOLD:
         return _apply_box_blur_approx(image, effective_radius, sigma)
     radius = effective_radius
     k = _gaussian_kernel1d(radius, sigma).to(device=image.device, dtype=image.dtype)
@@ -574,16 +580,16 @@ def _prepare_effect_mask(mask, reference, invert_mask=False):
 def _resolve_mask_output_source(mask, reference, invert_mask=False):
     if reference is None:
         raise ValueError("reference is None")
-    prepared = _prepare_effect_mask(mask, reference, invert_mask=False)
+    prepared = _prepare_effect_mask(mask, reference, invert_mask=invert_mask)
     if prepared is None:
         prepared = _alpha_mask_from_image(reference)
-    if isinstance(invert_mask, (list, tuple)):
-        prepared = prepared.clone()
-        for frame_index in range(prepared.shape[0]):
-            if _scalar(invert_mask, bool, index=frame_index):
-                prepared[frame_index:frame_index + 1] = 1.0 - prepared[frame_index:frame_index + 1]
-    elif _scalar(invert_mask, bool):
-        prepared = 1.0 - prepared
+        if isinstance(invert_mask, (list, tuple)):
+            prepared = prepared.clone()
+            for frame_index in range(prepared.shape[0]):
+                if _scalar(invert_mask, bool, index=frame_index):
+                    prepared[frame_index:frame_index + 1] = 1.0 - prepared[frame_index:frame_index + 1]
+        elif _scalar(invert_mask, bool):
+            prepared = 1.0 - prepared
     return torch.clamp(prepared, 0.0, 1.0)
 
 
@@ -1170,10 +1176,11 @@ def _rotate_premultiplied_rgba(image: torch.Tensor, rotate_deg) -> torch.Tensor:
         return image
     device = image.device
     dtype = image.dtype
+    premult = _premultiply_rgba(image)
     frames = []
-    for pil in _tensor_batch_to_pil_list(image.float().clamp(0.0, 1.0)):
+    for pil in _tensor_batch_to_pil_list(premult.float().clamp(0.0, 1.0)):
         frames.append(_pil_to_tensor(pil.rotate(-angle, resample=Image.BICUBIC, expand=True)))
-    return torch.cat(frames, dim=0).to(device=device, dtype=dtype).clamp(0.0, 1.0)
+    return _unpremultiply_rgba(torch.cat(frames, dim=0).to(device=device, dtype=dtype).clamp(0.0, 1.0))
 
 
 def _apply_external_mask_to_rgba(image: torch.Tensor, mask: torch.Tensor | None) -> torch.Tensor:
@@ -1567,14 +1574,162 @@ def _compute_comp_rect(output_w: int, output_h: int, source_w: int, source_h: in
     return left, top, draw_w, draw_h
 
 
+def _solve_homography_batch(src_points: torch.Tensor, dst_points: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    batch = int(dst_points.shape[0])
+    dtype = src_points.dtype
+    device = src_points.device
+    A = torch.zeros((batch, 8, 8), dtype=dtype, device=device)
+    b = torch.zeros((batch, 8), dtype=dtype, device=device)
+
+    x = src_points[:, 0].view(1, 4).expand(batch, 4)
+    y = src_points[:, 1].view(1, 4).expand(batch, 4)
+    u = dst_points[:, :, 0]
+    v = dst_points[:, :, 1]
+
+    A[:, 0::2, 0] = x
+    A[:, 0::2, 1] = y
+    A[:, 0::2, 2] = 1.0
+    A[:, 0::2, 6] = -u * x
+    A[:, 0::2, 7] = -u * y
+    b[:, 0::2] = u
+
+    A[:, 1::2, 3] = x
+    A[:, 1::2, 4] = y
+    A[:, 1::2, 5] = 1.0
+    A[:, 1::2, 6] = -v * x
+    A[:, 1::2, 7] = -v * y
+    b[:, 1::2] = v
+
+    try:
+        solved, info = torch.linalg.solve_ex(A, b)
+        valid = info.eq(0)
+    except (AttributeError, RuntimeError):
+        try:
+            solved = torch.linalg.solve(A, b)
+            valid = torch.ones((batch,), device=device, dtype=torch.bool)
+        except RuntimeError:
+            solved = torch.matmul(torch.linalg.pinv(A), b.unsqueeze(-1)).squeeze(-1)
+            valid = torch.isfinite(solved).all(dim=1)
+
+    H = torch.zeros((batch, 3, 3), dtype=dtype, device=device)
+    H[:, 0, 0] = solved[:, 0]
+    H[:, 0, 1] = solved[:, 1]
+    H[:, 0, 2] = solved[:, 2]
+    H[:, 1, 0] = solved[:, 3]
+    H[:, 1, 1] = solved[:, 4]
+    H[:, 1, 2] = solved[:, 5]
+    H[:, 2, 0] = solved[:, 6]
+    H[:, 2, 1] = solved[:, 7]
+    H[:, 2, 2] = 1.0
+
+    valid = valid & torch.isfinite(H).flatten(1).all(dim=1)
+    identity = torch.eye(3, dtype=dtype, device=device).expand(batch, 3, 3)
+    H = torch.where(valid.view(batch, 1, 1), H, identity)
+    return H, valid
+
+
+def _invert_homography_batch(H: torch.Tensor, valid: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    batch = int(H.shape[0])
+    try:
+        Hinv, info = torch.linalg.inv_ex(H)
+        valid = valid & info.eq(0)
+    except (AttributeError, RuntimeError):
+        try:
+            Hinv = torch.linalg.inv(H)
+        except RuntimeError:
+            Hinv = torch.linalg.pinv(H)
+    valid = valid & torch.isfinite(Hinv).flatten(1).all(dim=1)
+    identity = torch.eye(3, dtype=H.dtype, device=H.device).expand(batch, 3, 3)
+    Hinv = torch.where(valid.view(batch, 1, 1), Hinv, identity)
+    return Hinv, valid
+
+
+def _build_projective_grid(height: int, width: int, src_h: int, src_w: int, Hinv: torch.Tensor):
+    batch = int(Hinv.shape[0])
+    device = Hinv.device
+    dtype = Hinv.dtype
+    ys = torch.linspace(0.0, float(max(0, height - 1)), max(1, int(height)), device=device, dtype=dtype)
+    xs = torch.linspace(0.0, float(max(0, width - 1)), max(1, int(width)), device=device, dtype=dtype)
+    yy, xx = torch.meshgrid(ys, xs, indexing="ij")
+    denom = Hinv[:, 2, 0].view(batch, 1, 1) * xx + Hinv[:, 2, 1].view(batch, 1, 1) * yy + Hinv[:, 2, 2].view(batch, 1, 1)
+    denom = torch.where(torch.abs(denom) < 1e-8, torch.full_like(denom, 1e-8), denom)
+    src_x = (Hinv[:, 0, 0].view(batch, 1, 1) * xx + Hinv[:, 0, 1].view(batch, 1, 1) * yy + Hinv[:, 0, 2].view(batch, 1, 1)) / denom
+    src_y = (Hinv[:, 1, 0].view(batch, 1, 1) * xx + Hinv[:, 1, 1].view(batch, 1, 1) * yy + Hinv[:, 1, 2].view(batch, 1, 1)) / denom
+    norm_x = (src_x / float(max(1, src_w - 1))) * 2.0 - 1.0 if src_w > 1 else torch.zeros_like(src_x)
+    norm_y = (src_y / float(max(1, src_h - 1))) * 2.0 - 1.0 if src_h > 1 else torch.zeros_like(src_y)
+    grid = torch.stack([norm_x, norm_y], dim=-1)
+    inside = (src_x >= 0.0) & (src_x <= float(max(0, src_w - 1))) & (src_y >= 0.0) & (src_y <= float(max(0, src_h - 1)))
+    return grid, inside.unsqueeze(-1).to(dtype=dtype)
+
+
+def _resolve_comp_layer_points(output_w: int, output_h: int, source_w: int, source_h: int,
+                               center_x, center_y, scale, rotate_deg,
+                               tl_x=None, tl_y=None, tr_x=None, tr_y=None, bl_x=None, bl_y=None, br_x=None, br_y=None,
+                               device=None, dtype=None) -> torch.Tensor:
+    max_x = float(max(1, output_w - 1))
+    max_y = float(max(1, output_h - 1))
+    explicit = all(value is not None for value in (tl_x, tl_y, tr_x, tr_y, bl_x, bl_y, br_x, br_y))
+    if explicit:
+        values = [
+            [_scalar(tl_x) * max_x, _scalar(tl_y) * max_y],
+            [_scalar(tr_x) * max_x, _scalar(tr_y) * max_y],
+            [_scalar(bl_x) * max_x, _scalar(bl_y) * max_y],
+            [_scalar(br_x) * max_x, _scalar(br_y) * max_y],
+        ]
+        return torch.tensor(values, device=device, dtype=dtype)
+
+    _, _, draw_w, draw_h = _compute_comp_rect(output_w, output_h, source_w, source_h, center_x, center_y, scale)
+    center_px = _scalar(center_x) * float(max(1, output_w))
+    center_py = _scalar(center_y) * float(max(1, output_h))
+    angle = math.radians(float(_scalar(rotate_deg)))
+    cos_a = math.cos(angle)
+    sin_a = math.sin(angle)
+
+    def _corner(local_x: float, local_y: float) -> tuple[float, float]:
+        return (
+            center_px + local_x * cos_a - local_y * sin_a,
+            center_py + local_x * sin_a + local_y * cos_a,
+        )
+
+    half_w = draw_w / 2.0
+    half_h = draw_h / 2.0
+    return torch.tensor([
+        _corner(-half_w, -half_h),
+        _corner(half_w, -half_h),
+        _corner(-half_w, half_h),
+        _corner(half_w, half_h),
+    ], device=device, dtype=dtype)
+
+
+def _warp_comp_layer_to_canvas(source: torch.Tensor, out_h: int, out_w: int, dst_points: torch.Tensor) -> torch.Tensor:
+    batch = int(source.shape[0])
+    source_h = int(source.shape[1])
+    source_w = int(source.shape[2])
+    src_points = torch.tensor(
+        [[0.0, 0.0], [float(max(0, source_w - 1)), 0.0], [0.0, float(max(0, source_h - 1))], [float(max(0, source_w - 1)), float(max(0, source_h - 1))]],
+        device=source.device,
+        dtype=source.dtype,
+    )
+    H, valid = _solve_homography_batch(src_points, dst_points.view(batch, 4, 2))
+    Hinv, valid = _invert_homography_batch(H, valid)
+    grid, inside = _build_projective_grid(out_h, out_w, source_h, source_w, Hinv)
+    premult = _premultiply_rgba(source).permute(0, 3, 1, 2).contiguous()
+    warped = torch.nn.functional.grid_sample(premult, grid, mode="bilinear", padding_mode="zeros", align_corners=True)
+    result = _unpremultiply_rgba(warped.permute(0, 2, 3, 1).contiguous()).clamp(0.0, 1.0)
+    alpha = result[..., 3:4] * inside
+    result[..., 3:4] = alpha.clamp(0.0, 1.0)
+    return result.clamp(0.0, 1.0)
+
+
 def _composite_comp_layer(canvas: torch.Tensor, image: torch.Tensor, mask: torch.Tensor | None,
-                          mode: str, opacity, center_x, center_y, scale, rotate_deg=0.0) -> torch.Tensor:
+                          mode: str, opacity, center_x, center_y, scale, rotate_deg=0.0,
+                          tl_x=None, tl_y=None, tr_x=None, tr_y=None, bl_x=None, bl_y=None, br_x=None, br_y=None) -> torch.Tensor:
     if canvas is None:
         raise ValueError("canvas is None")
     if image is None:
         raise ValueError("image is None")
 
-    if _has_list_param(opacity, center_x, center_y, scale, rotate_deg):
+    if _has_list_param(opacity, center_x, center_y, scale, rotate_deg, tl_x, tl_y, tr_x, tr_y, bl_x, bl_y, br_x, br_y):
         batch = canvas.shape[0]
         source = _ensure_rgba(_expand_image_batch(image.float().clamp(0.0, 1.0), batch))
         source = _apply_external_mask_to_rgba(source, mask)
@@ -1583,6 +1738,14 @@ def _composite_comp_layer(canvas: torch.Tensor, image: torch.Tensor, mask: torch
                 canvas[i:i+1], source[i:i+1], None, mode,
                 _scalar(opacity, index=i), _scalar(center_x, index=i),
                 _scalar(center_y, index=i), _scalar(scale, index=i), _scalar(rotate_deg, index=i),
+                _scalar(tl_x, index=i) if tl_x is not None else None,
+                _scalar(tl_y, index=i) if tl_y is not None else None,
+                _scalar(tr_x, index=i) if tr_x is not None else None,
+                _scalar(tr_y, index=i) if tr_y is not None else None,
+                _scalar(bl_x, index=i) if bl_x is not None else None,
+                _scalar(bl_y, index=i) if bl_y is not None else None,
+                _scalar(br_x, index=i) if br_x is not None else None,
+                _scalar(br_y, index=i) if br_y is not None else None,
             )
         return canvas
 
@@ -1591,6 +1754,23 @@ def _composite_comp_layer(canvas: torch.Tensor, image: torch.Tensor, mask: torch
     source = _apply_external_mask_to_rgba(source, mask)
     source_h = int(source.shape[1])
     source_w = int(source.shape[2])
+    has_quad = all(value is not None for value in (tl_x, tl_y, tr_x, tr_y, bl_x, bl_y, br_x, br_y))
+    if has_quad:
+        dst_points = _resolve_comp_layer_points(
+            out_w, out_h, source_w, source_h,
+            center_x, center_y, scale, rotate_deg,
+            tl_x, tl_y, tr_x, tr_y, bl_x, bl_y, br_x, br_y,
+            device=source.device,
+            dtype=source.dtype,
+        ).unsqueeze(0).expand(batch, -1, -1)
+        warped = _warp_comp_layer_to_canvas(source, out_h, out_w, dst_points)
+        alpha_region = (warped[..., 3:4] * _scalar(max(0.0, min(1.0, _scalar(opacity))))).clamp(0.0, 1.0)
+        blended_rgb = _blend_rgb(canvas[..., :3], warped[..., :3], mode)
+        out_rgb = canvas[..., :3] * (1.0 - alpha_region) + blended_rgb * alpha_region
+        out_alpha = alpha_region + canvas[..., 3:4] * (1.0 - alpha_region)
+        canvas[...] = torch.cat([out_rgb, out_alpha], dim=-1).clamp(0.0, 1.0)
+        return canvas
+
     _, _, draw_w, draw_h = _compute_comp_rect(out_w, out_h, source_w, source_h, center_x, center_y, scale)
     center_px = _scalar(center_x) * float(max(1, out_w))
     center_py = _scalar(center_y) * float(max(1, out_h))

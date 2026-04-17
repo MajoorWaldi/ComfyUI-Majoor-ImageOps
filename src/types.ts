@@ -49,10 +49,16 @@ export interface ComfyOutputSlot {
 }
 
 export interface ComfyLink {
+  id?: number;
   origin_id?: number;
   originId?: number;
   origin_slot?: number;
   originSlot?: number;
+  target_id?: number;
+  targetId?: number;
+  target_slot?: number;
+  targetSlot?: number;
+  type?: string;
 }
 
 export interface LGraph {
@@ -163,6 +169,14 @@ export interface NodeState {
   isPreview: boolean;
   nativeAnimated: boolean;
   nativeDirty: boolean;
+  previewZoom: number;
+  previewPanX: number;
+  previewPanY: number;
+  previewPanDrag: { pointerId: number; startCanvasX: number; startCanvasY: number; startPanX: number; startPanY: number } | null;
+  previewNavigationHooked: boolean;
+  previewLastSource: CanvasImageSource | null;
+  previewSourceWidth: number;
+  previewSourceHeight: number;
   cropAspectRatio: number | null;
   cropGeometry: CropPreviewGeometry | null;
   cropDrag: CropDragState | null;
@@ -208,10 +222,13 @@ export interface NodeState {
   compDrag: CompDragState | null;
   compAddButton: HTMLButtonElement | null;
   compResetButton: HTMLButtonElement | null;
+  compResizeButton: HTMLButtonElement | null;
+  compCornerPinButton: HTMLButtonElement | null;
   compModeSelect: HTMLSelectElement | null;
   compOpacityInput: HTMLInputElement | null;
   compOpacityLabel: HTMLDivElement | null;
   compLayerLabel: HTMLDivElement | null;
+  compEditMode: "resize" | "cornerpin";
   compInteractiveHooked: boolean;
   cornerPinGeometry: CornerPinPreviewGeometry | null;
   cornerPinDrag: CornerPinDragState | null;
@@ -294,6 +311,8 @@ export interface CompLayerPreviewGeometry {
   drawWidth: number;
   drawHeight: number;
   rotationDeg: number;
+  corners: Record<CornerPinHandle, { x: number; y: number }> | null;
+  cornerPinned: boolean;
 }
 
 export type CompDragMode = "move" | "nw" | "ne" | "sw" | "se" | "rotate";
@@ -319,6 +338,7 @@ export interface CompDragState {
   startDrawHeight: number;
   sourceWidth: number;
   sourceHeight: number;
+  startCorners: Record<CornerPinHandle, { x: number; y: number }> | null;
 }
 
 export interface CornerPinPreviewGeometry {
@@ -399,6 +419,58 @@ export interface AnnotatedFilename {
   type: string;
 }
 
+// ── Interaction context ──
+// Callbacks passed from host.ts to interactions/* files to avoid circular deps.
+
+export interface NodeInteractionContext {
+  /** Re-schedules a debounced render for this node. */
+  schedule(node: ComfyNode, fn: () => void, delayMs?: number): void;
+  /** Clears the shared dirty flag so the next RAF triggers a render. */
+  markCanvasDirty(): void;
+  /** Starts the video playback loop when the node outputs a video. */
+  startLoopIfVideo(node: ComfyNode): void;
+  /** Schedules a re-render of all downstream dependents. */
+  refreshDependents(node: ComfyNode): void;
+  /**
+   * Convenience: sets nativeDirty, extends the interaction hold window,
+   * marks canvas dirty, and schedules startLoopIfVideo + refreshDependents.
+   */
+  refreshNode(node: ComfyNode): void;
+}
+
+export interface CropInteractionContext extends NodeInteractionContext {
+  setCropOutputDimensions(node: ComfyNode, width: number, height: number): void;
+}
+
+export interface CompInteractionContext extends NodeInteractionContext {
+  markPreviewInteraction(node: ComfyNode, holdMs?: number): void;
+  ensureCompState(node: ComfyNode): any[];
+  updateCompControls(node: ComfyNode): void;
+  updateSelectedCompLayer(node: ComfyNode, updater: (layer: any) => void): void;
+  compCanvasToOutputPoint(node: ComfyNode, cw: number, ch: number, x: number, y: number): { x: number; y: number };
+  getCompHit(node: ComfyNode, cw: number, ch: number, x: number, y: number): { layer: any; mode: any } | null;
+  writeCompLayerCorners(node: ComfyNode, layer: any, corners: any): void;
+}
+
+export interface DrawInteractionContext extends NodeInteractionContext {
+  markPreviewInteraction(node: ComfyNode, holdMs?: number): void;
+  renderDrawNode(node: ComfyNode, tick: number): Promise<void>;
+  ensureDrawCanvasSize(node: ComfyNode, w: number, h: number, persist?: boolean): void;
+  setDrawTool(node: ComfyNode, tool: "brush" | "eraser"): void;
+  cloneCanvas(src: HTMLCanvasElement | null): HTMLCanvasElement | null;
+  restoreCanvas(target: HTMLCanvasElement | null, snap: HTMLCanvasElement | null): void;
+  pushDrawUndoSnapshot(node: ComfyNode, snap: HTMLCanvasElement | null): void;
+  popDrawUndoSnapshot(node: ComfyNode): HTMLCanvasElement | null;
+  paintDrawSegment(node: ComfyNode, x1: number, y1: number, x2: number, y2: number, dynamics: { size: number; opacity: number }): void;
+  ensureDrawInteractionReady(node: ComfyNode): Promise<boolean>;
+  drawPointerDynamics(node: ComfyNode, event?: PointerEvent): { size: number; opacity: number };
+  setDrawBrushSize(node: ComfyNode, size: number): void;
+  updateDrawOverlayWidget(node: ComfyNode): void;
+  syncDrawWidgets(node: ComfyNode, changedName?: string): void;
+  syncDarkColorInputUI(input: HTMLInputElement | null, color?: string): void;
+  setDarkColorInputState(input: HTMLInputElement | null, disabled: boolean, hidden?: boolean): void;
+}
+
 // ── Constants ──
 
 export interface OpsConstants {
@@ -446,4 +518,16 @@ export interface ScopesResult {
 
 export interface ProgressBus {
   registerNodeWidget(node: ComfyNode, wrap: HTMLDivElement, bar: HTMLDivElement): void;
+}
+
+// ── Renderer ──
+
+export interface ImageOpsRenderer {
+  render(node: ComfyNode, tick: number, outputSlot: number | null, canvasSize: number): Promise<{ canvas: HTMLCanvasElement | null }>;
+}
+
+export interface DrawRenderSession {
+  renderer: ImageOpsRenderer;
+  progress: ProgressBus;
+  canvasSize: number;
 }

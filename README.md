@@ -89,8 +89,8 @@ Gaussian blur with optional mask support.
 - `mask` (MASK, optional): Effect mask
 
 **Parameters:**
-- `radius` (0 to 128): Blur radius in pixels
-- `sigma` (0.01 to 64.0): Gaussian sigma value
+- `radius` (0 to 128): Blur support radius in pixels; when set to `0`, support is derived from `sigma`
+- `sigma` (0.01 to 64.0): Gaussian sigma value controlling blur spread
 - `invert_mask`: Invert mask effect
 - `bypass`: Skip processing
 

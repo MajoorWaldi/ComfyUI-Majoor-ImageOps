@@ -1,0 +1,61 @@
+export interface FitPlacement {
+  dx: number;
+  dy: number;
+  drawWidth: number;
+  drawHeight: number;
+}
+
+export function clampPreviewZoom(zoom: number): number {
+  return Math.max(0.35, Math.min(6, zoom));
+}
+
+export function getFitPlacement(width: number, height: number, sourceWidth: number, sourceHeight: number): FitPlacement {
+  const safeWidth = Math.max(1, sourceWidth);
+  const safeHeight = Math.max(1, sourceHeight);
+  const scale = Math.min(width / safeWidth, height / safeHeight);
+  const drawWidth = Math.max(1, Math.floor(safeWidth * scale));
+  const drawHeight = Math.max(1, Math.floor(safeHeight * scale));
+  const dx = Math.floor((width - drawWidth) / 2);
+  const dy = Math.floor((height - drawHeight) / 2);
+  return { dx, dy, drawWidth, drawHeight };
+}
+
+export function drawFitSource(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  fit?: FitPlacement,
+): void {
+  const placement = fit ?? getFitPlacement(width, height, sourceWidth, sourceHeight);
+  ctx.clearRect(0, 0, width, height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(source, placement.dx, placement.dy, placement.drawWidth, placement.drawHeight);
+}
+
+export function drawOutputFormatBox(ctx: CanvasRenderingContext2D, fit: FitPlacement, label: string = "Output"): void {
+  ctx.save();
+  ctx.strokeStyle = "rgba(255,255,255,0.24)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([6, 4]);
+  ctx.strokeRect(fit.dx + 0.5, fit.dy + 0.5, fit.drawWidth, fit.drawHeight);
+  ctx.setLineDash([]);
+  ctx.fillStyle = "rgba(10,12,16,0.72)";
+  ctx.fillRect(fit.dx + 6, fit.dy + 6, 52, 16);
+  ctx.fillStyle = "rgba(255,255,255,0.82)";
+  ctx.font = "10px sans-serif";
+  ctx.fillText(label, fit.dx + 10, fit.dy + 18);
+  ctx.restore();
+}
+
+export function getCanvasPointer(canvas: HTMLCanvasElement, event: PointerEvent): { x: number; y: number } {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / Math.max(1, rect.width);
+  const scaleY = canvas.height / Math.max(1, rect.height);
+  return {
+    x: (event.clientX - rect.left) * scaleX,
+    y: (event.clientY - rect.top) * scaleY,
+  };
+}

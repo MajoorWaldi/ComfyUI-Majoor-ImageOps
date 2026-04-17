@@ -1,6 +1,6 @@
 import { getOpsConstants, initOpsConstants } from "./constants.js";
 import { clampCropCenter, clampCropScale, computeCropRect, resolveCropAspectRatio } from "./crop.js";
-import { computeCompRect, getCompSlots, syncCompLayers } from "./comp.js";
+import { computeCompRect, getCompLayerOutputCorners, getCompSlots, hasCompLayerCornerPin, syncCompLayers } from "./comp.js";
 import { renderDrawPreview, resolveDrawOverlayCanvas } from "./draw.js";
 initOpsConstants();
 function w(node, name) {
@@ -882,7 +882,7 @@ function applyEdgeDetect(ctx, W, H, strength = 1) {
   putImageData(ctx, img);
 }
 function applyBlur(ctx, W, H, radiusPx, sigmaPx) {
-  const blurPx = Math.max(0, Math.max(radiusPx, sigmaPx));
+  const blurPx = resolveBlurRadiusPx(radiusPx, sigmaPx);
   if (blurPx <= 0) return;
   const tmp = document.createElement("canvas");
   tmp.width = W;
@@ -893,6 +893,14 @@ function applyBlur(ctx, W, H, radiusPx, sigmaPx) {
   tctx.filter = "none";
   ctx.clearRect(0, 0, W, H);
   ctx.drawImage(tmp, 0, 0);
+}
+function resolveBlurRadiusPx(radiusPx, sigmaPx) {
+  const safeRadius = Math.max(0, Math.round(radiusPx));
+  const safeSigma = Math.max(0, sigmaPx);
+  const sigmaRadius = safeSigma > 0 ? Math.max(1, Math.ceil(safeSigma * 4)) : 0;
+  if (safeRadius <= 0) return sigmaRadius;
+  if (sigmaRadius <= 0) return safeRadius;
+  return Math.min(safeRadius, sigmaRadius);
 }
 function applyChannel(ctx, W, H, channel) {
   const img = getImageData(ctx, W, H);
@@ -924,24 +932,84 @@ function applyDesaturate(ctx, W, H, factor = 1) {
   }
   putImageData(ctx, img);
 }
-function applyTransform(ctx, W, H, tx, ty, rotDeg, scale, filter, expand) {
+function normalizeAffineFillMode(value) {
+  const normalized = String(value || "transparent").trim().toLowerCase().replace(/[-\s]+/g, "_");
+  if (normalized === "border" || normalized === "expand" || normalized === "edge" || normalized === "edge_extend" || normalized === "replicate" || normalized === "extend") return "expand";
+  if (normalized === "reflect" || normalized === "reflection" || normalized === "mirror") return "mirror";
+  if (normalized === "stretch" || normalized === "fill" || normalized === "cover") return "stretch";
+  if (normalized === "color" || normalized === "colour" || normalized === "constant" || normalized === "solid") return "color";
+  return "transparent";
+}
+function applyTransform(ctx, W, H, tx, ty, rotDeg, scale, filter, expand, fillMode = "transparent", fillColor = "#000000") {
   void expand;
   const safeScale = Math.max(0.01, scale || 1);
+  const normalizedFill = normalizeAffineFillMode(fillMode);
   const rad = rotDeg * Math.PI / 180;
   const needsScale = Math.abs(safeScale - 1) > 1e-4;
   const needsRotate = Math.abs(rotDeg) > 1e-4;
   const needsTranslate = tx !== 0 || ty !== 0;
   if (!needsScale && !needsRotate && !needsTranslate) return;
+  const sourceCtx = ctx.canvas.getContext("2d");
+  if (!sourceCtx) return;
   const output = makeCanvas(W, H);
   const octx = output.getContext("2d");
   setResampleMode(octx, filter);
   octx.clearRect(0, 0, W, H);
-  octx.save();
-  octx.translate(W / 2 + tx, H / 2 + ty);
-  octx.rotate(rad);
-  octx.scale(safeScale, safeScale);
-  octx.drawImage(ctx.canvas, -W / 2, -H / 2, W, H);
-  octx.restore();
+  if (normalizedFill === "color") {
+    octx.fillStyle = parseHexColor(fillColor);
+    octx.fillRect(0, 0, W, H);
+  } else if (normalizedFill === "stretch") {
+    octx.drawImage(ctx.canvas, 0, 0, W, H);
+  }
+  const srcImage = sourceCtx.getImageData(0, 0, W, H);
+  const srcData = srcImage.data;
+  const outImage = octx.getImageData(0, 0, W, H);
+  const outData = outImage.data;
+  const useNearest = filter === "nearest" || filter === "nearest-exact";
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const centerX = W / 2;
+  const centerY = H / 2;
+  const invScale = 1 / safeScale;
+  for (let y = 0; y < H; y++) {
+    const py = y + 0.5 - (centerY + ty);
+    for (let x = 0; x < W; x++) {
+      const px = x + 0.5 - (centerX + tx);
+      let sx = (cos * px + sin * py) * invScale + centerX - 0.5;
+      let sy = (-sin * px + cos * py) * invScale + centerY - 0.5;
+      const inside = sx >= 0 && sx <= W - 1 && sy >= 0 && sy <= H - 1;
+      if (!inside) {
+        if (normalizedFill === "expand") {
+          sx = Math.max(0, Math.min(W - 1, sx));
+          sy = Math.max(0, Math.min(H - 1, sy));
+        } else if (normalizedFill === "mirror") {
+          sx = reflectCoord(sx, W - 1);
+          sy = reflectCoord(sy, H - 1);
+        } else {
+          continue;
+        }
+      }
+      const offset = (y * W + x) * 4;
+      const sr = useNearest ? sampleChannelNearest(srcData, W, H, sx, sy, 0) : sampleChannelBilinear(srcData, W, H, sx, sy, 0);
+      const sg = useNearest ? sampleChannelNearest(srcData, W, H, sx, sy, 1) : sampleChannelBilinear(srcData, W, H, sx, sy, 1);
+      const sb = useNearest ? sampleChannelNearest(srcData, W, H, sx, sy, 2) : sampleChannelBilinear(srcData, W, H, sx, sy, 2);
+      const sa = useNearest ? sampleChannelNearest(srcData, W, H, sx, sy, 3) : sampleChannelBilinear(srcData, W, H, sx, sy, 3);
+      const fgA = clamp01(sa / 255);
+      const bgA = clamp01(outData[offset + 3] / 255);
+      const outA = fgA + bgA * (1 - fgA);
+      const bgR = outData[offset] / 255;
+      const bgG = outData[offset + 1] / 255;
+      const bgB = outData[offset + 2] / 255;
+      const premulR = sr / 255 * fgA + bgR * bgA * (1 - fgA);
+      const premulG = sg / 255 * fgA + bgG * bgA * (1 - fgA);
+      const premulB = sb / 255 * fgA + bgB * bgA * (1 - fgA);
+      outData[offset] = outA > 1e-6 ? Math.round(clamp01(premulR / outA) * 255) : 0;
+      outData[offset + 1] = outA > 1e-6 ? Math.round(clamp01(premulG / outA) * 255) : 0;
+      outData[offset + 2] = outA > 1e-6 ? Math.round(clamp01(premulB / outA) * 255) : 0;
+      outData[offset + 3] = Math.round(clamp01(outA) * 255);
+    }
+  }
+  octx.putImageData(outImage, 0, 0);
   return output;
 }
 function applyGlow(ctx, W, H, threshold, intensity, blurPx) {
@@ -1242,11 +1310,90 @@ function sampleChannelBilinear(data, width, height, x, y, channel) {
   const c11 = data[(Math.max(0, y1) * width + Math.max(0, x1)) * 4 + channel];
   return (c00 * (1 - fx) + c10 * fx) * (1 - fy) + (c01 * (1 - fx) + c11 * fx) * fy;
 }
+function solveInverseHomographyFromCorners(sourceWidth, sourceHeight, corners) {
+  const src = [
+    [0, 0],
+    [Math.max(0, sourceWidth - 1), 0],
+    [0, Math.max(0, sourceHeight - 1)],
+    [Math.max(0, sourceWidth - 1), Math.max(0, sourceHeight - 1)]
+  ];
+  const dst = [
+    [corners.tl.x, corners.tl.y],
+    [corners.tr.x, corners.tr.y],
+    [corners.bl.x, corners.bl.y],
+    [corners.br.x, corners.br.y]
+  ];
+  const A = [];
+  const b = [];
+  for (let idx = 0; idx < 4; idx++) {
+    const x = src[idx][0];
+    const y = src[idx][1];
+    const u = dst[idx][0];
+    const v = dst[idx][1];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]);
+    b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]);
+    b.push(v);
+  }
+  const solved = solveLinear8x8(A, b);
+  if (!solved) return null;
+  return invert3x3([solved[0], solved[1], solved[2], solved[3], solved[4], solved[5], solved[6], solved[7], 1]);
+}
+function warpCanvasToQuad(source, outputWidth, outputHeight, corners, filter = "bilinear") {
+  const width = source.width || 1;
+  const height = source.height || 1;
+  const inverse = solveInverseHomographyFromCorners(width, height, corners);
+  const image = makeCanvas(outputWidth, outputHeight);
+  const mask = makeCanvas(outputWidth, outputHeight);
+  if (!inverse) {
+    markPreparedMaskCanvas(mask);
+    return { image, mask };
+  }
+  const sourceCtx = source.getContext("2d");
+  const srcImage = sourceCtx.getImageData(0, 0, width, height);
+  const srcData = srcImage.data;
+  const imageCtx = image.getContext("2d");
+  const outImage = imageCtx.createImageData(outputWidth, outputHeight);
+  const outData = outImage.data;
+  const maskCtx = mask.getContext("2d");
+  const outMask = maskCtx.createImageData(outputWidth, outputHeight);
+  const outMaskData = outMask.data;
+  const useNearest = filter === "nearest";
+  for (let y = 0; y < outputHeight; y++) {
+    for (let x = 0; x < outputWidth; x++) {
+      const outOffset = (y * outputWidth + x) * 4;
+      const denom = inverse[6] * x + inverse[7] * y + inverse[8];
+      const safeDenom = Math.abs(denom) < 1e-8 ? 1e-8 : denom;
+      const sx = (inverse[0] * x + inverse[1] * y + inverse[2]) / safeDenom;
+      const sy = (inverse[3] * x + inverse[4] * y + inverse[5]) / safeDenom;
+      const inside = sx >= 0 && sx <= width - 1 && sy >= 0 && sy <= height - 1;
+      if (!inside) continue;
+      const r = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 0) : sampleChannelBilinear(srcData, width, height, sx, sy, 0);
+      const g = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 1) : sampleChannelBilinear(srcData, width, height, sx, sy, 1);
+      const b = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 2) : sampleChannelBilinear(srcData, width, height, sx, sy, 2);
+      const a = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 3) : sampleChannelBilinear(srcData, width, height, sx, sy, 3);
+      outData[outOffset] = Math.round(clamp01(r / 255) * 255);
+      outData[outOffset + 1] = Math.round(clamp01(g / 255) * 255);
+      outData[outOffset + 2] = Math.round(clamp01(b / 255) * 255);
+      outData[outOffset + 3] = Math.round(clamp01(a / 255) * 255);
+      const alpha = Math.round(clamp01(a / 255) * 255);
+      outMaskData[outOffset] = alpha;
+      outMaskData[outOffset + 1] = alpha;
+      outMaskData[outOffset + 2] = alpha;
+      outMaskData[outOffset + 3] = 255;
+    }
+  }
+  imageCtx.putImageData(outImage, 0, 0);
+  maskCtx.putImageData(outMask, 0, 0);
+  markPreparedMaskCanvas(mask);
+  return { image, mask };
+}
 function renderCornerPinCanvases(node, source, frameIndex = 0) {
   const width = source.width || 1;
   const height = source.height || 1;
   const filter = strAny(node, ["filter"], "bilinear", frameIndex).toLowerCase();
-  const edgeMode = strAny(node, ["edge_mode"], "zeros", frameIndex).toLowerCase();
+  const fillMode = normalizeAffineFillMode(strAny(node, ["fill_mode", "edge_mode"], "transparent", frameIndex));
+  const fillColor = parseHexColor(strAny(node, ["fill_color"], "#000000", frameIndex));
   const supersample = Math.max(1, Math.min(4, Math.round(numAny(node, ["supersample"], 1, frameIndex))));
   const invertMask = boolAny(node, ["invert_mask"], false, frameIndex);
   const bypass = boolAny(node, ["bypass"], false, frameIndex);
@@ -1274,7 +1421,13 @@ function renderCornerPinCanvases(node, source, frameIndex = 0) {
   const srcData = srcImage.data;
   const image = makeCanvas(width, height);
   const imageCtx = image.getContext("2d");
-  const outImage = imageCtx.createImageData(width, height);
+  if (fillMode === "color") {
+    imageCtx.fillStyle = fillColor;
+    imageCtx.fillRect(0, 0, width, height);
+  } else if (fillMode === "stretch") {
+    imageCtx.drawImage(source, 0, 0, width, height);
+  }
+  const outImage = imageCtx.getImageData(0, 0, width, height);
   const outData = outImage.data;
   const mask = makeCanvas(width, height);
   const maskCtx = mask.getContext("2d");
@@ -1300,13 +1453,16 @@ function renderCornerPinCanvases(node, source, frameIndex = 0) {
           let sy = (inverse[3] * dstX + inverse[4] * dstY + inverse[5]) / safeDenom;
           const inside = sx >= 0 && sx <= width - 1 && sy >= 0 && sy <= height - 1;
           if (inside) insideSum += 1;
-          if (!inside && edgeMode === "zeros") continue;
-          if (edgeMode === "border") {
-            sx = Math.max(0, Math.min(width - 1, sx));
-            sy = Math.max(0, Math.min(height - 1, sy));
-          } else if (edgeMode === "reflection") {
-            sx = reflectCoord(sx, width - 1);
-            sy = reflectCoord(sy, height - 1);
+          if (!inside) {
+            if (fillMode === "expand") {
+              sx = Math.max(0, Math.min(width - 1, sx));
+              sy = Math.max(0, Math.min(height - 1, sy));
+            } else if (fillMode === "mirror") {
+              sx = reflectCoord(sx, width - 1);
+              sy = reflectCoord(sy, height - 1);
+            } else {
+              continue;
+            }
           }
           const r = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 0) : sampleChannelBilinear(srcData, width, height, sx, sy, 0);
           const g = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 1) : sampleChannelBilinear(srcData, width, height, sx, sy, 1);
@@ -1320,11 +1476,22 @@ function renderCornerPinCanvases(node, source, frameIndex = 0) {
       }
       const alpha = alphaSum / sampleCount;
       const alpha01 = alpha / 255;
-      outData[outOffset] = alpha01 > 1e-6 ? Math.round(clamp01(premulR / sampleCount / alpha01 / 255) * 255) : 0;
-      outData[outOffset + 1] = alpha01 > 1e-6 ? Math.round(clamp01(premulG / sampleCount / alpha01 / 255) * 255) : 0;
-      outData[outOffset + 2] = alpha01 > 1e-6 ? Math.round(clamp01(premulB / sampleCount / alpha01 / 255) * 255) : 0;
-      outData[outOffset + 3] = Math.round(clamp01(alpha01) * 255);
-      const maskValue = Math.round(clamp01(insideSum / sampleCount * alpha01) * 255);
+      const fgR = alpha01 > 1e-6 ? clamp01(premulR / sampleCount / alpha01 / 255) : 0;
+      const fgG = alpha01 > 1e-6 ? clamp01(premulG / sampleCount / alpha01 / 255) : 0;
+      const fgB = alpha01 > 1e-6 ? clamp01(premulB / sampleCount / alpha01 / 255) : 0;
+      const bgA = clamp01(outData[outOffset + 3] / 255);
+      const bgR = outData[outOffset] / 255;
+      const bgG = outData[outOffset + 1] / 255;
+      const bgB = outData[outOffset + 2] / 255;
+      const outA = alpha01 + bgA * (1 - alpha01);
+      const premulOutR = fgR * alpha01 + bgR * bgA * (1 - alpha01);
+      const premulOutG = fgG * alpha01 + bgG * bgA * (1 - alpha01);
+      const premulOutB = fgB * alpha01 + bgB * bgA * (1 - alpha01);
+      outData[outOffset] = outA > 1e-6 ? Math.round(clamp01(premulOutR / outA) * 255) : 0;
+      outData[outOffset + 1] = outA > 1e-6 ? Math.round(clamp01(premulOutG / outA) * 255) : 0;
+      outData[outOffset + 2] = outA > 1e-6 ? Math.round(clamp01(premulOutB / outA) * 255) : 0;
+      outData[outOffset + 3] = Math.round(clamp01(outA) * 255);
+      const maskValue = fillMode === "transparent" ? Math.round(clamp01(insideSum / sampleCount * alpha01) * 255) : 255;
       const finalMask = invertMask ? 255 - maskValue : maskValue;
       outMaskData[outOffset] = finalMask;
       outMaskData[outOffset + 1] = finalMask;
@@ -1471,10 +1638,12 @@ function resolvePreviewMaskCanvas(node, source, rawMask, frameIndex = 0) {
 }
 function compositeProcessedWithMask(baseCanvas, processedCanvas, maskCanvas) {
   if (!maskCanvas) return processedCanvas;
-  const output = fitCanvas(baseCanvas, processedCanvas.width || 1, processedCanvas.height || 1);
+  const output = makeCanvas(processedCanvas.width || 1, processedCanvas.height || 1);
   const octx = output.getContext("2d");
   octx.imageSmoothingEnabled = true;
   octx.imageSmoothingQuality = "high";
+  octx.clearRect(0, 0, output.width, output.height);
+  octx.drawImage(baseCanvas, 0, 0, output.width, output.height);
   octx.drawImage(
     premultLayerWithMask(processedCanvas, maskCanvas),
     0,
@@ -1506,16 +1675,18 @@ function premultLayerWithMask(imageCanvas, maskCanvas) {
   return output;
 }
 function invertMaskCanvas(maskCanvas) {
-  const output = makeCanvas(maskCanvas.width || 1, maskCanvas.height || 1);
+  const prepared = buildMaskAlphaCanvas(maskCanvas, maskCanvas.width || 1, maskCanvas.height || 1);
+  const output = makeCanvas(prepared.width || 1, prepared.height || 1);
   const octx = output.getContext("2d");
-  octx.drawImage(maskCanvas, 0, 0, output.width, output.height);
+  octx.drawImage(prepared, 0, 0, output.width, output.height);
   const image = octx.getImageData(0, 0, output.width, output.height);
   const data = image.data;
   for (let i = 0; i < data.length; i += 4) {
-    data[i] = 255 - data[i];
-    data[i + 1] = 255 - data[i + 1];
-    data[i + 2] = 255 - data[i + 2];
-    data[i + 3] = 255 - data[i + 3];
+    const matte = 255 - data[i];
+    data[i] = matte;
+    data[i + 1] = matte;
+    data[i + 2] = matte;
+    data[i + 3] = 255;
   }
   octx.putImageData(image, 0, 0);
   return markPreparedMaskCanvas(output);
@@ -1615,6 +1786,8 @@ function renderCompPreview(node, inputLayers) {
     const layer = layerBySlot.get(entry.slot);
     if (!input || !layer || layer.enabled === false) continue;
     const rect = computeCompRect(outputWidth, outputHeight, entry.image.width || 1, entry.image.height || 1, layer);
+    const corners = getCompLayerOutputCorners(outputWidth, outputHeight, entry.image.width || 1, entry.image.height || 1, layer);
+    const cornerPinned = hasCompLayerCornerPin(layer);
     geometries.push({
       slot: entry.slot,
       layerNumber: entry.layerNumber,
@@ -1629,8 +1802,28 @@ function renderCompPreview(node, inputLayers) {
       centerY: rect.centerY,
       drawWidth: rect.drawWidth,
       drawHeight: rect.drawHeight,
-      rotationDeg: rect.rotationDeg
+      rotationDeg: rect.rotationDeg,
+      corners,
+      cornerPinned
     });
+    if (cornerPinned) {
+      const warped = warpCanvasToQuad(input, outputWidth, outputHeight, corners, "bilinear");
+      octx.save();
+      octx.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
+      octx.globalCompositeOperation = compModeToCanvasOp(layer.mode);
+      octx.imageSmoothingEnabled = true;
+      octx.imageSmoothingQuality = "high";
+      octx.drawImage(warped.image, 0, 0, outputWidth, outputHeight);
+      octx.restore();
+      alphaCtx.save();
+      alphaCtx.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
+      alphaCtx.globalCompositeOperation = "source-over";
+      alphaCtx.imageSmoothingEnabled = true;
+      alphaCtx.imageSmoothingQuality = "high";
+      alphaCtx.drawImage(warped.mask, 0, 0, outputWidth, outputHeight);
+      alphaCtx.restore();
+      continue;
+    }
     octx.save();
     octx.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
     octx.globalCompositeOperation = compModeToCanvasOp(layer.mode);
@@ -2156,10 +2349,10 @@ const ops = {
     const rawMask = inputs[1] ?? null;
     const transformImage = (input) => {
       let working = input;
-      const mirror = strAny(node, ["mirror"], "none", frameIndex).toLowerCase();
+      const flip = strAny(node, ["flip", "mirror"], "none", frameIndex).toLowerCase();
       const flipMethod = strAny(node, ["flip_method"], "", frameIndex);
-      const horizontal = mirror === "horizontal" || flipMethod.startsWith("y");
-      const vertical = mirror === "vertical" || flipMethod.startsWith("x");
+      const horizontal = flip === "horizontal" || flipMethod.startsWith("y");
+      const vertical = flip === "vertical" || flipMethod.startsWith("x");
       working = flipCanvas(working, horizontal, vertical);
       const rotationLabel = strAny(node, ["rotation"], "", frameIndex);
       if (rotationLabel.startsWith("90")) working = rotateDiscrete(working, 1);
@@ -2179,8 +2372,10 @@ const ops = {
       const scale = numAny(node, ["scale"], 1, frameIndex);
       const filter = normalizeFilterName(strAny(node, ["filter", "upscale_method", "interpolation", "transform_method"], "bilinear", frameIndex));
       const expand = boolAny(node, ["expand"], false, frameIndex);
+      const fillMode = strAny(node, ["fill_mode", "edge_mode"], "transparent", frameIndex);
+      const fillColor = strAny(node, ["fill_color", "background_color", "color"], "#000000", frameIndex);
       return applyEffectToCanvas(working, (effectCtx, width, height) => {
-        return applyTransform(effectCtx, width, height, tx, ty, rot, scale, filter, expand);
+        return applyTransform(effectCtx, width, height, tx, ty, rot, scale, filter, expand, fillMode, fillColor);
       });
     };
     return renderMaskedEffectPreview(
@@ -2397,7 +2592,8 @@ const ops = {
     const width = base?.width || Math.max(1, Math.round(numAny(node, ["width"], 1024)));
     const height = base?.height || Math.max(1, Math.round(numAny(node, ["height"], 1024)));
     const overlay = await resolveDrawOverlayCanvas(node, width, height);
-    return buildMaskAlphaCanvas(overlay, overlay.width || 1, overlay.height || 1);
+    const mask = buildMaskAlphaCanvas(overlay, overlay.width || 1, overlay.height || 1);
+    return boolAny(node, ["invert_mask"], false) ? invertMaskCanvas(mask) : mask;
   },
   imageOpsMask(ctx, W, node, cls, inputs = [], frameIndex = 0) {
     const source = inputs[0] ?? ctx.canvas;
@@ -2438,7 +2634,24 @@ const ops = {
       const extracted = applyEffectToCanvas(source, (effectCtx, width, height) => {
         applyChannel(effectCtx, width, height, strAny(node, ["channel"], "Red", frameIndex));
       });
-      return resolvedMask ? premultLayerWithMask(extracted, resolvedMask) : extracted;
+      if (!resolvedMask) return extracted;
+      const fittedMask = buildMaskAlphaCanvas(resolvedMask, extracted.width || 1, extracted.height || 1);
+      const output = makeCanvas(extracted.width || 1, extracted.height || 1);
+      const octx = output.getContext("2d");
+      octx.drawImage(extracted, 0, 0, output.width, output.height);
+      const image = octx.getImageData(0, 0, output.width, output.height);
+      const data = image.data;
+      const maskData = fittedMask.getContext("2d").getImageData(0, 0, output.width, output.height).data;
+      for (let i = 0; i < data.length; i += 4) {
+        const maskValue = maskData[i] / 255 * (maskData[i + 3] / 255);
+        const matte = Math.round(data[i] / 255 * maskValue * 255);
+        data[i] = matte;
+        data[i + 1] = matte;
+        data[i + 2] = matte;
+        data[i + 3] = 255;
+      }
+      octx.putImageData(image, 0, 0);
+      return markPreparedMaskCanvas(output);
     }
     if (cls === "ImageOpsClamp") {
       if (!resolvedMask) return alphaMaskCanvas(source);

@@ -100,7 +100,6 @@ class ImageOpsCrop:
                 "aspect_ratio": (aspect_options, {"default": "1:1"}),
                 "width": ("INT", {"default": 1024, "min": 1, "max": 8192, "step": 1}),
                 "height": ("INT", {"default": 1024, "min": 1, "max": 8192, "step": 1}),
-                "sync_dimensions": ("BOOLEAN", {"default": True, "label_on": "Linked", "label_off": "Free"}),
                 "crop_center_x": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.001}),
                 "crop_center_y": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.001}),
                 "crop_scale": ("FLOAT", {"default": 1.0, "min": 0.05, "max": 1.0, "step": 0.001}),
@@ -115,9 +114,8 @@ class ImageOpsCrop:
             },
         }
 
-    def apply(self, image=None, bypass=False, aspect_ratio="1:1", width=1024, height=1024, sync_dimensions=True,
+    def apply(self, image=None, bypass=False, aspect_ratio="1:1", width=1024, height=1024,
               invert_mask=False, video=None, mask=None, crop_center_x=0.5, crop_center_y=0.5, crop_scale=1.0, unique_id=None):
-        del sync_dimensions
         source = _select_media_tensor(image, video)
         input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)

@@ -7,6 +7,7 @@ import torch
 from ._helpers import (
     MEDIA_INPUT_TYPE,
     EPSILON,
+    _hex_to_rgb01,
     _prepare_effect_mask,
     _resolve_mask_output_source,
     _select_media_tensor,
@@ -28,9 +29,106 @@ def _filter_to_grid_sample_mode(filter_mode: str | list, index: int = 0) -> str:
     return {"nearest": "nearest", "bilinear": "bilinear", "bicubic": "bicubic"}.get(normalized, "bilinear")
 
 
+_TRANSFORM_FILL_MODES = ["transparent", "mirror", "stretch", "expand", "color"]
+
+
 def _frame_param(value, index: int, typ: type = float):
     """Return one frame's scalar value when ComfyUI passes a per-frame list."""
     return _scalar(value, typ, index=index) if isinstance(value, (list, tuple)) else value
+
+
+def _normalize_fill_mode(value, index: int = 0) -> str:
+    normalized = _scalar(value, str, index=index).strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in ("border", "expand", "edge", "edge_extend", "replicate", "extend"):
+        return "expand"
+    if normalized in ("reflect", "reflection", "mirror"):
+        return "mirror"
+    if normalized in ("stretch", "fill", "cover"):
+        return "stretch"
+    if normalized in ("color", "colour", "constant", "solid"):
+        return "color"
+    return "transparent"
+
+
+def _normalize_flip_mode(value, index: int = 0) -> str:
+    normalized = _scalar(value, str, index=index).strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in ("horizontal", "x", "flip_x", "left_right"):
+        return "horizontal"
+    if normalized in ("vertical", "y", "flip_y", "top_bottom"):
+        return "vertical"
+    return "none"
+
+
+def _flip_tensor_spatial(tensor: torch.Tensor, flip_mode):
+    if isinstance(flip_mode, (list, tuple)):
+        if tensor.shape[0] == 0:
+            return tensor
+        return torch.cat([
+            _flip_tensor_spatial(tensor[index:index + 1], _normalize_flip_mode(flip_mode, index=index))
+            for index in range(tensor.shape[0])
+        ], dim=0)
+
+    mode = _normalize_flip_mode(flip_mode)
+    if mode == "none":
+        return tensor
+
+    if tensor.ndim < 3:
+        return tensor
+
+    dims = [2] if mode == "horizontal" else [1]
+    return torch.flip(tensor, dims=dims).contiguous()
+
+
+def _padding_mode_from_fill(fill_mode: str) -> str:
+    if fill_mode == "expand":
+        return "border"
+    if fill_mode == "mirror":
+        return "reflection"
+    return "zeros"
+
+
+def _make_fill_background(source: torch.Tensor, fill_mode, fill_color) -> torch.Tensor | None:
+    normalized = _normalize_fill_mode(fill_mode)
+    if normalized == "stretch":
+        background = source.float().clamp(0.0, 1.0).clone()
+        if background.shape[-1] >= 4:
+            background[..., 3] = 1.0
+        return background.to(device=source.device, dtype=source.dtype)
+    if normalized != "color":
+        return None
+
+    batch, height, width, channels = source.shape
+    background = torch.zeros((batch, height, width, channels), device=source.device, dtype=torch.float32)
+    r, g, b = _hex_to_rgb01(_scalar(fill_color, str))
+    if channels >= 1:
+        background[..., 0] = r
+    if channels >= 2:
+        background[..., 1] = g
+    if channels >= 3:
+        background[..., 2] = b
+    if channels >= 4:
+        background[..., 3] = 1.0
+    return background.to(device=source.device, dtype=source.dtype)
+
+
+def _composite_fill(result: torch.Tensor, coverage_mask: torch.Tensor, background: torch.Tensor | None) -> torch.Tensor:
+    if background is None:
+        return result
+
+    fg = result.float().clamp(0.0, 1.0)
+    bg = background.float().clamp(0.0, 1.0)
+    blend = coverage_mask.unsqueeze(-1).float().clamp(0.0, 1.0)
+
+    if fg.shape[-1] >= 4:
+        fg_alpha = torch.maximum(fg[..., 3:4].clamp(0.0, 1.0), blend)
+        bg_alpha = bg[..., 3:4].clamp(0.0, 1.0) if bg.shape[-1] >= 4 else torch.ones_like(fg_alpha)
+        out_alpha = fg_alpha + bg_alpha * (1.0 - fg_alpha)
+        premul_rgb = fg[..., :3] * fg_alpha + bg[..., :3] * bg_alpha * (1.0 - fg_alpha)
+        safe_alpha = torch.where(out_alpha > EPSILON, out_alpha, torch.ones_like(out_alpha))
+        out_rgb = torch.where(out_alpha > EPSILON, premul_rgb / safe_alpha, torch.zeros_like(premul_rgb))
+        return torch.cat([out_rgb.clamp(0.0, 1.0), out_alpha.clamp(0.0, 1.0)], dim=-1).to(device=result.device, dtype=result.dtype)
+
+    return (fg * blend + bg * (1.0 - blend)).clamp(0.0, 1.0).to(device=result.device, dtype=result.dtype)
 
 
 def _build_affine_theta_batch(
@@ -80,6 +178,7 @@ def _transform_batch_affine(
     translate_y,
     rotate_deg,
     scale,
+    padding_mode: str = "zeros",
 ) -> torch.Tensor:
     """Batched GPU affine transform for a [B, H, W, C] image tensor."""
     B, H, W, C = source.shape
@@ -94,6 +193,7 @@ def _transform_batch_affine(
                 _frame_param(translate_y, i),
                 _frame_param(rotate_deg, i),
                 _frame_param(scale, i),
+                padding_mode=padding_mode,
             )
             for i in range(B)
         ], dim=0)
@@ -103,7 +203,7 @@ def _transform_batch_affine(
     theta = _build_affine_theta_batch(B, translate_x, translate_y, rotate_deg, scale, H, W, d)
     grid  = torch.nn.functional.affine_grid(theta, size=(B, C, H, W), align_corners=False)
     x     = source.float().permute(0, 3, 1, 2)                      # [B,C,H,W]
-    out   = torch.nn.functional.grid_sample(x, grid, mode=mode, padding_mode="zeros", align_corners=False)
+    out   = torch.nn.functional.grid_sample(x, grid, mode=mode, padding_mode=padding_mode, align_corners=False)
     return out.permute(0, 2, 3, 1).clamp(0.0, 1.0).to(device=d, dtype=dt)
 
 
@@ -116,6 +216,7 @@ def _transform_mask_affine(
     scale,
     device: torch.device,
     dtype: torch.dtype,
+    padding_mode: str = "zeros",
 ) -> torch.Tensor:
     """Batched GPU affine transform for a [B, H, W] mask tensor."""
     B, H, W = mask.shape
@@ -132,6 +233,7 @@ def _transform_mask_affine(
                 _frame_param(scale, i),
                 device,
                 dtype,
+                padding_mode=padding_mode,
             )
             for i in range(B)
         ], dim=0)
@@ -140,7 +242,7 @@ def _transform_mask_affine(
     theta = _build_affine_theta_batch(B, translate_x, translate_y, rotate_deg, scale, H, W, device)
     grid  = torch.nn.functional.affine_grid(theta, size=(B, 1, H, W), align_corners=False)
     m     = mask.float().unsqueeze(1)                                # [B,1,H,W]
-    out   = torch.nn.functional.grid_sample(m, grid, mode=mode, padding_mode="zeros", align_corners=False)
+    out   = torch.nn.functional.grid_sample(m, grid, mode=mode, padding_mode=padding_mode, align_corners=False)
     return out.squeeze(1).clamp(0.0, 1.0).to(device=device, dtype=dtype)
 
 
@@ -157,6 +259,7 @@ def _transform_masked_source(
     rotate_deg,
     scale,
     progress=None,
+    padding_mode: str = "zeros",
 ) -> tuple[torch.Tensor, torch.Tensor]:
     if source.shape[0] != input_mask.shape[0]:
         raise ValueError(
@@ -179,7 +282,7 @@ def _transform_masked_source(
     if progress is not None:
         progress.update_absolute(0, total=max(1, total))
 
-    transformed   = _transform_batch_affine(combined, filter_mode, translate_x, translate_y, rotate_deg, scale)
+    transformed   = _transform_batch_affine(combined, filter_mode, translate_x, translate_y, rotate_deg, scale, padding_mode=padding_mode)
     output_mask   = _transform_mask_affine(
         input_mask, filter_mode, translate_x, translate_y, rotate_deg, scale,
         source.device, source.dtype,
@@ -219,8 +322,11 @@ class ImageOpsTransform:
                 "translate_y": ("INT", {"default": 0, "min": -4096, "max": 4096, "step": 1}),
                 "rotate_deg": ("FLOAT", {"default": 0.0, "min": -180.0, "max": 180.0, "step": 0.1, "display": "slider", "round": 0.001}),
                 "scale": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 8.0, "step": 0.01, "display": "slider", "round": 0.001}),
+                "flip": (["none", "horizontal", "vertical"], {"default": "none"}),
                 "filter": (["nearest", "bilinear", "bicubic"],),
                 "expand": ("BOOLEAN", {"default": False}),
+                "fill_mode": (_TRANSFORM_FILL_MODES, {"default": "transparent", "tooltip": "How to fill uncovered areas when scale, rotate, or translate leaves holes."}),
+                "fill_color": ("STRING", {"default": "#000000"}),
                 "invert_mask": ("BOOLEAN", {"default": False}),
             },
             "optional": {
@@ -232,13 +338,16 @@ class ImageOpsTransform:
             },
         }
 
-    def apply(self, image=None, bypass=False, translate_x=0, translate_y=0, rotate_deg=0.0, scale=1.0, filter="bilinear", expand=False, invert_mask=False, video=None, mask=None, unique_id=None):
+    def apply(self, image=None, bypass=False, translate_x=0, translate_y=0, rotate_deg=0.0, scale=1.0, flip="none", filter="bilinear", expand=False, fill_mode="transparent", fill_color="#000000", invert_mask=False, video=None, mask=None, unique_id=None):
         # expand is accepted for workflow compatibility; the GPU path uses one
         # fixed-size affine_grid/grid_sample pass instead of intermediate canvases.
         del expand
         source = _select_media_tensor(image, video)
         input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
+        safe_fill_mode = _normalize_fill_mode(fill_mode)
+        safe_flip_mode = _normalize_flip_mode(flip)
+        sample_padding = _padding_mode_from_fill(safe_fill_mode)
         progress = start_progress(unique_id=unique_id)
 
         if _scalar(bypass, bool):
@@ -273,25 +382,40 @@ class ImageOpsTransform:
             else [(_scalar(scale, index=i) - 1.0) for i in range(len(scale))],
             "float",
         )
-        if no_translate and no_rotate and unit_scale:
+        no_flip = safe_flip_mode == "none" if not isinstance(flip, (list, tuple)) else all(
+            _normalize_flip_mode(flip, index=i) == "none" for i in range(len(flip))
+        )
+        if no_translate and no_rotate and unit_scale and no_flip:
             progress.finish()
             return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_transform")
+
+        if not no_flip:
+            source = _flip_tensor_spatial(source, flip)
+            output_mask_source = _flip_tensor_spatial(output_mask_source, flip)
+            if input_mask is not None:
+                input_mask = _flip_tensor_spatial(input_mask, flip)
 
         if input_mask is not None:
             result, output_mask = _transform_masked_source(
                 source, input_mask, filter,
                 translate_x, translate_y, rotate_deg, scale,
                 progress=progress,
+                padding_mode=sample_padding,
             )
+            result = _composite_fill(result, output_mask, _make_fill_background(source, safe_fill_mode, fill_color))
             progress.finish()
             return build_node_preview_result(result, (result, output_mask), prefix="imageops_transform")
 
         # No external mask: transform image and alpha-derived mask on the GPU.
         progress.update_absolute(0, total=2)
-        result      = _transform_batch_affine(source, filter, translate_x, translate_y, rotate_deg, scale)
+        result      = _transform_batch_affine(source, filter, translate_x, translate_y, rotate_deg, scale, padding_mode=sample_padding)
         output_mask = _transform_mask_affine(
             output_mask_source, filter, translate_x, translate_y, rotate_deg, scale,
             source.device, source.dtype,
+            padding_mode="zeros",
         )
+        result = _composite_fill(result, output_mask, _make_fill_background(source, safe_fill_mode, fill_color))
+        if safe_fill_mode != "transparent":
+            output_mask = result[..., 3].clamp(0.0, 1.0) if result.shape[-1] >= 4 else torch.ones_like(output_mask)
         progress.finish()
         return build_node_preview_result(result, (result, output_mask), prefix="imageops_transform")
