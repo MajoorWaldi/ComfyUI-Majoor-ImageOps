@@ -1652,7 +1652,8 @@ def _build_projective_grid(height: int, width: int, src_h: int, src_w: int, Hinv
     xs = torch.linspace(0.0, float(max(0, width - 1)), max(1, int(width)), device=device, dtype=dtype)
     yy, xx = torch.meshgrid(ys, xs, indexing="ij")
     denom = Hinv[:, 2, 0].view(batch, 1, 1) * xx + Hinv[:, 2, 1].view(batch, 1, 1) * yy + Hinv[:, 2, 2].view(batch, 1, 1)
-    denom = torch.where(torch.abs(denom) < 1e-8, torch.full_like(denom, 1e-8), denom)
+    safe_sign = torch.where(denom < 0.0, -torch.ones_like(denom), torch.ones_like(denom))
+    denom = torch.where(torch.abs(denom) < 1e-8, safe_sign * 1e-8, denom)
     src_x = (Hinv[:, 0, 0].view(batch, 1, 1) * xx + Hinv[:, 0, 1].view(batch, 1, 1) * yy + Hinv[:, 0, 2].view(batch, 1, 1)) / denom
     src_y = (Hinv[:, 1, 0].view(batch, 1, 1) * xx + Hinv[:, 1, 1].view(batch, 1, 1) * yy + Hinv[:, 1, 2].view(batch, 1, 1)) / denom
     norm_x = (src_x / float(max(1, src_w - 1))) * 2.0 - 1.0 if src_w > 1 else torch.zeros_like(src_x)

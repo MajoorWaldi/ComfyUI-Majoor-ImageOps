@@ -99,7 +99,8 @@ def _build_corner_pin_grid(height: int, width: int, Hinv: torch.Tensor, supersam
     yy, xx = torch.meshgrid(ys, xs, indexing="ij")
 
     denom = Hinv[:, 2, 0].view(batch, 1, 1) * xx + Hinv[:, 2, 1].view(batch, 1, 1) * yy + Hinv[:, 2, 2].view(batch, 1, 1)
-    denom = torch.where(torch.abs(denom) < 1e-8, torch.full_like(denom, 1e-8), denom)
+    safe_sign = torch.where(denom < 0.0, -torch.ones_like(denom), torch.ones_like(denom))
+    denom = torch.where(torch.abs(denom) < 1e-8, safe_sign * 1e-8, denom)
     src_x = (Hinv[:, 0, 0].view(batch, 1, 1) * xx + Hinv[:, 0, 1].view(batch, 1, 1) * yy + Hinv[:, 0, 2].view(batch, 1, 1)) / denom
     src_y = (Hinv[:, 1, 0].view(batch, 1, 1) * xx + Hinv[:, 1, 1].view(batch, 1, 1) * yy + Hinv[:, 1, 2].view(batch, 1, 1)) / denom
 
@@ -301,7 +302,7 @@ class ImageOpsCornerPin:
         if resolved_fill_mode != "transparent":
             mask = result[..., 3].clamp(0.0, 1.0) if channels >= 4 else torch.ones_like(mask)
 
-        mask = torch.where(valid_h.view(batch, 1, 1), mask, torch.ones_like(mask))
+        mask = torch.where(valid_h.view(batch, 1, 1), mask, torch.zeros_like(mask))
         invert = _param_tensor(invert_mask, batch, source.device, source.dtype).view(batch, 1, 1)
         mask = torch.where(invert >= 0.5, 1.0 - mask, mask)
 

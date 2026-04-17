@@ -5,7 +5,11 @@
   "scripts": {
     "build": "node esbuild.mjs",
     "check": "tsc --noEmit",
-    "dev": "node esbuild.mjs --watch"
+    "dev": "node esbuild.mjs --watch",
+    "test:py": "python -m unittest discover -s tests -v",
+    "test:js": "node --test tests/frontend/node-modules.test.cjs",
+    "test:ts": "tsc --noEmit -p tsconfig.frontend-tests.json",
+    "test": "npm run test:py && npm run test:js && npm run test:ts"
   },
   "repository": {
     "type": "git",

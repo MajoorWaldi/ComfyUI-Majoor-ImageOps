@@ -15,8 +15,8 @@ export function cornerPinCanvasPoint(geometry: CornerPinPreviewGeometry, xNorm: 
   const sourceX = xNorm * Math.max(1, geometry.sourceWidth - 1);
   const sourceY = yNorm * Math.max(1, geometry.sourceHeight - 1);
   return {
-    x: geometry.fitDx + sourceX * geometry.fitDrawWidth / Math.max(1, geometry.sourceWidth),
-    y: geometry.fitDy + sourceY * geometry.fitDrawHeight / Math.max(1, geometry.sourceHeight),
+    x: geometry.fitDx + sourceX * geometry.fitDrawWidth / Math.max(1, geometry.sourceWidth - 1),
+    y: geometry.fitDy + sourceY * geometry.fitDrawHeight / Math.max(1, geometry.sourceHeight - 1),
   };
 }
 
@@ -43,8 +43,8 @@ export function getCornerPinHit(node: ComfyNode, geometry: CornerPinPreviewGeome
 }
 
 export function cornerPinCanvasToNormalized(geometry: CornerPinPreviewGeometry, x: number, y: number): { xNorm: number; yNorm: number } {
-  const sourceX = (x - geometry.fitDx) * geometry.sourceWidth / Math.max(1, geometry.fitDrawWidth);
-  const sourceY = (y - geometry.fitDy) * geometry.sourceHeight / Math.max(1, geometry.fitDrawHeight);
+  const sourceX = (x - geometry.fitDx) * Math.max(1, geometry.sourceWidth - 1) / Math.max(1, geometry.fitDrawWidth);
+  const sourceY = (y - geometry.fitDy) * Math.max(1, geometry.sourceHeight - 1) / Math.max(1, geometry.fitDrawHeight);
   const denomX = Math.max(1, geometry.sourceWidth - 1);
   const denomY = Math.max(1, geometry.sourceHeight - 1);
   return {

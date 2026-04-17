@@ -1538,6 +1538,30 @@ function sampleChannelBilinear(data: Uint8ClampedArray, width: number, height: n
   return (c00 * (1 - fx) + c10 * fx) * (1 - fy) + (c01 * (1 - fx) + c11 * fx) * fy;
 }
 
+function cubicHermite(a: number, b: number, c: number, d: number, t: number): number {
+  const a1 = -0.5 * a + 1.5 * b - 1.5 * c + 0.5 * d;
+  const a2 = a - 2.5 * b + 2 * c - 0.5 * d;
+  const a3 = -0.5 * a + 0.5 * c;
+  return ((a1 * t + a2) * t + a3) * t + b;
+}
+
+function sampleChannelBicubic(data: Uint8ClampedArray, width: number, height: number, x: number, y: number, channel: number): number {
+  const x1 = Math.floor(x);
+  const y1 = Math.floor(y);
+  const tx = x - x1;
+  const ty = y - y1;
+  const rows = new Array<number>(4);
+  for (let row = -1; row <= 2; row++) {
+    const iy = Math.max(0, Math.min(height - 1, y1 + row));
+    const p0 = data[(iy * width + Math.max(0, Math.min(width - 1, x1 - 1))) * 4 + channel];
+    const p1 = data[(iy * width + Math.max(0, Math.min(width - 1, x1))) * 4 + channel];
+    const p2 = data[(iy * width + Math.max(0, Math.min(width - 1, x1 + 1))) * 4 + channel];
+    const p3 = data[(iy * width + Math.max(0, Math.min(width - 1, x1 + 2))) * 4 + channel];
+    rows[row + 1] = cubicHermite(p0, p1, p2, p3, tx);
+  }
+  return cubicHermite(rows[0], rows[1], rows[2], rows[3], ty);
+}
+
 function solveInverseHomographyFromCorners(
   sourceWidth: number,
   sourceHeight: number,
@@ -1599,21 +1623,38 @@ function warpCanvasToQuad(
   const outMask = maskCtx.createImageData(outputWidth, outputHeight);
   const outMaskData = outMask.data;
   const useNearest = filter === "nearest";
+  const useBicubic = filter === "bicubic";
 
   for (let y = 0; y < outputHeight; y++) {
     for (let x = 0; x < outputWidth; x++) {
       const outOffset = (y * outputWidth + x) * 4;
       const denom = inverse[6] * x + inverse[7] * y + inverse[8];
-      const safeDenom = Math.abs(denom) < 1e-8 ? 1e-8 : denom;
+      const safeDenom = Math.abs(denom) < 1e-8 ? (denom < 0 ? -1e-8 : 1e-8) : denom;
       const sx = (inverse[0] * x + inverse[1] * y + inverse[2]) / safeDenom;
       const sy = (inverse[3] * x + inverse[4] * y + inverse[5]) / safeDenom;
       const inside = sx >= 0 && sx <= (width - 1) && sy >= 0 && sy <= (height - 1);
       if (!inside) continue;
 
-      const r = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 0) : sampleChannelBilinear(srcData, width, height, sx, sy, 0);
-      const g = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 1) : sampleChannelBilinear(srcData, width, height, sx, sy, 1);
-      const b = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 2) : sampleChannelBilinear(srcData, width, height, sx, sy, 2);
-      const a = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 3) : sampleChannelBilinear(srcData, width, height, sx, sy, 3);
+      const r = useNearest
+        ? sampleChannelNearest(srcData, width, height, sx, sy, 0)
+        : useBicubic
+          ? sampleChannelBicubic(srcData, width, height, sx, sy, 0)
+          : sampleChannelBilinear(srcData, width, height, sx, sy, 0);
+      const g = useNearest
+        ? sampleChannelNearest(srcData, width, height, sx, sy, 1)
+        : useBicubic
+          ? sampleChannelBicubic(srcData, width, height, sx, sy, 1)
+          : sampleChannelBilinear(srcData, width, height, sx, sy, 1);
+      const b = useNearest
+        ? sampleChannelNearest(srcData, width, height, sx, sy, 2)
+        : useBicubic
+          ? sampleChannelBicubic(srcData, width, height, sx, sy, 2)
+          : sampleChannelBilinear(srcData, width, height, sx, sy, 2);
+      const a = useNearest
+        ? sampleChannelNearest(srcData, width, height, sx, sy, 3)
+        : useBicubic
+          ? sampleChannelBicubic(srcData, width, height, sx, sy, 3)
+          : sampleChannelBilinear(srcData, width, height, sx, sy, 3);
       outData[outOffset] = Math.round(clamp01(r / 255) * 255);
       outData[outOffset + 1] = Math.round(clamp01(g / 255) * 255);
       outData[outOffset + 2] = Math.round(clamp01(b / 255) * 255);
@@ -1688,6 +1729,7 @@ function renderCornerPinCanvases(
   const outMaskData = outMask.data;
 
   const useNearest = filter === "nearest";
+  const useBicubic = filter === "bicubic";
   const sampleCount = supersample * supersample;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -1703,7 +1745,7 @@ function renderCornerPinCanvases(
         for (let subX = 0; subX < supersample; subX++) {
           const dstX = supersample === 1 ? x : x + (subX + 0.5) / supersample - 0.5;
           const denom = inverse[6] * dstX + inverse[7] * dstY + inverse[8];
-          const safeDenom = Math.abs(denom) < 1e-8 ? 1e-8 : denom;
+          const safeDenom = Math.abs(denom) < 1e-8 ? (denom < 0 ? -1e-8 : 1e-8) : denom;
           let sx = (inverse[0] * dstX + inverse[1] * dstY + inverse[2]) / safeDenom;
           let sy = (inverse[3] * dstX + inverse[4] * dstY + inverse[5]) / safeDenom;
           const inside = sx >= 0 && sx <= (width - 1) && sy >= 0 && sy <= (height - 1);
@@ -1720,10 +1762,26 @@ function renderCornerPinCanvases(
             }
           }
 
-          const r = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 0) : sampleChannelBilinear(srcData, width, height, sx, sy, 0);
-          const g = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 1) : sampleChannelBilinear(srcData, width, height, sx, sy, 1);
-          const b = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 2) : sampleChannelBilinear(srcData, width, height, sx, sy, 2);
-          const a = useNearest ? sampleChannelNearest(srcData, width, height, sx, sy, 3) : sampleChannelBilinear(srcData, width, height, sx, sy, 3);
+          const r = useNearest
+            ? sampleChannelNearest(srcData, width, height, sx, sy, 0)
+            : useBicubic
+              ? sampleChannelBicubic(srcData, width, height, sx, sy, 0)
+              : sampleChannelBilinear(srcData, width, height, sx, sy, 0);
+          const g = useNearest
+            ? sampleChannelNearest(srcData, width, height, sx, sy, 1)
+            : useBicubic
+              ? sampleChannelBicubic(srcData, width, height, sx, sy, 1)
+              : sampleChannelBilinear(srcData, width, height, sx, sy, 1);
+          const b = useNearest
+            ? sampleChannelNearest(srcData, width, height, sx, sy, 2)
+            : useBicubic
+              ? sampleChannelBicubic(srcData, width, height, sx, sy, 2)
+              : sampleChannelBilinear(srcData, width, height, sx, sy, 2);
+          const a = useNearest
+            ? sampleChannelNearest(srcData, width, height, sx, sy, 3)
+            : useBicubic
+              ? sampleChannelBicubic(srcData, width, height, sx, sy, 3)
+              : sampleChannelBilinear(srcData, width, height, sx, sy, 3);
           premulR += r * (a / 255);
           premulG += g * (a / 255);
           premulB += b * (a / 255);
