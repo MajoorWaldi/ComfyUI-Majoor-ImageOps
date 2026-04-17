@@ -42,7 +42,8 @@
 | **ImageOps Transform** | `ImageOpsTransform` | Translate, rotate, scale with filter options (nearest/bilinear/bicubic) |
 | **ImageOps Corner Pin** | `ImageOpsCornerPin` | Perspective corner pinning with batched homography warp, bicubic filtering, supersampling, and alpha-safe edges |
 | **ImageOps Pad Out** | `ImageOpsPadOut` | Add per-side borders with constant, edge-extended, reflected, or blurry fill and optional target aspect ratios |
-| **ImageOps Invert** | `ImageOpsInvert` | Invert colors and/or alpha channel |
+| **ImageOps Invert** | `ImageOpsInvert` | Invert colors and/or alpha channel (separate alpha control) |
+| **ImageOps Spherize** | `ImageOpsSpherize` | Spherical and fisheye lens projections with five modes, strength control, and circle-mask output |
 | **ImageOps Clamp** | `ImageOpsClamp` | Clamp pixel values to min/max range |
 | **ImageOps Merge** | `ImageOpsMerge` | Linear-light two-input compositing with production blend modes and foreground fit controls |
 | **ImageOps Noise** | `ImageOpsNoise` | GPU-backed procedural noise source with Perlin, value, seamless tiling, 3D Z animation, seed stepping, frame length/FPS controls, and color ramp output |
@@ -263,16 +264,39 @@ Recommended flow: connect `PadOut.image` and `PadOut.mask` to the outpainting no
 ---
 
 ### 🎭 ImageOps Invert
-Invert colors and/or alpha channel.
+Invert colors and/or the alpha channel independently.
 
 **Inputs:**
 - `image` (IMAGE/VIDEO): Source media
 - `mask` (MASK, optional): Effect mask
 
 **Parameters:**
-- `invert_alpha`: Also invert alpha channel
-- `invert_mask`: Invert mask effect
+- `invert_alpha`: Also invert the alpha channel (only applies to RGBA images with 4 channels)
+- `invert_mask`: Invert the output mask
 - `bypass`: Skip processing
+
+**Outputs:** `IMAGE`, `MASK`
+
+---
+
+### 🔮 ImageOps Spherize
+Spherical, fisheye, and equirectangular lens-projection distortions.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO): Source media
+- `mask` (MASK, optional): Mask to multiply against the circle boundary
+
+**Parameters:**
+- `mode`: `spherize` (barrel/pincushion), `fisheye` (equidistant projection), `defisheye` (flatten fisheye), `latlong` (equirectangular → rectilinear), `unlatlong` (rectilinear → equirectangular)
+- `strength` (0.0 to 2.0): Effect intensity; 1.0 = full projection, values > 1 push beyond the normal range
+- `invert`: Swap the forward and inverse mapping directions (e.g. barrel ↔ pincushion, latlong ↔ unlatlong)
+- `filter`: `bilinear`, `bicubic`, or `nearest` — resampling quality
+- `edge_mode`: `border`, `reflection`, or `zeros` — behavior at the image boundary
+- `size_mode`: `from_input` (use input dimensions) or `custom` (resize to `width` × `height` before applying)
+- `width` / `height`: Target dimensions when `size_mode` is `custom`
+- `bypass`: Skip processing
+
+The output mask is a unit-circle alpha (1 inside the sphere, 0 outside), multiplied by the optional input mask.
 
 **Outputs:** `IMAGE`, `MASK`
 
@@ -319,18 +343,19 @@ Blend two images with linear-light or sRGB blend modes.
 Procedural texture generator for masks and grayscale or color noise plates.
 
 **Parameters:**
-- `basis`: perlin, value, or white
-- `fractal_mode`: none, fbm, turbulence, or ridged
-- `seed` / `seed_step`: deterministic variation across frames
-- `scale`: primary feature size
-- `octaves`, `lacunarity`, `gain`: fractal shaping controls
-- `offset_x`, `offset_y`: pattern translation
-- `frame_offset_x`, `frame_offset_y`: per-frame motion offset
-- `offset_z`, `frame_offset_z`: temporal/depth motion for smooth 3D noise animation; use `seed_step` 0 for continuous evolution
-- `seamless`: tileable X/Y noise for repeating textures
-- `compute_device`: auto, cpu, or cuda synthesis device
-- `contrast`, `invert`: output shaping
-- `low_color`, `high_color`: color ramp for the generated image
+- `width` / `height`: Output resolution (64 to 8192)
+- `frame_length`: Number of frames to generate (1 to 256)
+- `fps`: Preview playback speed
+- `seed`: Deterministic noise seed
+- `basis`: `perlin`, `value`, or `white`
+- `fractal_mode`: `none`, `fbm`, `turbulence`, or `ridged`
+- `scale`: Primary feature size
+- `octaves` (1 to 12), `gain` (0.0 to 1.0): Fractal shaping controls
+- `offset_z`: Static Z offset into the 3D noise field
+- `animation_speed`: Z offset added per frame — higher = faster animation, 0 = still image
+- `seamless`: Tileable X/Y noise for repeating textures
+- `contrast`, `invert`: Output tonal shaping
+- `low_color`, `high_color`: Color ramp applied to the grayscale output
 
 **Outputs:** `IMAGE`, `MASK`
 
@@ -550,7 +575,19 @@ All nodes process batches natively:
 
 **Author**: Majoor  
 **Category**: `image/imageops`  
-**Version**: 6.x (LivePreview v6)
+**Version**: 0.1.2
+
+---
+
+## 📋 Changelog
+
+### Recent changes
+- **ImageOps Spherize** — new node with five projection modes (spherize, fisheye, defisheye, latlong, unlatlong), bicubic/bilinear/nearest filter, edge modes, custom output size, and circle-mask output
+- **ImageOps Corner Pin** — bicubic interpolation option added
+- **ImageOps Color Correct** — enhanced color correction capabilities
+- **ImageOps Preview** — improved noise node performance and zoom/pan interactions
+- **ImageOps Invert** — `invert_alpha` is now a proper UI checkbox (previously in the signature but not exposed); RGBA images can invert color and alpha independently
+- **ImageOps Noise** — incremental CPU transfer during frame generation reduces peak VRAM usage on large batches; deprecated legacy parameters (`seed_step`, `compute_device`, `offset_x/y`, `frame_offset_x/y/z`, `lacunarity`) removed from UI (still accepted in saved workflows for backwards compatibility)
 
 ---
 

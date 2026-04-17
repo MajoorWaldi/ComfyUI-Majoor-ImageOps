@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import torch
 import torch.nn.functional as F
 
@@ -50,7 +51,7 @@ def _spherize_frame(
 
         if m == "spherize":
             # barrel: map r → sin(r * pi/2).  strength scales the effect.
-            t = (r * (3.14159265 * 0.5)).clamp(0.0, 3.14159265 * 0.5)
+            t = (r * (math.pi * 0.5)).clamp(0.0, math.pi * 0.5)
             scale = torch.where(r > 1e-6, torch.sin(t) / r.clamp(min=1e-6), torch.ones_like(r))
             # blend between identity (s=0) and full warp (s=1)
             blend = scale * s + (1.0 - s)
@@ -60,15 +61,15 @@ def _spherize_frame(
             # equidistant: angle from centre → r_out = r_in (already linear),
             # but source UV is r_in = sin(θ) while we want θ for the projection.
             # Forward: r_src = sin(r_dst * pi/2 * s) / (r_dst * pi/2 * s + 1e-6) * r_dst
-            angle = r * (3.14159265 * 0.5) * s
+            angle = r * (math.pi * 0.5) * s
             r_src = torch.where(r > 1e-6, torch.sin(angle) / r.clamp(min=1e-6) * r, torch.zeros_like(r))
             scale = torch.where(r > 1e-6, r_src / r.clamp(min=1e-6), torch.ones_like(r))
             return gx * scale, gy * scale
 
         elif m == "defisheye":
             # Inverse equidistant: flatten a fish-eye – expand centre outward.
-            angle = r * (3.14159265 * 0.5) * s
-            r_dst = torch.where(angle.abs() > 1e-6, torch.tan(angle.clamp(-1.5, 1.5)) / (3.14159265 * 0.5 * s + 1e-8), r)
+            angle = r * (math.pi * 0.5) * s
+            r_dst = torch.where(angle.abs() > 1e-6, torch.tan(angle.clamp(-1.5, 1.5)) / (math.pi * 0.5 * s + 1e-8), r)
             scale = torch.where(r > 1e-6, r_dst / r.clamp(min=1e-6), torch.ones_like(r))
             return gx * scale, gy * scale
 
@@ -100,21 +101,21 @@ def _spherize_frame(
 
         if m == "spherize":
             # Inverse of barrel → pincushion (asin instead of sin).
-            t = (r * (3.14159265 * 0.5)).clamp(0.0, 3.14159265 * 0.5)
-            scale = torch.where(r > 1e-6, torch.asin(r.clamp(0.0, 1.0)) / r.clamp(min=1e-6) / (3.14159265 * 0.5), torch.ones_like(r))
+            t = (r * (math.pi * 0.5)).clamp(0.0, math.pi * 0.5)
+            scale = torch.where(r > 1e-6, torch.asin(r.clamp(0.0, 1.0)) / r.clamp(min=1e-6) / (math.pi * 0.5), torch.ones_like(r))
             blend = scale * s + (1.0 - s)
             return gx * blend, gy * blend
 
         elif m == "fisheye":
             # Inverse fisheye = defisheye
-            angle = r * (3.14159265 * 0.5) * s
-            r_dst = torch.where(angle.abs() > 1e-6, torch.tan(angle.clamp(-1.5, 1.5)) / (3.14159265 * 0.5 * s + 1e-8), r)
+            angle = r * (math.pi * 0.5) * s
+            r_dst = torch.where(angle.abs() > 1e-6, torch.tan(angle.clamp(-1.5, 1.5)) / (math.pi * 0.5 * s + 1e-8), r)
             scale = torch.where(r > 1e-6, r_dst / r.clamp(min=1e-6), torch.ones_like(r))
             return gx * scale, gy * scale
 
         elif m == "defisheye":
             # Inverse defisheye = fisheye
-            angle = r * (3.14159265 * 0.5) * s
+            angle = r * (math.pi * 0.5) * s
             r_src = torch.where(r > 1e-6, torch.sin(angle) / r.clamp(min=1e-6) * r, torch.zeros_like(r))
             scale = torch.where(r > 1e-6, r_src / r.clamp(min=1e-6), torch.ones_like(r))
             return gx * scale, gy * scale
@@ -222,7 +223,7 @@ class ImageOpsSpherize:
             if src is not None:
                 out_mask = mask if mask is not None else torch.ones(src.shape[0], src.shape[1], src.shape[2], device=src.device, dtype=src.dtype)
             else:
-                out_mask = mask if mask is not None else torch.ones(1, 64, 64)
+                out_mask = mask if mask is not None else torch.ones(1, 64, 64, dtype=torch.float32)
             progress.finish()
             return build_node_preview_result(src, (src, out_mask), prefix="imageops_spherize")
 

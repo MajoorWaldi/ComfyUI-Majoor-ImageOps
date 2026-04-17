@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import io
 import json
 
@@ -65,7 +66,7 @@ def _decode_payload_rgba(
                     max(1, _scalar(raw_bounds[2], int)),
                     max(1, _scalar(raw_bounds[3], int)),
                 )
-        except Exception:
+        except (json.JSONDecodeError, ValueError, TypeError, KeyError):
             return blank
 
     if raw.startswith("data:"):
@@ -102,7 +103,7 @@ def _decode_payload_rgba(
                 if overlay.size != (target_w, target_h):
                     overlay = overlay.resize((target_w, target_h), Image.LANCZOS)
                 array = np.asarray(overlay).astype(np.float32) / 255.0
-    except Exception:
+    except (binascii.Error, OSError, ValueError, TypeError):
         return blank
 
     tensor = torch.from_numpy(array).to(device=device, dtype=dtype).unsqueeze(0)

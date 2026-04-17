@@ -31,7 +31,7 @@ def _is_noop_crop(source, width, height, aspect_ratio, crop_center_x, crop_cente
             return False
         if abs(_scalar(crop_scale, index=index) - 1.0) > 1e-6:
             return False
-        if str(_scalar(aspect_ratio, str, index=index)) not in ASPECT_RATIO_PRESETS:
+        if str(_scalar(aspect_ratio, str, index=index)).lower() not in ASPECT_RATIO_PRESETS:
             return False
     return True
 

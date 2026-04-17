@@ -119,7 +119,7 @@ def _tensor_to_pil(image: torch.Tensor) -> Image.Image:
         raise ValueError("image is None")
     if image.dim() != 4:
         raise ValueError(f"Expected [B,H,W,C], got {tuple(image.shape)}")
-    t = image[0].detach().cpu().float().clamp(0, 1)
+    t = image[0].detach().cpu().float().clamp(0.0, 1.0)
     arr = (t.numpy() * 255.0 + 0.5).astype(np.uint8)
     if arr.shape[-1] == 4:
         return Image.fromarray(arr, mode="RGBA")
@@ -147,7 +147,7 @@ def _apply_color_correct(image, brightness, contrast, gamma, saturation):
     else:
         x = rgb
 
-    return x.clamp(0, 1)
+    return x.clamp(0.0, 1.0)
 
 
 def _srgb_to_linear(rgb: torch.Tensor) -> torch.Tensor:
@@ -473,7 +473,7 @@ def _apply_box_blur_approx(image: torch.Tensor, radius: int, sigma: float) -> to
             continue
         x = _box_blur1d_nchw(x, box_radius, -1)
         x = _box_blur1d_nchw(x, box_radius, -2)
-    return x.permute(0, 2, 3, 1).contiguous().clamp(0, 1)
+    return x.permute(0, 2, 3, 1).contiguous().clamp(0.0, 1.0)
 
 
 def _apply_blur(image, radius, sigma):
@@ -509,7 +509,7 @@ def _apply_blur(image, radius, sigma):
     x = torch.nn.functional.pad(x, (0, 0, pad, pad), mode=pad_mode_y)
     x = torch.nn.functional.conv2d(x, ky, groups=C)
 
-    return x.permute(0, 2, 3, 1).contiguous().clamp(0, 1)
+    return x.permute(0, 2, 3, 1).contiguous().clamp(0.0, 1.0)
 
 
 def _coerce_media_to_tensor(media, input_name="media"):
@@ -938,7 +938,7 @@ def _hsv_to_rgb(hsv: torch.Tensor):
 def _apply_huesat(image: torch.Tensor, hue_deg, saturation, value):
     x = image.float()
     B = x.shape[0]
-    rgb = x[..., :3].clamp(0,1)
+    rgb = x[..., :3].clamp(0.0, 1.0)
     hsv = _rgb_to_hsv(rgb)
     hd = _param_tensor(hue_deg, B, x.device, x.dtype).view(B, 1, 1)
     st = _param_tensor(saturation, B, x.device, x.dtype).view(B, 1, 1)
@@ -946,20 +946,20 @@ def _apply_huesat(image: torch.Tensor, hue_deg, saturation, value):
     hue = (hsv[...,0] + (hd / 360.0)) % 1.0
     sat = (hsv[...,1] * st).clamp(0.0, 4.0)
     val = (hsv[...,2] * vl).clamp(0.0, 4.0)
-    rgb2 = _hsv_to_rgb(torch.stack([hue, sat, val], dim=-1)).clamp(0,1)
+    rgb2 = _hsv_to_rgb(torch.stack([hue, sat, val], dim=-1)).clamp(0.0, 1.0)
     if x.shape[-1] == 4:
         x = torch.cat([rgb2, x[...,3:4]], dim=-1)
     else:
         x = rgb2
-    return x.clamp(0,1)
+    return x.clamp(0.0, 1.0)
 
 def _apply_invert(image: torch.Tensor, invert_alpha: bool = False):
     x = image.float()
     if x.shape[-1] == 4:
         rgb = 1.0 - x[..., :3]
         a = (1.0 - x[..., 3:4]) if invert_alpha else x[..., 3:4]
-        return torch.cat([rgb, a], dim=-1).clamp(0,1)
-    return (1.0 - x).clamp(0,1)
+        return torch.cat([rgb, a], dim=-1).clamp(0.0, 1.0)
+    return (1.0 - x).clamp(0.0, 1.0)
 
 def _apply_clamp(image: torch.Tensor, min_v, max_v):
     x = image.float()
@@ -967,7 +967,7 @@ def _apply_clamp(image: torch.Tensor, min_v, max_v):
     lo = _param_tensor(min_v, B, x.device, x.dtype)
     hi = _param_tensor(max_v, B, x.device, x.dtype)
     lo, hi = torch.min(lo, hi), torch.max(lo, hi)
-    return torch.max(torch.min(x, hi), lo).clamp(0, 1)
+    return torch.max(torch.min(x, hi), lo).clamp(0.0, 1.0)
 
 def _apply_sharpen(image: torch.Tensor, amount, radius, sigma, threshold):
     if _has_list_param(amount, radius, sigma, threshold):
@@ -977,7 +977,7 @@ def _apply_sharpen(image: torch.Tensor, amount, radius, sigma, threshold):
                            _scalar(sigma, index=i), _scalar(threshold, index=i))
             for i in range(image.shape[0])
         ], dim=0)
-    x = image.float().clamp(0,1)
+    x = image.float().clamp(0.0, 1.0)
     if _scalar(amount) == 0.0 or _scalar(radius, int) <= 0:
         return x
     blurred = _apply_blur(x, _scalar(radius, int), _scalar(max(EPSILON, _scalar(sigma))))
@@ -985,15 +985,15 @@ def _apply_sharpen(image: torch.Tensor, amount, radius, sigma, threshold):
     if _scalar(threshold) > 0:
         m = diff.abs().mean(dim=-1, keepdim=True)
         diff = torch.where(m >= _scalar(threshold), diff, torch.zeros_like(diff))
-    y = (x + diff * _scalar(amount)).clamp(0,1)
+    y = (x + diff * _scalar(amount)).clamp(0.0, 1.0)
     return y
 
 def _apply_edge_detect(image: torch.Tensor, strength: float):
     """Sobel edge magnitude on luma. Output is grayscale RGB (alpha passthrough)."""
-    x = image.float().clamp(0, 1)
+    x = image.float().clamp(0.0, 1.0)
     rgb = x[..., :3]
     lr, lg, lb = LUMA_WEIGHTS
-    l = (lr * rgb[..., 0] + lg * rgb[..., 1] + lb * rgb[..., 2]).clamp(0, 1)  # [B,H,W]
+    l = (lr * rgb[..., 0] + lg * rgb[..., 1] + lb * rgb[..., 2]).clamp(0.0, 1.0)  # [B,H,W]
     l = l.unsqueeze(1)  # [B,1,H,W]
 
     kx = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32, device=x.device).view(1, 1, 3, 3)
@@ -1005,12 +1005,12 @@ def _apply_edge_detect(image: torch.Tensor, strength: float):
 
     s_t = _param_tensor(strength, x.shape[0], x.device, x.dtype).view(x.shape[0], 1, 1, 1)
     mag = torch.sqrt(gx * gx + gy * gy) * s_t
-    mag = mag.clamp(0, 1)
+    mag = mag.clamp(0.0, 1.0)
 
     out_rgb = mag.repeat(1, 3, 1, 1).permute(0, 2, 3, 1).contiguous()
     if x.shape[-1] == 4:
-        return torch.cat([out_rgb, x[..., 3:4]], dim=-1).clamp(0, 1)
-    return out_rgb.clamp(0, 1)
+        return torch.cat([out_rgb, x[..., 3:4]], dim=-1).clamp(0.0, 1.0)
+    return out_rgb.clamp(0.0, 1.0)
 
 def _resize_merge_foreground(image: torch.Tensor, out_w: int, out_h: int) -> torch.Tensor:
     if image.shape[-1] == 4:
@@ -1095,8 +1095,8 @@ def _blend_merge_rgb(base_rgb: torch.Tensor, top_rgb: torch.Tensor, mode: str) -
 
 def _apply_merge(a: torch.Tensor, b: torch.Tensor, mode: str, mix, foreground_fit="stretch", blend_space="linear"):
     # a,b: [B,H,W,C]
-    a = a.float().clamp(0,1)
-    b = b.float().clamp(0,1)
+    a = a.float().clamp(0.0, 1.0)
+    b = b.float().clamp(0.0, 1.0)
     if b.shape[0] != a.shape[0]:
         if b.shape[0] == 1:
             b = b.expand(a.shape[0], -1, -1, -1)
@@ -1126,29 +1126,29 @@ def _apply_merge(a: torch.Tensor, b: torch.Tensor, mode: str, mix, foreground_fi
     if mode == "over":
         # if b has alpha, over a
         if b.shape[-1] == 4:
-            ba = b[...,3:4].clamp(0,1)
+            ba = b[...,3:4].clamp(0.0, 1.0)
             out = br*ba + ar*(1.0-ba)
         else:
             out = br
     else:
         out = _blend_merge_rgb(ar, br, mode)
         if b.shape[-1] == 4:
-            ba = b[..., 3:4].clamp(0, 1)
+            ba = b[..., 3:4].clamp(0.0, 1.0)
             out = out * ba + ar * (1.0 - ba)
-    out = out.clamp(0,1)
+    out = out.clamp(0.0, 1.0)
     out = ar*(1.0-m) + out*m
     out = _linear_to_srgb(out) if linear else out
 
     if a.shape[-1] == 4:
         aa = a[...,3:4]
         if b.shape[-1] == 4 and mode == "over":
-            ba = b[...,3:4].clamp(0,1)
+            ba = b[...,3:4].clamp(0.0, 1.0)
             merged_alpha = ba + aa*(1.0-ba)
             ao = aa*(1.0-m) + merged_alpha*m
         else:
             ao = aa
-        return torch.cat([out, ao], dim=-1).clamp(0,1)
-    return out.clamp(0,1)
+        return torch.cat([out, ao], dim=-1).clamp(0.0, 1.0)
+    return out.clamp(0.0, 1.0)
 
 def _dilate_erode_mask(mask: torch.Tensor, radius: int, op: str):
     if mask is None:
@@ -1174,7 +1174,7 @@ def _dilate_erode_mask(mask: torch.Tensor, radius: int, op: str):
                 frames.append(torch.nn.functional.max_pool2d(m[i:i+1], kernel_size=ki, stride=1, padding=ri)[:, 0, :, :])
             else:
                 frames.append(-torch.nn.functional.max_pool2d(-m[i:i+1], kernel_size=ki, stride=1, padding=ri)[:, 0, :, :])
-        return torch.cat(frames, dim=0).clamp(0, 1)
+        return torch.cat(frames, dim=0).clamp(0.0, 1.0)
     r = _scalar(max(0, _scalar(radius, int)), int)
     if r == 0:
         return m[:,0,:,:]
@@ -1183,7 +1183,7 @@ def _dilate_erode_mask(mask: torch.Tensor, radius: int, op: str):
         out = torch.nn.functional.max_pool2d(m, kernel_size=k, stride=1, padding=r)
     else:
         out = -torch.nn.functional.max_pool2d(-m, kernel_size=k, stride=1, padding=r)
-    return out[:,0,:,:].clamp(0,1)
+    return out[:,0,:,:].clamp(0.0, 1.0)
 
 def _apply_glow(image: torch.Tensor, threshold, radius, sigma, intensity):
     if _has_list_param(threshold, radius, sigma, intensity):
@@ -1193,16 +1193,16 @@ def _apply_glow(image: torch.Tensor, threshold, radius, sigma, intensity):
                          _scalar(sigma, index=i), _scalar(intensity, index=i))
             for i in range(image.shape[0])
         ], dim=0)
-    x = image.float().clamp(0,1)
+    x = image.float().clamp(0.0, 1.0)
     rgb = x[..., :3]
     lr, lg, lb = LUMA_WEIGHTS
     luma = (lr*rgb[...,0] + lg*rgb[...,1] + lb*rgb[...,2]).unsqueeze(-1)
-    mask = (luma - _scalar(threshold)).clamp(0,1)
+    mask = (luma - _scalar(threshold)).clamp(0.0, 1.0)
     glow = rgb * mask
     glow4 = torch.cat([glow, torch.ones_like(mask)], dim=-1) if x.shape[-1]==4 else glow
     glow_blur = _apply_blur(glow4, _scalar(radius, int), _scalar(max(EPSILON, _scalar(sigma))))
     g_rgb = glow_blur[..., :3]
-    out_rgb = (rgb + g_rgb * _scalar(intensity)).clamp(0,1)
+    out_rgb = (rgb + g_rgb * _scalar(intensity)).clamp(0.0, 1.0)
     if x.shape[-1]==4:
         return torch.cat([out_rgb, x[...,3:4]], dim=-1)
     return out_rgb
@@ -1219,13 +1219,7 @@ def _crop_pad(image: torch.Tensor, x: int, y: int, w: int, h: int, pad: int, pad
     if left or top or right or bottom:
         t = cropped.permute(0,3,1,2).contiguous()
         mode = str(pad_mode).lower()
-        if mode not in ("reflect","replicate","constant"):
-            mode = "reflect"
-        if mode == "replicate":
-            mode = "replicate"
-        elif mode == "constant":
-            mode = "constant"
-        else:
+        if mode not in ("reflect", "replicate", "constant"):
             mode = "reflect"
         t = torch.nn.functional.pad(t, (left,right,top,bottom), mode=mode)
         cropped = t.permute(0,2,3,1).contiguous()
@@ -1253,7 +1247,7 @@ def _resize(image: torch.Tensor, out_w: int, out_h: int, mode: str = "bilinear",
     except TypeError:
         kwargs.pop("antialias", None)
         x = torch.nn.functional.interpolate(x, **kwargs)
-    return x.permute(0,2,3,1).contiguous().clamp(0,1)
+    return x.permute(0,2,3,1).contiguous().clamp(0.0, 1.0)
 
 
 def _premultiply_rgba(image: torch.Tensor) -> torch.Tensor:
@@ -1511,20 +1505,20 @@ def _apply_crop_reformat(image: torch.Tensor, x: int, y: int, crop_w: int, crop_
         t = xr.permute(0,3,1,2).contiguous()
         t = torch.nn.functional.pad(t, (left,right,top,bottom), mode="constant", value=0.0)
         out = t.permute(0,2,3,1).contiguous()
-        return out[:, :out_h, :out_w, :].clamp(0,1)
+        return out[:, :out_h, :out_w, :].clamp(0.0, 1.0)
     else:
         # crop center to out size
         y0c = max(0, (nh - out_h)//2)
         x0c = max(0, (nw - out_w)//2)
-        return xr[:, y0c:y0c+out_h, x0c:x0c+out_w, :].clamp(0,1)
+        return xr[:, y0c:y0c+out_h, x0c:x0c+out_w, :].clamp(0.0, 1.0)
 
 def _apply_lumakey(image: torch.Tensor, low, high, softness):
-    x = image.float().clamp(0,1)
+    x = image.float().clamp(0.0, 1.0)
     B = x.shape[0]
     d, dt = x.device, x.dtype
     rgb = x[..., :3]
     lr, lg, lb = LUMA_WEIGHTS
-    luma = (lr*rgb[...,0] + lg*rgb[...,1] + lb*rgb[...,2]).clamp(0,1)  # [B,H,W]
+    luma = (lr*rgb[...,0] + lg*rgb[...,1] + lb*rgb[...,2]).clamp(0.0, 1.0)  # [B,H,W]
     p_low = _param_tensor(low, B, d, dt).view(B, 1, 1)
     p_high = _param_tensor(high, B, d, dt).view(B, 1, 1)
     p_soft = _param_tensor(softness, B, d, dt).view(B, 1, 1).clamp(min=0.0)
@@ -1533,11 +1527,11 @@ def _apply_lumakey(image: torch.Tensor, low, high, softness):
     high1 = p_high - p_soft
     high2 = p_high + p_soft
     def smoothstep(a, b, t):
-        t = ((t - a) / (b - a + EPSILON)).clamp(0, 1)
+        t = ((t - a) / (b - a + EPSILON)).clamp(0.0, 1.0)
         return t * t * (3 - 2 * t)
     m_low = smoothstep(low1, low2, luma)
     m_high = 1.0 - smoothstep(high1, high2, luma)
-    mask = (m_low * m_high).clamp(0, 1)
+    mask = (m_low * m_high).clamp(0.0, 1.0)
     return mask
 
 def _tensor_batch_to_pil_list(images: torch.Tensor):

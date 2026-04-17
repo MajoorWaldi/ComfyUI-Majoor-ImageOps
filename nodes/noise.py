@@ -427,17 +427,17 @@ class ImageOpsNoise:
                 contrast=_scalar(contrast, float, index=frame_index),
                 invert=_scalar(invert, bool, index=frame_index),
             )
-            masks.append(frame_gray.unsqueeze(0))
+            masks.append(frame_gray.unsqueeze(0).clamp(0.0, 1.0).cpu())
             images.append(
                 _colorize(
                     frame_gray,
                     low_color=_scalar(low_color, str, index=frame_index),
                     high_color=_scalar(high_color, str, index=frame_index),
-                ).unsqueeze(0)
+                ).unsqueeze(0).clamp(0.0, 1.0).cpu()
             )
             progress.update()
 
-        mask = torch.cat(masks, dim=0).clamp(0.0, 1.0).cpu()
-        image = torch.cat(images, dim=0).clamp(0.0, 1.0).cpu()
+        mask = torch.cat(masks, dim=0)
+        image = torch.cat(images, dim=0)
         progress.finish()
         return build_node_preview_result(image, (image, mask), prefix="imageops_noise", fps=preview_fps)
