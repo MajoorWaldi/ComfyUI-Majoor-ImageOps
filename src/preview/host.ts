@@ -596,7 +596,7 @@ export function registerImageOpsLivePreview(): void {
           attachPreviewInteractionsExt(node, nodeCtx);
           syncPreviewWidgets(node);
         }
-        if (prop === "onConfigure") {
+        if (prop === "onConfigure" && IMAGEOPS_CLASSES.has(node.comfyClass)) {
           const minH = getNodePreviewMinHeight(node);
           // Defer so any post-configure size restoration by ComfyUI happens first.
           setTimeout(() => {

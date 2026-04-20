@@ -538,7 +538,7 @@ function registerImageOpsLivePreview() {
           attachPreviewInteractionsExt(node, nodeCtx);
           syncPreviewWidgets(node);
         }
-        if (prop === "onConfigure") {
+        if (prop === "onConfigure" && IMAGEOPS_CLASSES.has(node.comfyClass)) {
           const minH = getNodePreviewMinHeight(node);
           setTimeout(() => {
             try {
