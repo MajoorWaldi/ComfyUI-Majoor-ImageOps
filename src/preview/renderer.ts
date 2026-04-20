@@ -71,10 +71,19 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
     return canvas;
   }
 
+  const STATIC_CACHE_MAX = 16;
+
   function getPersistentStaticCache(node: ComfyNode): Map<string, HTMLCanvasElement> {
     node.__imageops_media ??= {};
     node.__imageops_media.staticRenderCache ??= new Map<string, HTMLCanvasElement>();
     return node.__imageops_media.staticRenderCache;
+  }
+
+  function pruneStaticCache(cache: Map<string, HTMLCanvasElement>): void {
+    while (cache.size > STATIC_CACHE_MAX) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== undefined) cache.delete(oldest);
+    }
   }
 
   async function render(node: ComfyNode, tick: number = 0, outputSlot: number | null = null, canvasSizeOverride?: number): Promise<RenderResult> {
@@ -131,6 +140,7 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
         const persistent = getPersistentStaticCache(node);
         persistent.clear();
         persistent.set(sig, c);
+        pruneStaticCache(persistent);
       }
       ctx.visited.delete(node.id);
       return c;
@@ -143,6 +153,7 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
         const persistent = getPersistentStaticCache(node);
         persistent.clear();
         persistent.set(sig, nativePreview);
+        pruneStaticCache(persistent);
       }
       ctx.visited.delete(node.id);
       return nativePreview;
@@ -177,6 +188,7 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
         const persistent = getPersistentStaticCache(node);
         persistent.clear();
         persistent.set(sig, result);
+        pruneStaticCache(persistent);
       }
       ctx.visited.delete(node.id);
       return result;
@@ -240,6 +252,7 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
       const persistent = getPersistentStaticCache(node);
       persistent.clear();
       persistent.set(sig, result);
+      pruneStaticCache(persistent);
     }
     ctx.visited.delete(node.id);
     return result;

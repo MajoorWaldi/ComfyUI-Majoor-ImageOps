@@ -103,6 +103,19 @@ async def imageops_viewmedia(request):
     response.headers["Content-Disposition"] = f'filename="{Path(filename).stem}.webm"'
     await response.prepare(request)
 
+    async def _drain_stderr() -> None:
+        # Drain stderr continuously so a full pipe buffer never deadlocks ffmpeg.
+        if proc.stderr is None:
+            return
+        try:
+            while True:
+                chunk = await proc.stderr.read(65536)
+                if not chunk:
+                    break
+        except Exception:
+            pass
+
+    drain_task = asyncio.ensure_future(_drain_stderr())
     try:
         while proc.stdout is not None:
             chunk = await proc.stdout.read(2**20)
@@ -115,4 +128,5 @@ async def imageops_viewmedia(request):
     finally:
         if proc.returncode is None:
             proc.kill()
+        drain_task.cancel()
     return response

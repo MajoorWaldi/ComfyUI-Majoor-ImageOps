@@ -7,13 +7,27 @@ import {
   clampDrawDimension
 } from "../draw.js";
 import { canvasToDrawSourcePoint } from "../nodes/draw.js";
-import { getCanvasPointer } from "../shared/geometry.js";
+import { getCanvasPointer, screenToWorld, clampPreviewZoom } from "../shared/geometry.js";
 import { findWidget, widgetNumber, widgetBoolean, setWidgetValue, setWidgetStringValue, setWidgetBooleanValue } from "../shared/widgets.js";
 function attachInteractions(node, ctx) {
   const st = node.__imageops_state;
   if (!st?.canvas || st.drawInteractiveHooked) return;
   st.drawInteractiveHooked = true;
   const canvas = st.canvas;
+  const worldPointer = (x, y) => {
+    const zoom = st.previewZoom ?? 1;
+    const panX = st.previewPanX ?? 0;
+    const panY = st.previewPanY ?? 0;
+    if (zoom === 1 && panX === 0 && panY === 0) return { x, y };
+    return screenToWorld(x, y, zoom, panX, panY, canvas.width);
+  };
+  const canvasToSource = (x, y) => {
+    const w = worldPointer(x, y);
+    return canvasToDrawSourcePoint(st.drawGeometry, w.x, w.y);
+  };
+  let ctrlPanDrag = null;
+  let panRafPending = false;
+  let hoverRafPending = false;
   if (!st.drawGeometry || !st.drawCanvas) {
     void ctx.renderDrawNode(node, 0);
   }
@@ -119,8 +133,25 @@ function attachInteractions(node, ctx) {
   st.drawTiltSizeInput?.addEventListener("change", syncDrawDynamics);
   canvas.addEventListener("wheel", (event) => {
     if (!st.drawGeometry) return;
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const sx = canvas.width / Math.max(1, rect.width);
+      const sy = canvas.height / Math.max(1, rect.height);
+      const mx = (event.clientX - rect.left) * sx - canvas.width / 2;
+      const my = (event.clientY - rect.top) * sy - canvas.height / 2;
+      const factor = event.deltaY < 0 ? 1.15 : 1 / 1.15;
+      const prevZoom = st.previewZoom ?? 1;
+      const newZoom = clampPreviewZoom(prevZoom * factor);
+      const ratio = newZoom / Math.max(1e-3, prevZoom);
+      st.previewPanX = mx - (mx - (st.previewPanX ?? 0)) * ratio;
+      st.previewPanY = my - (my - (st.previewPanY ?? 0)) * ratio;
+      st.previewZoom = newZoom;
+      void ctx.renderDrawNode(node, 0);
+      return;
+    }
     const point = getCanvasPointer(canvas, event);
-    const hover = canvasToDrawSourcePoint(st.drawGeometry, point.x, point.y);
+    const hover = canvasToSource(point.x, point.y);
     if (!hover.inside) return;
     event.preventDefault();
     const current = widgetNumber(node, "brush_size", 10);
@@ -139,17 +170,44 @@ function attachInteractions(node, ctx) {
     ctx.updateDrawOverlayWidget(node);
     ctx.refreshNode(node);
   });
+  canvas.addEventListener("dblclick", () => {
+    if ((st.previewZoom ?? 1) === 1 && (st.previewPanX ?? 0) === 0 && (st.previewPanY ?? 0) === 0) return;
+    st.previewZoom = 1;
+    st.previewPanX = 0;
+    st.previewPanY = 0;
+    void ctx.renderDrawNode(node, 0);
+  });
   canvas.addEventListener("pointerdown", async (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.button === 0) {
+      event.preventDefault();
+      canvas.focus();
+      try {
+        canvas.setPointerCapture?.(event.pointerId);
+      } catch {
+      }
+      const rect = canvas.getBoundingClientRect();
+      const sx = canvas.width / Math.max(1, rect.width);
+      const sy = canvas.height / Math.max(1, rect.height);
+      ctrlPanDrag = {
+        pointerId: event.pointerId,
+        startCanvasX: (event.clientX - rect.left) * sx,
+        startCanvasY: (event.clientY - rect.top) * sy,
+        startPanX: st.previewPanX ?? 0,
+        startPanY: st.previewPanY ?? 0
+      };
+      canvas.style.cursor = "grabbing";
+      return;
+    }
     if (st.drawGeometry) {
       const point0 = getCanvasPointer(canvas, event);
-      if (!canvasToDrawSourcePoint(st.drawGeometry, point0.x, point0.y).inside) return;
+      if (!canvasToSource(point0.x, point0.y).inside) return;
     }
     event.preventDefault();
     canvas.focus();
     const ready = await ctx.ensureDrawInteractionReady(node);
     if (!ready || !st.drawGeometry) return;
     const point = getCanvasPointer(canvas, event);
-    const mapped = canvasToDrawSourcePoint(st.drawGeometry, point.x, point.y);
+    const mapped = canvasToSource(point.x, point.y);
     if (!mapped.inside) return;
     try {
       canvas.setPointerCapture?.(event.pointerId);
@@ -175,20 +233,44 @@ function attachInteractions(node, ctx) {
     void ctx.renderDrawNode(node, 0);
   });
   canvas.addEventListener("pointermove", (event) => {
+    if (ctrlPanDrag && ctrlPanDrag.pointerId === event.pointerId) {
+      const rect = canvas.getBoundingClientRect();
+      const sx = canvas.width / Math.max(1, rect.width);
+      const sy = canvas.height / Math.max(1, rect.height);
+      const cx = (event.clientX - rect.left) * sx;
+      const cy = (event.clientY - rect.top) * sy;
+      st.previewPanX = ctrlPanDrag.startPanX + (cx - ctrlPanDrag.startCanvasX);
+      st.previewPanY = ctrlPanDrag.startPanY + (cy - ctrlPanDrag.startCanvasY);
+      if (!panRafPending) {
+        panRafPending = true;
+        requestAnimationFrame(() => {
+          panRafPending = false;
+          void ctx.renderDrawNode(node, 0);
+        });
+      }
+      return;
+    }
+    canvas.style.cursor = event.ctrlKey || event.metaKey ? "grab" : "";
     const point = getCanvasPointer(canvas, event);
     if (st.drawGeometry) {
-      const hoverMapped = canvasToDrawSourcePoint(st.drawGeometry, point.x, point.y);
+      const hoverMapped = canvasToSource(point.x, point.y);
       st.drawHover = { canvasX: point.x, canvasY: point.y, inside: hoverMapped.inside };
     } else {
       st.drawHover = null;
     }
     const drag = st.drawStroke;
     if (!drag || drag.pointerId !== event.pointerId) {
-      void ctx.renderDrawNode(node, 0);
+      if (!hoverRafPending) {
+        hoverRafPending = true;
+        requestAnimationFrame(() => {
+          hoverRafPending = false;
+          void ctx.renderDrawNode(node, 0);
+        });
+      }
       return;
     }
     if (!st.drawGeometry) return;
-    const mapped = canvasToDrawSourcePoint(st.drawGeometry, point.x, point.y);
+    const mapped = canvasToSource(point.x, point.y);
     if (!mapped.inside) return;
     event.preventDefault();
     if (event.shiftKey) {
@@ -200,10 +282,18 @@ function attachInteractions(node, ctx) {
     drag.lastX = mapped.x;
     drag.lastY = mapped.y;
     ctx.markPreviewInteraction(node);
-    ctx.markCanvasDirty();
     void ctx.renderDrawNode(node, 0);
   });
   const releaseStroke = (event) => {
+    if (ctrlPanDrag && ctrlPanDrag.pointerId === event.pointerId) {
+      ctrlPanDrag = null;
+      canvas.style.cursor = "";
+      try {
+        canvas.releasePointerCapture?.(event.pointerId);
+      } catch {
+      }
+      return;
+    }
     if (!st.drawStroke || st.drawStroke.pointerId !== event.pointerId) return;
     st.drawStroke = null;
     try {
@@ -214,10 +304,17 @@ function attachInteractions(node, ctx) {
     ctx.refreshNode(node);
   };
   canvas.addEventListener("pointerup", releaseStroke);
-  canvas.addEventListener("pointercancel", releaseStroke);
+  canvas.addEventListener("pointercancel", (event) => {
+    if (ctrlPanDrag && ctrlPanDrag.pointerId === event.pointerId) {
+      ctrlPanDrag = null;
+      canvas.style.cursor = "";
+    }
+    releaseStroke(event);
+  });
   canvas.addEventListener("pointerleave", () => {
-    if (!st.drawStroke) {
+    if (!st.drawStroke && !ctrlPanDrag) {
       st.drawHover = null;
+      canvas.style.cursor = "";
       void ctx.renderDrawNode(node, 0);
     }
   });

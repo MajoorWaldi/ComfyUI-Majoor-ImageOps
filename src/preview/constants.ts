@@ -45,9 +45,14 @@ export function initOpsConstants(): Promise<void> {
     try {
       const url = new URL("../shared/ops_constants.json", import.meta.url);
       const res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.warn("[ImageOps] ops_constants.json fetch failed:", res.status, res.statusText, "— using defaults");
+        return;
+      }
       cached = normalize(await res.json());
-    } catch {}
+    } catch (err) {
+      console.warn("[ImageOps] ops_constants.json fetch error — using defaults:", err);
+    }
   })();
   return initPromise;
 }

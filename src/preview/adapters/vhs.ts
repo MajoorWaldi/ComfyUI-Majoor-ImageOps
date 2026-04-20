@@ -1,5 +1,6 @@
 // VideoHelperSuite / VHS adapters placeholder (v6)
-// We generally treat VHS nodes as SOURCES, not ops. This file is kept to extend interop if needed.
+// VHS nodes are treated as SOURCES, not ops — the renderer traverses upstream through them.
+// Returning null from apply lets the renderer fall through to the upstream result unchanged.
 import type { Adapter, ComfyNode } from "../../types.js";
 
 export function vhsAdapters(): Adapter[] {
@@ -7,11 +8,10 @@ export function vhsAdapters(): Adapter[] {
     {
       name: "vhs:passthrough",
       match(node: ComfyNode): boolean {
-        const n = String(node?.comfyClass ?? "");
-        return n.startsWith("VHS_");
+        return String(node?.comfyClass ?? "").startsWith("VHS_");
       },
       inputs: 1,
-      async apply(): Promise<void> { /* no-op */ }
+      apply(): void { /* passthrough — renderer uses upstream input unchanged */ }
     },
   ];
 }

@@ -3,11 +3,10 @@ function vhsAdapters() {
     {
       name: "vhs:passthrough",
       match(node) {
-        const n = String(node?.comfyClass ?? "");
-        return n.startsWith("VHS_");
+        return String(node?.comfyClass ?? "").startsWith("VHS_");
       },
       inputs: 1,
-      async apply() {
+      apply() {
       }
     }
   ];

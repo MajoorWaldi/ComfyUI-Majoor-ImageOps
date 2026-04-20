@@ -765,14 +765,12 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
   } catch {}
 
   st.canvas = canvas;
-  st.scopes = null;
   st.info = info;
   st.progressWrap = progressWrap;
   st.progressBar = progressBar;
   st.mediaWrap = mediaWrap;
   st.mediaVideo = mediaVideo;
   st.mediaImage = mediaImage;
-  st.scopes = null;
   st.cropResetButton = cropResetButton;
   st.drawBrushButton = drawBrushButton;
   st.drawEraserButton = drawEraserButton;

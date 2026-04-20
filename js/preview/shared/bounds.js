@@ -304,16 +304,19 @@ function blit(node, st, source, canvasSize, sourceWidth, sourceHeight) {
   if (!ctx) return;
   if (st.canvas.width !== canvasSize) st.canvas.width = canvasSize;
   if (st.canvas.height !== canvasSize) st.canvas.height = canvasSize;
+  const imgEl = source;
+  const vidEl = source;
+  const canvasEl = source;
   const resolvedWidth = Math.max(
     1,
     Math.round(
-      sourceWidth ?? source.naturalWidth ?? source.videoWidth ?? source.width ?? 1
+      sourceWidth ?? (imgEl.naturalWidth > 0 ? imgEl.naturalWidth : void 0) ?? (vidEl.videoWidth > 0 ? vidEl.videoWidth : void 0) ?? canvasEl.width ?? 1
     )
   );
   const resolvedHeight = Math.max(
     1,
     Math.round(
-      sourceHeight ?? source.naturalHeight ?? source.videoHeight ?? source.height ?? 1
+      sourceHeight ?? (imgEl.naturalHeight > 0 ? imgEl.naturalHeight : void 0) ?? (vidEl.videoHeight > 0 ? vidEl.videoHeight : void 0) ?? canvasEl.height ?? 1
     )
   );
   const isNewSource = source !== st.previewLastSource;
@@ -348,10 +351,9 @@ function blit(node, st, source, canvasSize, sourceWidth, sourceHeight) {
     }
   }
   const fit = getFitPlacement(canvasSize, canvasSize, resolvedWidth, resolvedHeight);
-  const noZoomPan = isDrawNode(node);
-  const zoom = noZoomPan ? 1 : Math.max(0.35, st.previewZoom ?? 1);
-  const panX = noZoomPan ? 0 : st.previewPanX ?? 0;
-  const panY = noZoomPan ? 0 : st.previewPanY ?? 0;
+  const zoom = Math.max(0.35, st.previewZoom ?? 1);
+  const panX = st.previewPanX ?? 0;
+  const panY = st.previewPanY ?? 0;
   const hasTransform = zoom !== 1 || panX !== 0 || panY !== 0;
   ctx.clearRect(0, 0, canvasSize, canvasSize);
   if (hasTransform) {

@@ -55,6 +55,7 @@ import {
   renderMaskCanvasFromNode,
   renderMaskInputForComp,
   deriveMaskCanvasFromCanvas,
+  maskToOpaqueDisplayCanvas,
   cloneCanvas,
   restoreCanvas,
   pushDrawUndoSnapshot,
@@ -169,7 +170,7 @@ export function registerImageOpsLivePreview(): void {
       if (maskUpstream) {
         const maskOutputSlot = getInputOriginSlot(node, maskIndex, 1);
         const directMask = await renderMaskCanvasFromNode(maskUpstream, tick, session, maskOutputSlot);
-        maskCanvas = directMask;
+        maskCanvas = directMask ? deriveMaskCanvasFromCanvas(directMask) : null;
         if (!maskCanvas) {
           const nodeStream = await resolveNodeStreamPreview(maskUpstream, renderCanvasSize);
           if (nodeStream?.canvas) {
@@ -235,6 +236,9 @@ export function registerImageOpsLivePreview(): void {
     const failRender = (message: string, error: unknown): void => {
       setInfo(st, message);
       console.warn("[ImageOps] render error", error);
+      // Commit the failed render key so the next RAF tick does not immediately
+      // retry the same state — prevents a spin-on-error loop.
+      commitRender();
       finishRender();
     };
 
@@ -351,10 +355,8 @@ export function registerImageOpsLivePreview(): void {
         commitRender();
         finishRender();
       }).catch((err) => {
-        setInfo(st, "Comp preview error (check console)");
+        failRender("Comp preview error (check console)", err);
         st.compLayers = [];
-        console.warn("[ImageOps] comp render error", err);
-        finishRender();
       });
       return;
     }
@@ -437,13 +439,13 @@ export function registerImageOpsLivePreview(): void {
     let tick = 0;
     let lastLoopTick: number | null = null;
     const proceduralFrameCount = getProceduralFrameCount(node) ?? (upstreamProcedural ? getProceduralFrameCount(upstreamProcedural) : null);
-    const proceduralFps = proceduralFrameCount != null
-      ? (getProceduralPlaybackFps(node) ?? (upstreamProcedural ? getProceduralPlaybackFps(upstreamProcedural) : null) ?? 12)
-      : null;
+    const hasProcedural = proceduralFrameCount != null;
     const startedAt = performance.now();
     const loop = (): void => {
-      if (proceduralFps != null) {
-        const rawTick = Math.floor(((performance.now() - startedAt) * proceduralFps) / 1000);
+      if (hasProcedural) {
+        // Re-read fps on every tick so widget changes take effect immediately.
+        const currentFps = getProceduralPlaybackFps(node) ?? (upstreamProcedural ? getProceduralPlaybackFps(upstreamProcedural) : null) ?? 12;
+        const rawTick = Math.floor(((performance.now() - startedAt) * currentFps) / 1000);
         tick = proceduralFrameCount != null && proceduralFrameCount > 0 ? (rawTick % proceduralFrameCount) : rawTick;
       } else {
         tick++;
@@ -557,14 +559,17 @@ export function registerImageOpsLivePreview(): void {
         if (isCropNode(node) && prop === "onConfigure") {
           hideCropGeometryWidgets(node);
           syncCropWidgets(node);
+          st.cropInteractiveHooked = false;
           attachCropInteractionsExt(node, cropCtx);
         }
         if (isDrawNode(node) && prop === "onConfigure") {
           hideDrawWidgets(node);
+          st.drawInteractiveHooked = false;
           attachDrawInteractionsExt(node, drawCtx);
         }
         if (isColorCorrectNode(node) && prop === "onConfigure") {
           hideColorCorrectWidgets(node);
+          st.colorInteractiveHooked = false;
           attachColorCorrectInteractionsExt(node, nodeCtx);
           syncColorCorrectWidgets(node);
         }
@@ -574,13 +579,16 @@ export function registerImageOpsLivePreview(): void {
         if (isCompNode(node) && prop === "onConfigure") {
           hideCompWidgets(node);
           ensureCompState(node);
+          st.compInteractiveHooked = false;
           attachCompInteractionsExt(node, compCtx);
           updateCompControls(node);
         }
         if (isCornerPinNode(node) && prop === "onConfigure") {
+          st.cornerPinInteractiveHooked = false;
           attachCornerPinInteractionsExt(node, nodeCtx);
         }
         if (isPadOutNode(node) && prop === "onConfigure") {
+          st.padOutInteractiveHooked = false;
           attachPadOutInteractionsExt(node, nodeCtx);
         }
         if (isPreviewNode(node) && prop === "onConfigure") {

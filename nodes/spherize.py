@@ -4,7 +4,7 @@ import math
 import torch
 import torch.nn.functional as F
 
-from ._helpers import MEDIA_INPUT_TYPE, _resize, _resize_mask, _scalar, _select_media_tensor
+from ._helpers import MEDIA_INPUT_TYPE, _prepare_effect_mask, _resize, _scalar, _select_media_tensor
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 
@@ -219,19 +219,17 @@ class ImageOpsSpherize:
         tgt_w = max(64, int(_scalar(width, int)))
         tgt_h = max(64, int(_scalar(height, int)))
 
+        if src is not None and use_custom:
+            src = _resize(src, tgt_w, tgt_h, mode="bilinear", antialias=True)
+        prepared_mask = _prepare_effect_mask(mask, src) if (mask is not None and src is not None) else None
+
         if src is None or _scalar(bypass, bool):
             if src is not None:
-                out_mask = mask if mask is not None else torch.ones(src.shape[0], src.shape[1], src.shape[2], device=src.device, dtype=src.dtype)
+                out_mask = prepared_mask if prepared_mask is not None else torch.ones(src.shape[0], src.shape[1], src.shape[2], device=src.device, dtype=src.dtype)
             else:
-                out_mask = mask if mask is not None else torch.ones(1, 64, 64, dtype=torch.float32)
+                out_mask = torch.ones(1, 64, 64, dtype=torch.float32)
             progress.finish()
             return build_node_preview_result(src, (src, out_mask), prefix="imageops_spherize")
-
-        # Resize input if custom size requested
-        if use_custom:
-            src = _resize(src, tgt_w, tgt_h, mode="bilinear", antialias=True)
-            if mask is not None:
-                mask = _resize_mask(mask, tgt_w, tgt_h)
 
         frames = []
         for fi in range(src.shape[0]):
@@ -262,8 +260,8 @@ class ImageOpsSpherize:
         circle_mask = (gx * gx + gy * gy <= 1.0).float()  # [H, W]
         circle_mask_b = circle_mask.unsqueeze(0).expand(out.shape[0], -1, -1)  # [B, H, W]
 
-        if mask is not None:
-            out_mask = circle_mask_b * mask
+        if prepared_mask is not None:
+            out_mask = circle_mask_b * prepared_mask
         else:
             out_mask = circle_mask_b
 

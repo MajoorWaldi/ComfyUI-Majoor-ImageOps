@@ -150,12 +150,12 @@ class ImageOpsPreview:
             },
         }
 
-    def preview(self, image=None, preview_target="auto", mode="images", mask=None, video=None, prompt=None, extra_pnginfo=None, unique_id=None):
+    def preview(self, image=None, preview_target="auto", mode="images", mask=None, prompt=None, extra_pnginfo=None, unique_id=None):
         del prompt, extra_pnginfo
         progress = start_progress(unique_id=unique_id)
         image_tensor = None
-        if image is not None or video is not None:
-            image_tensor = _select_media_tensor(image, video)
+        if image is not None:
+            image_tensor = _select_media_tensor(image, None)
 
         mask_tensor = _coerce_mask_tensor(
             mask,
@@ -164,7 +164,10 @@ class ImageOpsPreview:
         )
 
         if image_tensor is None and mask_tensor is None:
-            raise ValueError("ImageOps Preview requires an image/video input, a mask input, or both.")
+            progress.finish()
+            blank_image = torch.zeros(1, 1, 1, 3)
+            blank_mask = torch.zeros(1, 1, 1)
+            return {"ui": {"images": []}, "result": (blank_image, blank_mask)}
 
         output_image = image_tensor if image_tensor is not None else _mask_to_preview_image(mask_tensor)
         output_mask = mask_tensor if mask_tensor is not None else _alpha_mask_from_image(output_image)

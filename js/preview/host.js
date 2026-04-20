@@ -151,7 +151,7 @@ function registerImageOpsLivePreview() {
       if (maskUpstream) {
         const maskOutputSlot = getInputOriginSlot(node, maskIndex, 1);
         const directMask = await renderMaskCanvasFromNode(maskUpstream, tick, session, maskOutputSlot);
-        maskCanvas = directMask;
+        maskCanvas = directMask ? deriveMaskCanvasFromCanvas(directMask) : null;
         if (!maskCanvas) {
           const nodeStream = await resolveNodeStreamPreview(maskUpstream, renderCanvasSize);
           if (nodeStream?.canvas) {
@@ -204,6 +204,7 @@ function registerImageOpsLivePreview() {
     const failRender = (message, error) => {
       setInfo(st, message);
       console.warn("[ImageOps] render error", error);
+      commitRender();
       finishRender();
     };
     st.renderInFlight = true;
@@ -311,10 +312,8 @@ function registerImageOpsLivePreview() {
         commitRender();
         finishRender();
       }).catch((err) => {
-        setInfo(st, "Comp preview error (check console)");
+        failRender("Comp preview error (check console)", err);
         st.compLayers = [];
-        console.warn("[ImageOps] comp render error", err);
-        finishRender();
       });
       return;
     }
@@ -389,11 +388,12 @@ function registerImageOpsLivePreview() {
     let tick = 0;
     let lastLoopTick = null;
     const proceduralFrameCount = getProceduralFrameCount(node) ?? (upstreamProcedural ? getProceduralFrameCount(upstreamProcedural) : null);
-    const proceduralFps = proceduralFrameCount != null ? getProceduralPlaybackFps(node) ?? (upstreamProcedural ? getProceduralPlaybackFps(upstreamProcedural) : null) ?? 12 : null;
+    const hasProcedural = proceduralFrameCount != null;
     const startedAt = performance.now();
     const loop = () => {
-      if (proceduralFps != null) {
-        const rawTick = Math.floor((performance.now() - startedAt) * proceduralFps / 1e3);
+      if (hasProcedural) {
+        const currentFps = getProceduralPlaybackFps(node) ?? (upstreamProcedural ? getProceduralPlaybackFps(upstreamProcedural) : null) ?? 12;
+        const rawTick = Math.floor((performance.now() - startedAt) * currentFps / 1e3);
         tick = proceduralFrameCount != null && proceduralFrameCount > 0 ? rawTick % proceduralFrameCount : rawTick;
       } else {
         tick++;
@@ -501,14 +501,17 @@ function registerImageOpsLivePreview() {
         if (isCropNode(node) && prop === "onConfigure") {
           hideCropGeometryWidgets(node);
           syncCropWidgets(node);
+          st.cropInteractiveHooked = false;
           attachCropInteractionsExt(node, cropCtx);
         }
         if (isDrawNode(node) && prop === "onConfigure") {
           hideDrawWidgets(node);
+          st.drawInteractiveHooked = false;
           attachDrawInteractionsExt(node, drawCtx);
         }
         if (isColorCorrectNode(node) && prop === "onConfigure") {
           hideColorCorrectWidgets(node);
+          st.colorInteractiveHooked = false;
           attachColorCorrectInteractionsExt(node, nodeCtx);
           syncColorCorrectWidgets(node);
         }
@@ -518,13 +521,16 @@ function registerImageOpsLivePreview() {
         if (isCompNode(node) && prop === "onConfigure") {
           hideCompWidgets(node);
           ensureCompState(node);
+          st.compInteractiveHooked = false;
           attachCompInteractionsExt(node, compCtx);
           updateCompControls(node);
         }
         if (isCornerPinNode(node) && prop === "onConfigure") {
+          st.cornerPinInteractiveHooked = false;
           attachCornerPinInteractionsExt(node, nodeCtx);
         }
         if (isPadOutNode(node) && prop === "onConfigure") {
+          st.padOutInteractiveHooked = false;
           attachPadOutInteractionsExt(node, nodeCtx);
         }
         if (isPreviewNode(node) && prop === "onConfigure") {

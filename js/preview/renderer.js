@@ -54,11 +54,18 @@ function buildRenderer({ api, registry, canvasSize }) {
     canvas.height = 1;
     return canvas;
   }
+  const STATIC_CACHE_MAX = 16;
   function getPersistentStaticCache(node) {
     var _a;
     node.__imageops_media ?? (node.__imageops_media = {});
     (_a = node.__imageops_media).staticRenderCache ?? (_a.staticRenderCache = /* @__PURE__ */ new Map());
     return node.__imageops_media.staticRenderCache;
+  }
+  function pruneStaticCache(cache) {
+    while (cache.size > STATIC_CACHE_MAX) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== void 0) cache.delete(oldest);
+    }
   }
   async function render(node, tick = 0, outputSlot = null, canvasSizeOverride) {
     const ctx = { api, canvasSize: canvasSizeOverride ?? canvasSize, tick, cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() };
@@ -120,6 +127,7 @@ function buildRenderer({ api, registry, canvasSize }) {
         const persistent = getPersistentStaticCache(node);
         persistent.clear();
         persistent.set(sig, c);
+        pruneStaticCache(persistent);
       }
       ctx.visited.delete(node.id);
       return c;
@@ -131,6 +139,7 @@ function buildRenderer({ api, registry, canvasSize }) {
         const persistent = getPersistentStaticCache(node);
         persistent.clear();
         persistent.set(sig, nativePreview);
+        pruneStaticCache(persistent);
       }
       ctx.visited.delete(node.id);
       return nativePreview;
@@ -160,6 +169,7 @@ function buildRenderer({ api, registry, canvasSize }) {
         const persistent = getPersistentStaticCache(node);
         persistent.clear();
         persistent.set(sig, result2);
+        pruneStaticCache(persistent);
       }
       ctx.visited.delete(node.id);
       return result2;
@@ -221,6 +231,7 @@ function buildRenderer({ api, registry, canvasSize }) {
       const persistent = getPersistentStaticCache(node);
       persistent.clear();
       persistent.set(sig, result);
+      pruneStaticCache(persistent);
     }
     ctx.visited.delete(node.id);
     return result;

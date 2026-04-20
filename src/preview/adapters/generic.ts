@@ -152,6 +152,9 @@ export function genericAdapters(): Adapter[] {
     },
     {
       name: "generic:blur_like",
+      // IMPORTANT: the `isImageOps` guard MUST stay here.  ImageOps nodes often have
+      // a "radius" widget, so without it this heuristic would shadow the exact
+      // imageOpsAdapter for every ImageOps node that has such a widget.
       match(node: ComfyNode): boolean {
         if (isImageOps(node)) return false;
         const cls = classLower(node);

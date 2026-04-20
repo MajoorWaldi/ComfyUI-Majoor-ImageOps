@@ -80,7 +80,32 @@ type MaskCanvas = HTMLCanvasElement & { __imageopsPreparedMask?: boolean };
 const preparedMaskCache = new WeakMap<HTMLCanvasElement, Map<string, HTMLCanvasElement>>();
 const canvasFieldCache = new WeakMap<HTMLCanvasElement, Map<string, Float32Array>>();
 
+function prepareMaskCanvasInPlace(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
+  const width = canvas.width || 1;
+  const height = canvas.height || 1;
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  const weights = getOpsConstants().luma_weights;
+  for (let index = 0; index < data.length; index += 4) {
+    const alpha = data[index + 3] / 255;
+    const luma = luma01(data[index] / 255, data[index + 1] / 255, data[index + 2] / 255, weights);
+    const matte = Math.round(clamp01(luma * alpha) * 255);
+    const rgb = matte > 0 ? 255 : 0;
+    data[index] = rgb;
+    data[index + 1] = rgb;
+    data[index + 2] = rgb;
+    data[index + 3] = matte;
+  }
+  ctx.putImageData(image, 0, 0);
+  preparedMaskCache.delete(canvas);
+  canvasFieldCache.delete(canvas);
+  return canvas;
+}
+
 function markPreparedMaskCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  prepareMaskCanvasInPlace(canvas);
   (canvas as MaskCanvas).__imageopsPreparedMask = true;
   return canvas;
 }
@@ -560,20 +585,25 @@ function renderNoiseFieldCanvas(
     const offset = index * 4;
     if (maskOnly) {
       const channel = Math.round(gray * 255);
-      data[offset] = channel;
-      data[offset + 1] = channel;
-      data[offset + 2] = channel;
+      const rgb = channel > 0 ? 255 : 0;
+      data[offset] = rgb;
+      data[offset + 1] = rgb;
+      data[offset + 2] = rgb;
+      data[offset + 3] = channel;
     } else {
       data[offset] = Math.round(clamp01(low[0] + gray * (high[0] - low[0])) * 255);
       data[offset + 1] = Math.round(clamp01(low[1] + gray * (high[1] - low[1])) * 255);
       data[offset + 2] = Math.round(clamp01(low[2] + gray * (high[2] - low[2])) * 255);
+      data[offset + 3] = 255;
     }
-    data[offset + 3] = 255;
   }
 
   context.putImageData(image, 0, 0);
-  return canvas;
+  return maskOnly ? markPreparedMaskCanvas(canvas) : canvas;
 }
+
+// CPU pixel loop runs synchronously on the main thread, so cap lower than general canvasSize.
+const NOISE_CANVAS_MAX = 256;
 
 function renderNoiseCanvas(node: ComfyNode, maskOnly: boolean = false, frameIndex: number = 0, canvasSize: number = 512): HTMLCanvasElement {
   const fullWidth = Math.max(1, Math.round(numAny(node, ["width"], 1024)));
@@ -581,7 +611,7 @@ function renderNoiseCanvas(node: ComfyNode, maskOnly: boolean = false, frameInde
   // Cap render resolution to the preview canvas size — the full node dimensions
   // can be thousands of pixels, but the preview widget is much smaller.
   // This is the primary driver of animation fluidity: 1024→384 cuts pixel work by 7×.
-  const scaleFactor = Math.min(1, Math.max(1, canvasSize) / Math.max(fullWidth, fullHeight));
+  const scaleFactor = Math.min(1, Math.max(1, Math.min(canvasSize, NOISE_CANVAS_MAX)) / Math.max(fullWidth, fullHeight));
   const width = Math.max(1, Math.round(fullWidth * scaleFactor));
   const height = Math.max(1, Math.round(fullHeight * scaleFactor));
   const batchSize = Math.max(1, Math.round(numAny(node, ["batch_size"], 1)));
@@ -641,18 +671,23 @@ function extractCanvasField(canvas: HTMLCanvasElement, width: number, height: nu
   const data = fitted.getContext("2d")!.getImageData(0, 0, width, height).data;
   const field = new Float32Array(width * height);
   const weights = getOpsConstants().luma_weights;
+  const preparedMask = isPreparedMaskCanvas(fitted);
   for (let index = 0; index < field.length; index++) {
     const offset = index * 4;
     const r = data[offset] / 255;
     const g = data[offset + 1] / 255;
     const b = data[offset + 2] / 255;
     const a = data[offset + 3] / 255;
+    if (preparedMask) {
+      field[index] = a;
+      continue;
+    }
     if (normalized === "green") field[index] = g;
     else if (normalized === "blue") field[index] = b;
     else if (normalized === "alpha") field[index] = a;
     else if (normalized === "luma") field[index] = clamp01(luma01(r, g, b, weights));
-      else field[index] = r;
-    }
+    else field[index] = r;
+  }
   const cache = canvasFieldCache.get(canvas) ?? new Map<string, Float32Array>();
   cache.set(cacheKey, field);
   canvasFieldCache.set(canvas, cache);
@@ -1082,10 +1117,15 @@ function applyEdgeDetect(ctx: CanvasRenderingContext2D, W: number, H: number, st
 function applyBlur(ctx: CanvasRenderingContext2D, W: number, H: number, radiusPx: number, sigmaPx: number): void {
   const blurPx = resolveBlurRadiusPx(radiusPx, sigmaPx);
   if (blurPx <= 0) return;
+  // CSS filter:blur() takes sigma (standard deviation), not radius.  Use the original
+  // sigma value so the Gaussian shape matches the backend kernel; the effective radius
+  // only controls truncation which CSS cannot replicate anyway.
+  const safeSigma = Math.max(0, sigmaPx);
+  const cssSigma = safeSigma > 0 ? Math.min(blurPx, safeSigma) : Math.max(0.1, blurPx / 3);
   const tmp=document.createElement("canvas");
   tmp.width=W; tmp.height=H;
   const tctx=tmp.getContext("2d")!;
-  tctx.filter=`blur(${blurPx}px)`;
+  tctx.filter=`blur(${cssSigma}px)`;
   tctx.drawImage(ctx.canvas,0,0);
   tctx.filter="none";
   ctx.clearRect(0,0,W,H);
@@ -1094,11 +1134,10 @@ function applyBlur(ctx: CanvasRenderingContext2D, W: number, H: number, radiusPx
 
 function resolveBlurRadiusPx(radiusPx: number, sigmaPx: number): number {
   const safeRadius = Math.max(0, Math.round(radiusPx));
-  const safeSigma = Math.max(0, sigmaPx);
-  const sigmaRadius = safeSigma > 0 ? Math.max(1, Math.ceil(safeSigma * 4)) : 0;
-  if (safeRadius <= 0) return sigmaRadius;
-  if (sigmaRadius <= 0) return safeRadius;
-  return Math.min(safeRadius, sigmaRadius);
+  // Match the backend UX: the explicit radius slider controls the blur extent directly,
+  // while sigma only shapes the softness inside that chosen radius.
+  void sigmaPx;
+  return safeRadius;
 }
 
 function applyChannel(ctx: CanvasRenderingContext2D, W: number, H: number, channel: string): void {
@@ -1459,10 +1498,17 @@ function renderPadOutCanvases(
 
   const mask = makeCanvas(outWidth, outHeight);
   const maskCtx = mask.getContext("2d")!;
-  maskCtx.fillStyle = invertMask ? "#000000" : "#FFFFFF";
-  maskCtx.fillRect(0, 0, outWidth, outHeight);
-  maskCtx.fillStyle = invertMask ? "#FFFFFF" : "#000000";
-  maskCtx.fillRect(padLeft, padTop, sourceWidth, sourceHeight);
+  // Prepared mask format: RGB=255, A=mask_value. New canvas is transparent (A=0 = mask=0).
+  if (invertMask) {
+    // Inverted: center = mask=1 (opaque white), border = mask=0 (transparent)
+    maskCtx.fillStyle = "#FFFFFF";
+    maskCtx.fillRect(padLeft, padTop, sourceWidth, sourceHeight);
+  } else {
+    // Default: border = mask=1 (opaque white), center = mask=0 (transparent)
+    maskCtx.fillStyle = "#FFFFFF";
+    maskCtx.fillRect(0, 0, outWidth, outHeight);
+    maskCtx.clearRect(padLeft, padTop, sourceWidth, sourceHeight);
+  }
   markPreparedMaskCanvas(mask);
 
   return { image, mask };
@@ -1707,10 +1753,10 @@ function warpCanvasToQuad(
       outData[outOffset + 2] = Math.round(clamp01(b / 255) * 255);
       outData[outOffset + 3] = Math.round(clamp01(a / 255) * 255);
       const alpha = Math.round(clamp01(a / 255) * 255);
-      outMaskData[outOffset] = alpha;
-      outMaskData[outOffset + 1] = alpha;
-      outMaskData[outOffset + 2] = alpha;
-      outMaskData[outOffset + 3] = 255;
+      outMaskData[outOffset] = 255;
+      outMaskData[outOffset + 1] = 255;
+      outMaskData[outOffset + 2] = 255;
+      outMaskData[outOffset + 3] = alpha;
     }
   }
 
@@ -1738,8 +1784,12 @@ function renderCornerPinCanvases(
     const image = fitCanvas(source, width, height);
     const mask = makeCanvas(width, height);
     const maskCtx = mask.getContext("2d")!;
-    maskCtx.fillStyle = invertMask ? "#000000" : "#FFFFFF";
-    maskCtx.fillRect(0, 0, width, height);
+    if (!invertMask) {
+      // mask=1 everywhere (white opaque) — new canvas is already transparent so only fill when mask=1
+      maskCtx.fillStyle = "#FFFFFF";
+      maskCtx.fillRect(0, 0, width, height);
+    }
+    // else mask=0 everywhere → canvas stays transparent (A=0)
     markPreparedMaskCanvas(mask);
     return { image, mask };
   }
@@ -1749,8 +1799,12 @@ function renderCornerPinCanvases(
     const image = fitCanvas(source, width, height);
     const mask = makeCanvas(width, height);
     const maskCtx = mask.getContext("2d")!;
-    maskCtx.fillStyle = invertMask ? "#FFFFFF" : "#000000";
-    maskCtx.fillRect(0, 0, width, height);
+    if (invertMask) {
+      // inverted + no valid transform → mask=1 everywhere
+      maskCtx.fillStyle = "#FFFFFF";
+      maskCtx.fillRect(0, 0, width, height);
+    }
+    // else mask=0 everywhere → canvas stays transparent (A=0)
     markPreparedMaskCanvas(mask);
     return { image, mask };
   }
@@ -1858,10 +1912,10 @@ function renderCornerPinCanvases(
         ? Math.round(clamp01((insideSum / sampleCount) * alpha01) * 255)
         : 255;
       const finalMask = invertMask ? 255 - maskValue : maskValue;
-      outMaskData[outOffset] = finalMask;
-      outMaskData[outOffset + 1] = finalMask;
-      outMaskData[outOffset + 2] = finalMask;
-      outMaskData[outOffset + 3] = 255;
+      outMaskData[outOffset] = 255;
+      outMaskData[outOffset + 1] = 255;
+      outMaskData[outOffset + 2] = 255;
+      outMaskData[outOffset + 3] = finalMask;
     }
   }
 
@@ -1904,6 +1958,24 @@ function buildMaskAlphaCanvas(maskCanvas: HTMLCanvasElement, width: number, heig
   return prepared;
 }
 
+function maskCanvasToPreviewCanvas(maskCanvas: HTMLCanvasElement, includeAlpha: boolean = false): HTMLCanvasElement {
+  const prepared = buildMaskAlphaCanvas(maskCanvas, maskCanvas.width || 1, maskCanvas.height || 1);
+  const output = makeCanvas(prepared.width || 1, prepared.height || 1);
+  const octx = output.getContext("2d")!;
+  octx.drawImage(prepared, 0, 0, output.width, output.height);
+  const image = octx.getImageData(0, 0, output.width, output.height);
+  const data = image.data;
+  for (let index = 0; index < data.length; index += 4) {
+    const matte = data[index + 3];
+    data[index] = matte;
+    data[index + 1] = matte;
+    data[index + 2] = matte;
+    data[index + 3] = includeAlpha ? matte : 255;
+  }
+  octx.putImageData(image, 0, 0);
+  return output;
+}
+
 function alphaMaskCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
   const output = makeCanvas(source.width || 1, source.height || 1);
   const octx = output.getContext("2d")!;
@@ -1913,13 +1985,24 @@ function alphaMaskCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
   const data = image.data;
   for (let index = 0; index < data.length; index += 4) {
     const matte = data[index + 3];
-    data[index] = matte;
-    data[index + 1] = matte;
-    data[index + 2] = matte;
-    data[index + 3] = 255;
+    const rgb = matte > 0 ? 255 : 0;
+    data[index] = rgb;
+    data[index + 1] = rgb;
+    data[index + 2] = rgb;
+    data[index + 3] = matte;
   }
   octx.putImageData(image, 0, 0);
   return markPreparedMaskCanvas(output);
+}
+
+function canvasHasVisibleTransparency(source: HTMLCanvasElement): boolean {
+  const ctx = source.getContext("2d");
+  if (!ctx) return false;
+  const data = ctx.getImageData(0, 0, source.width || 1, source.height || 1).data;
+  for (let index = 3; index < data.length; index += 4) {
+    if (data[index] < 255) return true;
+  }
+  return false;
 }
 
 function maskConvertSourceValue(
@@ -1995,10 +2078,11 @@ function imageToMaskPreviewCanvas(source: HTMLCanvasElement, node?: ComfyNode, f
   const levelsData = levelsImage.data;
   for (let index = 0; index < levelsData.length; index += 4) {
     const matte = Math.round(applyMaskConvertLevels(levelsData[index] / 255, blackPoint, whitePoint) * 255);
-    levelsData[index] = matte;
-    levelsData[index + 1] = matte;
-    levelsData[index + 2] = matte;
-    levelsData[index + 3] = 255;
+    const rgb = matte > 0 ? 255 : 0;
+    levelsData[index] = rgb;
+    levelsData[index + 1] = rgb;
+    levelsData[index + 2] = rgb;
+    levelsData[index + 3] = matte;
   }
   levelsCtx.putImageData(levelsImage, 0, 0);
   return markPreparedMaskCanvas(levelsSource);
@@ -2058,12 +2142,14 @@ function renderMaskedEffectPreview(
     premultBeforeProcess?: boolean;
     processMask?: ((mask: HTMLCanvasElement) => HTMLCanvasElement) | null;
     baseCanvas?: HTMLCanvasElement | null;
+    compositeWithBase?: boolean;
     frameIndex?: number;
   } = {},
 ): HTMLCanvasElement {
   const mask = resolvePreviewMaskCanvas(node, source, rawMask, options.frameIndex ?? 0);
   if (!mask) return processImage(source);
   const processed = processImage(options.premultBeforeProcess ? premultLayerWithMask(source, mask) : source);
+  if (options.compositeWithBase === false) return processed;
   const processedMask = options.processMask
     ? options.processMask(mask)
     : fitCanvas(mask, processed.width || 1, processed.height || 1);
@@ -2095,28 +2181,38 @@ function invertMaskCanvas(maskCanvas: HTMLCanvasElement): HTMLCanvasElement {
   const image = octx.getImageData(0, 0, output.width, output.height);
   const data = image.data;
   for (let i = 0; i < data.length; i += 4) {
-    const matte = 255 - data[i];
-    data[i] = matte;
-    data[i + 1] = matte;
-    data[i + 2] = matte;
-    data[i + 3] = 255;
+    data[i] = 255;
+    data[i + 1] = 255;
+    data[i + 2] = 255;
+    data[i + 3] = 255 - data[i + 3];
   }
   octx.putImageData(image, 0, 0);
   return markPreparedMaskCanvas(output);
 }
 
 function invertMaskAlphaCanvas(maskCanvas: HTMLCanvasElement): HTMLCanvasElement {
-  const prepared = buildMaskAlphaCanvas(maskCanvas, maskCanvas.width || 1, maskCanvas.height || 1);
+  return invertMaskCanvas(maskCanvas);
+}
+
+function normalizePreparedMaskCanvas(maskCanvas: HTMLCanvasElement): HTMLCanvasElement {
+  const prepared = isPreparedMaskCanvas(maskCanvas)
+    ? maskCanvas
+    : buildMaskAlphaCanvas(maskCanvas, maskCanvas.width || 1, maskCanvas.height || 1);
   const output = makeCanvas(prepared.width || 1, prepared.height || 1);
   const octx = output.getContext("2d")!;
   octx.drawImage(prepared, 0, 0, output.width, output.height);
   const image = octx.getImageData(0, 0, output.width, output.height);
   const data = image.data;
   for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] <= 0) {
+      data[i] = 0;
+      data[i + 1] = 0;
+      data[i + 2] = 0;
+      continue;
+    }
     data[i] = 255;
     data[i + 1] = 255;
     data[i + 2] = 255;
-    data[i + 3] = 255 - data[i + 3];
   }
   octx.putImageData(image, 0, 0);
   return markPreparedMaskCanvas(output);
@@ -2131,11 +2227,47 @@ function blurMaskAlphaCanvas(maskCanvas: HTMLCanvasElement, radius: number): HTM
   octx.filter = `blur(${safeRadius}px)`;
   octx.drawImage(prepared, 0, 0, output.width, output.height);
   octx.filter = "none";
-  return markPreparedMaskCanvas(output);
+  return normalizePreparedMaskCanvas(output);
 }
 
 function emptyMaskCanvas(width: number, height: number): HTMLCanvasElement {
   return markPreparedMaskCanvas(makeCanvas(width, height));
+}
+
+function renderSpherizeMaskCanvas(
+  node: ComfyNode,
+  source: HTMLCanvasElement,
+  rawMask: HTMLCanvasElement | null,
+  frameIndex: number = 0,
+): HTMLCanvasElement {
+  let width = source.width || 1;
+  let height = source.height || 1;
+  if (strAny(node, ["size_mode"], "from_input", frameIndex).toLowerCase().trim() === "custom") {
+    width = Math.max(64, Math.round(numAny(node, ["width"], width, frameIndex)));
+    height = Math.max(64, Math.round(numAny(node, ["height"], height, frameIndex)));
+  }
+
+  const output = makeCanvas(width, height);
+  const octx = output.getContext("2d")!;
+  const image = octx.createImageData(width, height);
+  const data = image.data;
+  const fittedMask = rawMask ? buildMaskAlphaCanvas(rawMask, width, height) : null;
+  const maskData = fittedMask?.getContext("2d")!.getImageData(0, 0, width, height).data ?? null;
+  for (let y = 0; y < height; y++) {
+    const gy = height > 1 ? (y / (height - 1)) * 2 - 1 : 0;
+    for (let x = 0; x < width; x++) {
+      const gx = width > 1 ? (x / (width - 1)) * 2 - 1 : 0;
+      const offset = (y * width + x) * 4;
+      const circleMask = gx * gx + gy * gy <= 1 ? 255 : 0;
+      const matte = maskData ? Math.round((circleMask / 255) * (maskData[offset + 3] / 255) * 255) : circleMask;
+      data[offset] = 255;
+      data[offset + 1] = 255;
+      data[offset + 2] = 255;
+      data[offset + 3] = matte;
+    }
+  }
+  octx.putImageData(image, 0, 0);
+  return markPreparedMaskCanvas(output);
 }
 
 export function renderCompPreview(
@@ -2856,22 +2988,64 @@ export const ops = {
     const source = inputs[0] ?? ctx.canvas;
     const rawMask = inputs[1] ?? null;
     const radius = numAny(node, ["radius", "blur", "blur_radius"], 0, frameIndex);
-    const sigma = numAny(node, ["sigma", "radius", "blur"], radius, frameIndex);
-    return renderMaskedEffectPreview(
-      node,
-      source,
-      rawMask,
-      (input) => applyEffectToCanvas(input, (effectCtx, width, height) => {
-        applyBlur(effectCtx, width, height, radius, sigma);
-      }),
-      {
-        frameIndex,
-        premultBeforeProcess: true,
-        processMask: (mask) => applyEffectToCanvas(mask, (effectCtx, width, height) => {
-          applyBlur(effectCtx, width, height, radius, sigma);
-        }),
-      },
-    );
+    const blurType = strAny(node, ["blur_type"], "gaussian", frameIndex);
+
+    // sigma: for gaussian = std-dev; for surface = colour threshold.
+    // Fallback: radius/3 gives a natural Gaussian that matches the backend auto-sigma.
+    const sigmaFallback = radius > 0 ? Math.max(0.1, radius / 3) : 0;
+    const sigma = numAny(node, ["sigma"], sigmaFallback, frameIndex);
+
+    // Effective CSS blur sigma per type:
+    //   gaussian  → sigma (or radius/3 if sigma=0)
+    //   box       → approximate Gaussian with same area: sigma ≈ radius/√3
+    //   defocus   → disk radius maps to approximately radius/2 sigma
+    //   surface   → same apparent softness as Gaussian of same radius
+    let cssSigma: number;
+    if (blurType === "box") {
+      cssSigma = radius > 0 ? Math.max(0.1, radius / Math.sqrt(3)) : 0;
+    } else if (blurType === "defocus") {
+      cssSigma = radius > 0 ? Math.max(0.1, radius * 0.6) : 0;
+    } else {
+      // gaussian or surface: use sigma or auto fallback
+      cssSigma = sigma > 0 ? sigma : sigmaFallback;
+    }
+
+    const blurFn = (input: HTMLCanvasElement) =>
+      applyEffectToCanvas(input, (effectCtx, width, height) => {
+        applyBlur(effectCtx, width, height, radius, cssSigma);
+      });
+
+    if (!rawMask) return blurFn(source);
+
+    const mask = resolvePreviewMaskCanvas(node, source, rawMask, frameIndex);
+    if (!mask) return blurFn(source);
+
+    // Direct pixel-level blend: result = source × (1-mask) + blurred × mask.
+    // Bypasses CSS destination-in compositing, which can silently produce wrong
+    // results in some browsers when the prepared mask has semi-transparent edges.
+    const sw = source.width || 1;
+    const sh = source.height || 1;
+    const blurred = blurFn(source);
+    const fittedMask = buildMaskAlphaCanvas(mask, sw, sh);
+
+    const srcData = source.getContext("2d")!.getImageData(0, 0, sw, sh).data;
+    const blrData = blurred.getContext("2d")!.getImageData(0, 0, sw, sh).data;
+    const mskData = fittedMask.getContext("2d")!.getImageData(0, 0, sw, sh).data;
+
+    const output = makeCanvas(sw, sh);
+    const outCtx = output.getContext("2d")!;
+    const outImg = outCtx.createImageData(sw, sh);
+    const outData = outImg.data;
+
+    for (let i = 0; i < outData.length; i += 4) {
+      const m = mskData[i + 3] / 255;
+      outData[i]     = Math.round(srcData[i]     * (1 - m) + blrData[i]     * m);
+      outData[i + 1] = Math.round(srcData[i + 1] * (1 - m) + blrData[i + 1] * m);
+      outData[i + 2] = Math.round(srcData[i + 2] * (1 - m) + blrData[i + 2] * m);
+      outData[i + 3] = Math.round(srcData[i + 3] * (1 - m) + blrData[i + 3] * m);
+    }
+    outCtx.putImageData(outImg, 0, 0);
+    return output;
   },
   channel(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, outputSlot?: number | null, inputs: HTMLCanvasElement[] = [], frameIndex: number = 0): HTMLCanvasElement {
     const source = inputs[0] ?? ctx.canvas;
@@ -2881,15 +3055,14 @@ export const ops = {
     if (!hasSingleChannelWidget && outputSlot != null) {
       return extractSplitChannelCanvas(source, outputSlot, splitMode);
     }
-    return renderMaskedEffectPreview(
-      node,
-      source,
-      rawMask,
-      (input) => applyEffectToCanvas(input, (effectCtx, width, height) => {
-        applyChannel(effectCtx, width, height, strAny(node, ["channel"], "Red", frameIndex));
-      }),
-      { frameIndex },
-    );
+    const extracted = applyEffectToCanvas(source, (effectCtx, width, height) => {
+      applyChannel(effectCtx, width, height, strAny(node, ["channel"], "Red", frameIndex));
+    });
+    const resolvedMask = resolvePreviewMaskCanvas(node, source, rawMask, frameIndex);
+    const maskedExtracted = resolvedMask
+      ? ops.imageOpsMask(ctx, W, node, "ImageOpsChannel", inputs, frameIndex) ?? alphaMaskCanvas(extracted)
+      : alphaMaskCanvas(extracted);
+    return maskCanvasToPreviewCanvas(maskedExtracted, canvasHasVisibleTransparency(source));
   },
   crop(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, inputs: HTMLCanvasElement[] = [], frameIndex: number = 0): HTMLCanvasElement {
     const source = inputs[0] ?? ctx.canvas;
@@ -2910,15 +3083,7 @@ export const ops = {
       {
         frameIndex,
         premultBeforeProcess: true,
-        processMask: (mask) => applyEffectToCanvas(mask, (effectCtx, width, height) => applyCrop(
-          effectCtx,
-          node,
-          width,
-          height,
-          str(node, "aspect_ratio", "custom", frameIndex),
-          num(node, "width", width, frameIndex),
-          num(node, "height", height, frameIndex),
-        )),
+        compositeWithBase: false,
       },
     );
   },
@@ -3012,7 +3177,7 @@ export const ops = {
       {
         frameIndex,
         premultBeforeProcess: true,
-        processMask: transformImage,
+        compositeWithBase: false,
       },
     );
   },
@@ -3036,29 +3201,15 @@ export const ops = {
   },
   invert(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, inputs: HTMLCanvasElement[] = [], frameIndex: number = 0): HTMLCanvasElement {
     const source = inputs[0] ?? ctx.canvas;
-    const rawMask = inputs[1] ?? null;
-    return renderMaskedEffectPreview(
-      node,
-      source,
-      rawMask,
-      (input) => applyEffectToCanvas(input, (effectCtx, width, height) => {
-        applyInvert(effectCtx, width, height);
-      }),
-      { frameIndex },
-    );
+    return applyEffectToCanvas(source, (effectCtx, width, height) => {
+      applyInvert(effectCtx, width, height, boolAny(node, ["invert_alpha"], false, frameIndex));
+    });
   },
   clamp(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, inputs: HTMLCanvasElement[] = [], frameIndex: number = 0): HTMLCanvasElement {
     const source = inputs[0] ?? ctx.canvas;
-    const rawMask = inputs[1] ?? null;
-    return renderMaskedEffectPreview(
-      node,
-      source,
-      rawMask,
-      (input) => applyEffectToCanvas(input, (effectCtx, width, height) => {
-        applyClamp(effectCtx, width, height, numAny(node, ["min_v", "min"], 0, frameIndex), numAny(node, ["max_v", "max"], 1, frameIndex));
-      }),
-      { frameIndex },
-    );
+    return applyEffectToCanvas(source, (effectCtx, width, height) => {
+      applyClamp(effectCtx, width, height, numAny(node, ["min_v", "min"], 0, frameIndex), numAny(node, ["max_v", "max"], 1, frameIndex));
+    });
   },
   sharpen(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode): void {
     const { width, height } = getCanvasDimensions(ctx);
@@ -3201,7 +3352,6 @@ export const ops = {
   },
   spherize(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, inputs: HTMLCanvasElement[] = [], frameIndex: number = 0): HTMLCanvasElement {
     let source = inputs[0] ?? ctx.canvas;
-    const rawMask = inputs[1] ?? null;
 
     const sizeMode = strAny(node, ["size_mode"], "from_input", frameIndex).toLowerCase().trim();
     if (sizeMode === "custom") {
@@ -3220,20 +3370,14 @@ export const ops = {
       if (hw && hw.value !== source.height) hw.value = Math.max(64, source.height);
     }
 
-    return renderMaskedEffectPreview(
-      node,
-      source,
-      rawMask,
-      (input) => applyEffectToCanvas(input, (effectCtx, width, height) => {
-        applySpherize(
-          effectCtx, width, height,
-          strAny(node, ["mode"], "spherize", frameIndex),
-          numAny(node, ["strength"], 1.0, frameIndex),
-          boolAny(node, ["invert"], false, frameIndex),
-        );
-      }),
-      { frameIndex },
-    );
+    return applyEffectToCanvas(source, (effectCtx, width, height) => {
+      applySpherize(
+        effectCtx, width, height,
+        strAny(node, ["mode"], "spherize", frameIndex),
+        numAny(node, ["strength"], 1.0, frameIndex),
+        boolAny(node, ["invert"], false, frameIndex),
+      );
+    });
   },
   noise(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, frameIndex: number = 0): HTMLCanvasElement {
     return renderNoiseCanvas(node, false, frameIndex, W);
@@ -3257,7 +3401,7 @@ export const ops = {
     if (cls === "ImageOpsMaskConvert") {
       return boolAny(node, ["reverse"], false, frameIndex)
         ? imageToMaskPreviewCanvas(source, node, frameIndex)
-        : source;
+        : buildMaskAlphaCanvas(source, source.width || 1, source.height || 1);
     }
 
     if (cls === "ImageOpsNoise") {
@@ -3269,11 +3413,10 @@ export const ops = {
     }
 
     if (cls === "ImageOpsBlur") {
-      const radius = numAny(node, ["radius", "blur", "blur_radius"], 0, frameIndex);
-      const sigma = numAny(node, ["sigma", "radius", "blur"], radius, frameIndex);
-      return applyEffectToCanvas(resolvedMask ?? alphaMaskCanvas(source), (effectCtx, width, height) => {
-        applyBlur(effectCtx, width, height, radius, sigma);
-      });
+      const blurRadius = numAny(node, ["radius", "blur", "blur_radius"], 0, frameIndex);
+      const blurSigma = numAny(node, ["sigma"], blurRadius > 0 ? Math.max(0.1, blurRadius / 3) : 0, frameIndex);
+      const baseMask = resolvedMask ?? alphaMaskCanvas(source);
+      return blurMaskAlphaCanvas(baseMask, blurSigma > 0 ? blurSigma : Math.max(0.1, blurRadius / 3));
     }
 
     if (cls === "ImageOpsTransform") {
@@ -3296,7 +3439,7 @@ export const ops = {
       const extracted = applyEffectToCanvas(source, (effectCtx, width, height) => {
         applyChannel(effectCtx, width, height, strAny(node, ["channel"], "Red", frameIndex));
       });
-      if (!resolvedMask) return extracted;
+      if (!resolvedMask) return buildMaskAlphaCanvas(extracted, extracted.width || 1, extracted.height || 1);
       const fittedMask = buildMaskAlphaCanvas(resolvedMask, extracted.width || 1, extracted.height || 1);
       const output = makeCanvas(extracted.width || 1, extracted.height || 1);
       const octx = output.getContext("2d")!;
@@ -3305,12 +3448,13 @@ export const ops = {
       const data = image.data;
       const maskData = fittedMask.getContext("2d")!.getImageData(0, 0, output.width, output.height).data;
       for (let i = 0; i < data.length; i += 4) {
-        const maskValue = (maskData[i] / 255) * (maskData[i + 3] / 255);
+        const maskValue = maskData[i + 3] / 255;
         const matte = Math.round((data[i] / 255) * maskValue * 255);
-        data[i] = matte;
-        data[i + 1] = matte;
-        data[i + 2] = matte;
-        data[i + 3] = 255;
+        const rgb = matte > 0 ? 255 : 0;
+        data[i] = rgb;
+        data[i + 1] = rgb;
+        data[i + 2] = rgb;
+        data[i + 3] = matte;
       }
       octx.putImageData(image, 0, 0);
       return markPreparedMaskCanvas(output);
@@ -3318,9 +3462,24 @@ export const ops = {
 
     if (cls === "ImageOpsClamp") {
       if (!resolvedMask) return alphaMaskCanvas(source);
-      return applyEffectToCanvas(resolvedMask, (effectCtx, width, height) => {
-        applyClamp(effectCtx, width, height, numAny(node, ["min_v", "min"], 0, frameIndex), numAny(node, ["max_v", "max"], 1, frameIndex));
-      });
+      // Clamp only the alpha channel of the prepared mask (which encodes mask value in A,
+      // RGB=255). Using applyClamp on the full canvas would turn RGB gray and cause
+      // buildMaskAlphaCanvas to double-attenuate via luma*alpha.
+      const lo = numAny(node, ["min_v", "min"], 0, frameIndex);
+      const hi = numAny(node, ["max_v", "max"], 1, frameIndex);
+      const mn = Math.round(clamp01(Math.min(lo, hi)) * 255);
+      const mx = Math.round(clamp01(Math.max(lo, hi)) * 255);
+      const clampMaskOut = makeCanvas(resolvedMask.width || 1, resolvedMask.height || 1);
+      const clampMaskCtx = clampMaskOut.getContext("2d")!;
+      clampMaskCtx.drawImage(resolvedMask, 0, 0);
+      const clampImg = clampMaskCtx.getImageData(0, 0, clampMaskOut.width, clampMaskOut.height);
+      const clampData = clampImg.data;
+      for (let ci = 0; ci < clampData.length; ci += 4) {
+        clampData[ci] = 255; clampData[ci + 1] = 255; clampData[ci + 2] = 255;
+        clampData[ci + 3] = Math.max(mn, Math.min(mx, clampData[ci + 3]));
+      }
+      clampMaskCtx.putImageData(clampImg, 0, 0);
+      return markPreparedMaskCanvas(clampMaskOut);
     }
 
     if (cls === "ImageOpsInvert") {
@@ -3328,8 +3487,17 @@ export const ops = {
       return mask;
     }
 
+    if (cls === "ImageOpsSpherize") {
+      return renderSpherizeMaskCanvas(node, source, rawMask, frameIndex);
+    }
+
     if (cls === "ImageOpsMerge") {
-      if (resolvedMask) return resolvedMask;
+      // inputs = [A, B, mask?] — inputs[1] is foreground B, not the mask input
+      const mergeMaskInput = inputs[2] ?? null;
+      if (mergeMaskInput) {
+        const mergeResolvedMask = resolvePreviewMaskCanvas(node, source, mergeMaskInput, frameIndex);
+        if (mergeResolvedMask) return mergeResolvedMask;
+      }
       const merged = ops.merge(ctx, W, node, inputs, undefined, frameIndex);
       return alphaMaskCanvas(merged);
     }

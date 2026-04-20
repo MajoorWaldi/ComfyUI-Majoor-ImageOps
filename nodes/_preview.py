@@ -1,5 +1,4 @@
-def build_node_preview_result(images, result, prefix="imageops_preview", fps=12, metadata=None):
-    del images, prefix, fps
+def build_node_preview_result(_images, result, prefix=None, fps=None, metadata=None):  # noqa: ARG001
     if metadata is not None:
         return {
             "ui": metadata,

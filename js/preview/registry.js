@@ -17,7 +17,8 @@ function buildAdapterRegistry() {
       for (const a of adapters) {
         try {
           if (a.match(node)) return a;
-        } catch {
+        } catch (err) {
+          console.warn("[ImageOps] adapter match error (", a.name ?? "unnamed", "):", err);
         }
       }
       return null;

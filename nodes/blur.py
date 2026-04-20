@@ -1,8 +1,7 @@
 from ._helpers import (
-    _apply_blur,
-    _apply_blur_with_mask_pair,
     _apply_mask_to_image,
-    _blur_mask,
+    _apply_blur_with_mask_pair,
+    _dispatch_blur,
     _gaussian_effective_radius,
     MEDIA_INPUT_TYPE,
     _prepare_effect_mask,
@@ -13,20 +12,17 @@ from ._helpers import (
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 
+_BLUR_TYPES = ["gaussian", "box", "defocus", "surface"]
 
-def _blur_is_noop(radius, sigma) -> bool:
-    if isinstance(radius, (list, tuple)) or isinstance(sigma, (list, tuple)):
-        frame_count = max(
-            len(radius) if isinstance(radius, (list, tuple)) else 1,
-            len(sigma) if isinstance(sigma, (list, tuple)) else 1,
-        )
-        if frame_count <= 0:
+
+def _blur_is_noop(radius) -> bool:
+    """All blur types are no-ops when radius is zero for every frame."""
+    if isinstance(radius, (list, tuple)):
+        r_len = len(radius)
+        if r_len <= 0:
             return True
-        return all(
-            _gaussian_effective_radius(_scalar(radius, int, index=i), _scalar(sigma, index=i)) <= 0
-            for i in range(frame_count)
-        )
-    return _gaussian_effective_radius(_scalar(radius, int), _scalar(sigma)) <= 0
+        return all(int(max(0, _scalar(radius, int, index=i))) <= 0 for i in range(r_len))
+    return int(max(0, _scalar(radius, int))) <= 0
 
 
 class ImageOpsBlur:
@@ -40,12 +36,19 @@ class ImageOpsBlur:
         return {
             "required": {
                 "bypass": ("BOOLEAN", {"default": False}),
-                "radius": ("INT", {"default": 3, "min": 0, "max": 128, "step": 1}),
-                "sigma": ("FLOAT", {"default": 1.5, "min": 0.01, "max": 64.0, "step": 0.01, "round": 0.001}),
+                "blur_type": (_BLUR_TYPES, {"default": "gaussian"}),
+                "radius": ("INT", {"default": 3, "min": 0, "max": 128, "step": 1,
+                                   "tooltip": "Blur extent in pixels. 0 = no blur (disables all types)."}),
+                "sigma": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 64.0, "step": 0.01, "round": 0.001,
+                                    "tooltip": (
+                                        "gaussian: Gaussian std-dev in pixels (0 = auto, radius/3). "
+                                        "surface: colour-similarity threshold 0\u20131 (0 = auto \u22480.15). "
+                                        "box / defocus: unused."
+                                    )}),
                 "invert_mask": ("BOOLEAN", {"default": False}),
             },
             "optional": {
-                "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input. Accepts IMAGE batches and VIDEO frame sources.", "forceInput": True, "display_name": "Images/Video"}),
+                "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input.", "forceInput": True, "display_name": "Images/Video"}),
                 "mask": ("MASK",),
             },
             "hidden": {
@@ -53,22 +56,35 @@ class ImageOpsBlur:
             },
         }
 
-    def apply(self, image=None, bypass=False, radius=3, sigma=1.5, invert_mask=False, video=None, mask=None, unique_id=None):
-        source = _select_media_tensor(image, video)
+    def apply(self, image=None, bypass=False, blur_type="gaussian", radius=3, sigma=0.0,
+              invert_mask=False, mask=None, unique_id=None):
+        source = _select_media_tensor(image, None)
         input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         progress = start_progress(unique_id=unique_id)
-        if _scalar(bypass, bool):
-            progress.finish()
-            return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_blur")
-        if _blur_is_noop(radius, sigma):
-            progress.finish()
-            return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_blur")
-        if input_mask is not None:
-            result, output_mask = _apply_blur_with_mask_pair(source, input_mask, radius, sigma)
-            result = _apply_mask_to_image(source, result, output_mask)
+
+        # Per-frame bypass: if all frames are bypassed skip entirely.
+        if isinstance(bypass, (list, tuple)):
+            all_bypassed = all(_scalar(bypass, bool, index=i) for i in range(max(len(bypass), 1)))
         else:
-            result = _apply_blur(source, radius, sigma)
-            output_mask = _blur_mask(output_mask_source, radius, sigma)
+            all_bypassed = bool(bypass)
+        if all_bypassed:
+            progress.finish()
+            return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_blur")
+
+        if _blur_is_noop(radius):
+            progress.finish()
+            return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_blur")
+
+        bt = str(blur_type) if blur_type in _BLUR_TYPES else "gaussian"
+
+        if input_mask is not None:
+            result, blurred_mask = _apply_blur_with_mask_pair(source, input_mask, radius, sigma, blur_type=bt)
+            result = _apply_mask_to_image(source, result, blurred_mask)
+            output_mask = output_mask_source
+        else:
+            result = _dispatch_blur(source, radius, sigma, blur_type=bt)
+            # Full-white mask (no mask input) is unchanged by blur — skip the extra conv pass.
+            output_mask = output_mask_source
         progress.finish()
         return build_node_preview_result(result, (result, output_mask), prefix="imageops_blur")

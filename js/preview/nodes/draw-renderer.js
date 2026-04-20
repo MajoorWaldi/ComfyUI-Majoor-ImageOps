@@ -85,7 +85,8 @@ function drawBrushCursorOverlay(node, ctx) {
   const geometry = st.drawGeometry;
   if (!isDrawNode(node) || !hover?.inside || !geometry) return;
   const sourceRadius = clampDrawSize(widgetNumber(node, "brush_size", 10)) / 2;
-  const radius = Math.max(2, sourceRadius * geometry.fitDrawWidth / Math.max(1, geometry.sourceWidth));
+  const zoom = Math.max(0.35, st.previewZoom ?? 1);
+  const radius = Math.max(2, sourceRadius * zoom * geometry.fitDrawWidth / Math.max(1, geometry.sourceWidth));
   const tool = normalizeDrawTool(widgetString(node, "tool", "brush"));
   const edge = normalizeDrawEdge(widgetString(node, "brush_edge", "hard"));
   const color = normalizeDrawColor(widgetString(node, "brush_color", "#FFFFFF"), "#FFFFFF");
@@ -196,10 +197,33 @@ function deriveMaskCanvasFromCanvas(source) {
   octx.putImageData(image, 0, 0);
   return output;
 }
+function maskToOpaqueDisplayCanvas(source) {
+  const output = document.createElement("canvas");
+  output.width = Math.max(1, source.width || 1);
+  output.height = Math.max(1, source.height || 1);
+  const octx = output.getContext("2d");
+  octx.clearRect(0, 0, output.width, output.height);
+  octx.drawImage(source, 0, 0, output.width, output.height);
+  const image = octx.getImageData(0, 0, output.width, output.height);
+  const data = image.data;
+  for (let index = 0; index < data.length; index += 4) {
+    const fromAlpha = data[index + 3];
+    const lumaRaw = 0.2126 * data[index] + 0.7152 * data[index + 1] + 0.0722 * data[index + 2];
+    const fromLuma = Math.round(lumaRaw * (fromAlpha / 255));
+    const matte = Math.max(fromAlpha, fromLuma);
+    const v = matte > 0 ? 255 : 0;
+    data[index] = v;
+    data[index + 1] = v;
+    data[index + 2] = v;
+    data[index + 3] = 255;
+  }
+  octx.putImageData(image, 0, 0);
+  return output;
+}
 async function renderDrawNode(node, tick, session) {
   const st = ensurePreviewWidget(node, session.progress, session.canvasSize);
   if (!st) return;
-  const renderCanvasSize = getRenderCanvasSize(st);
+  const renderCanvasSize = session.canvasSize;
   const upstream = getUpstreamNode(node, 0);
   let baseCanvas = null;
   if (upstream) {
@@ -285,6 +309,7 @@ export {
   drawPointerDynamics,
   ensureDrawCanvasSize,
   ensureDrawInteractionReady,
+  maskToOpaqueDisplayCanvas,
   paintDrawSegment,
   popDrawUndoSnapshot,
   pushDrawUndoSnapshot,

@@ -143,15 +143,6 @@ export interface RenderInputInfo {
 export interface NodeState {
   hooked: boolean;
   canvas: HTMLCanvasElement | null;
-  scopes: ScopesElements | null;
-  abCanvas: HTMLCanvasElement | null;
-  abEnabled: boolean;
-  wipe: number;
-  overlay: "none" | "zebra" | "falsecolor";
-  showHistogram: boolean;
-  showWaveform: boolean;
-  waveformMode: "luma" | "rgb";
-  showVectorscope: boolean;
   info: HTMLDivElement | null;
   progressWrap: HTMLDivElement | null;
   progressBar: HTMLDivElement | null;
@@ -403,12 +394,6 @@ export interface PadOutDragState {
   startPadTop: number;
   startPadRight: number;
   startPadBottom: number;
-}
-
-export interface ScopesElements {
-  histCanvas: HTMLCanvasElement;
-  waveCanvas: HTMLCanvasElement;
-  vecCanvas: HTMLCanvasElement;
 }
 
 export interface MediaState {

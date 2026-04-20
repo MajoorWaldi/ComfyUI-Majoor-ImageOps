@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import math
 import logging
 import os
@@ -379,10 +380,17 @@ def _apply_color_correct_reference(
     return _apply_color_adjust(image, temperature, tint, hue, brightness, contrast, saturation, vibrance, gamma)
 
 
-def _gaussian_kernel1d(radius, sigma):
+@functools.lru_cache(maxsize=256)
+def _gaussian_kernel1d(radius: int, sigma: float) -> torch.Tensor:
     radius = int(max(0, radius))
     if radius == 0:
         return torch.tensor([1.0], dtype=torch.float32)
+    # sigma=0 (or near-zero) means an identity kernel; treat as 1-element delta to
+    # avoid a near-Dirac that behaves inconsistently across float precisions.
+    if sigma <= 0.0:
+        k = torch.zeros(radius * 2 + 1, dtype=torch.float32)
+        k[radius] = 1.0
+        return k
     sigma = float(max(EPSILON, sigma))
     xs = torch.arange(-radius, radius + 1, dtype=torch.float32)
     k = torch.exp(-(xs * xs) / (2.0 * sigma * sigma))
@@ -391,13 +399,11 @@ def _gaussian_kernel1d(radius, sigma):
 
 def _gaussian_effective_radius(radius: int, sigma: float) -> int:
     radius = int(max(0, radius))
-    sigma = float(max(0.0, sigma))
-    sigma_radius = max(1, int(math.ceil(sigma * 4.0))) if sigma > 0.0 else 0
-    if radius <= 0:
-        return sigma_radius
-    if sigma_radius <= 0:
-        return radius
-    return min(radius, sigma_radius)
+    # Keep the blur step response intuitive for the node UI: the explicit radius slider
+    # controls the blur extent directly, while sigma only shapes the Gaussian falloff
+    # inside that radius. This prevents the 0→1 jump from exploding into a much wider blur.
+    del sigma
+    return radius
 
 
 def _box_blur_radii_for_gaussian(radius: int, sigma: float, passes: int = BOX_BLUR_APPROX_PASSES) -> tuple[int, ...]:
@@ -410,6 +416,14 @@ def _box_blur_radii_for_gaussian(radius: int, sigma: float, passes: int = BOX_BL
     xs = torch.arange(-radius, radius + 1, dtype=kernel.dtype)
     variance = torch.sum(kernel * xs * xs).item()
     if variance <= EPSILON:
+        # Near-zero variance means the Gaussian kernel is essentially a Dirac delta
+        # (sigma is very small relative to the explicit radius).  The blur is a no-op
+        # by construction; log so the caller can investigate unexpected results.
+        logger.debug(
+            "ImageOps blur: box-approx variance %.2e ≤ EPSILON for radius=%d sigma=%.4f "
+            "— kernel is near-identity, output will be unchanged.",
+            variance, radius, sigma,
+        )
         return tuple(0 for _ in range(passes))
 
     effective_sigma = math.sqrt(max(0.0, variance))
@@ -443,21 +457,29 @@ def _box_blur1d_nchw(x: torch.Tensor, radius: int, dim: int) -> torch.Tensor:
         return x
 
     kernel_size = radius * 2 + 1
-    accum_dtype = torch.float32 if x.dtype in (torch.float16, torch.bfloat16) else x.dtype
+    # Use float64 for float32 inputs to avoid catastrophic cancellation in the
+    # prefix-sum subtraction at large image widths (float32 gives ~0.065% max error).
+    if x.dtype in (torch.float16, torch.bfloat16):
+        accum_dtype = torch.float32
+    elif x.dtype == torch.float32:
+        accum_dtype = torch.float64
+    else:
+        accum_dtype = x.dtype
 
     if dim == -1:
         pad_mode = "reflect" if x.shape[-1] > radius else "replicate"
         padded = torch.nn.functional.pad(x, (radius, radius, 0, 0), mode=pad_mode)
-        cumsum = padded.cumsum(dim=-1, dtype=accum_dtype)
-        prefix = torch.cat([torch.zeros_like(cumsum[..., :1]), cumsum], dim=-1)
-        return (prefix[..., kernel_size:] - prefix[..., :-kernel_size]) / float(kernel_size)
+        # Pre-allocate the prefix tensor (W+1 wide) to avoid the torch.cat allocation.
+        prefix = padded.new_zeros(*padded.shape[:-1], padded.shape[-1] + 1, dtype=accum_dtype)
+        prefix[..., 1:] = padded.cumsum(dim=-1, dtype=accum_dtype)
+        return ((prefix[..., kernel_size:] - prefix[..., :-kernel_size]) / float(kernel_size)).to(x.dtype)
 
     if dim == -2:
         pad_mode = "reflect" if x.shape[-2] > radius else "replicate"
         padded = torch.nn.functional.pad(x, (0, 0, radius, radius), mode=pad_mode)
-        cumsum = padded.cumsum(dim=-2, dtype=accum_dtype)
-        prefix = torch.cat([torch.zeros_like(cumsum[:, :, :1, :]), cumsum], dim=-2)
-        return (prefix[:, :, kernel_size:, :] - prefix[:, :, :-kernel_size, :]) / float(kernel_size)
+        prefix = padded.new_zeros(padded.shape[0], padded.shape[1], padded.shape[2] + 1, padded.shape[3], dtype=accum_dtype)
+        prefix[:, :, 1:, :] = padded.cumsum(dim=-2, dtype=accum_dtype)
+        return ((prefix[:, :, kernel_size:, :] - prefix[:, :, :-kernel_size, :]) / float(kernel_size)).to(x.dtype)
 
     raise ValueError(f"Unsupported blur dimension: {dim}")
 
@@ -477,17 +499,30 @@ def _apply_box_blur_approx(image: torch.Tensor, radius: int, sigma: float) -> to
 
 
 def _apply_blur(image, radius, sigma):
+    # Guard against zero spatial dimensions that would crash conv2d.
+    if image.shape[1] == 0 or image.shape[2] == 0:
+        return image
+
     if _has_list_param(radius, sigma):
-        return torch.cat([
-            _apply_blur(image[i:i+1], _scalar(radius, int, index=i), _scalar(sigma, index=i))
-            for i in range(image.shape[0])
-        ], dim=0)
+        B = image.shape[0]
+        params = [(_scalar(radius, int, index=i), float(_scalar(sigma, index=i))) for i in range(B)]
+        # Group frames that share identical blur parameters so they can be processed
+        # as a single batched GPU call rather than one-by-one in a Python loop.
+        group_map: dict[tuple[int, float], list[int]] = {}
+        for i, p in enumerate(params):
+            group_map.setdefault(p, []).append(i)
+        out = torch.empty_like(image)
+        for (r, s), idxs in group_map.items():
+            idx_t = torch.tensor(idxs, device=image.device)
+            out[idx_t] = _apply_blur(image[idx_t], r, s)
+        return out
+
     radius = int(max(0, _scalar(radius, int)))
     raw_sigma = float(_scalar(sigma))
     effective_radius = _gaussian_effective_radius(radius, raw_sigma)
     if effective_radius <= 0:
         return image
-    sigma = float(max(EPSILON, raw_sigma))
+    sigma = float(max(EPSILON, (effective_radius / 3.0) if raw_sigma <= 0.0 else raw_sigma))
     if effective_radius > LARGE_BLUR_BOX_THRESHOLD:
         return _apply_box_blur_approx(image, effective_radius, sigma)
     radius = effective_radius
@@ -510,6 +545,152 @@ def _apply_blur(image, radius, sigma):
     x = torch.nn.functional.conv2d(x, ky, groups=C)
 
     return x.permute(0, 2, 3, 1).contiguous().clamp(0.0, 1.0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Additional blur types: box, defocus (disk), surface (bilateral)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _apply_box_blur_direct(image: torch.Tensor, radius: int) -> torch.Tensor:
+    """Uniform box blur — single pass, radius = half-width of the box."""
+    r = int(max(0, radius))
+    if r <= 0:
+        return image
+    if image.shape[1] == 0 or image.shape[2] == 0:
+        return image
+    x = image.permute(0, 3, 1, 2).contiguous()
+    x = _box_blur1d_nchw(x, r, -1)
+    x = _box_blur1d_nchw(x, r, -2)
+    return x.permute(0, 2, 3, 1).contiguous().clamp(0.0, 1.0)
+
+
+@functools.lru_cache(maxsize=64)
+def _disk_kernel2d(radius: int) -> torch.Tensor:
+    """Normalized circular disk kernel for defocus / bokeh blur (cached)."""
+    r = max(1, int(radius))
+    ys, xs = torch.meshgrid(
+        torch.arange(-r, r + 1, dtype=torch.float32),
+        torch.arange(-r, r + 1, dtype=torch.float32),
+        indexing="ij",
+    )
+    dist = torch.sqrt(xs * xs + ys * ys)
+    # Soft anti-aliased edge within 1 px so the disk doesn't produce hard ringing.
+    k = (1.0 - (dist - r).clamp(0.0, 1.0))
+    return k / k.sum().clamp(min=EPSILON)
+
+
+def _apply_defocus_blur(image: torch.Tensor, radius: int) -> torch.Tensor:
+    """Disk / bokeh blur simulating an out-of-focus lens aperture."""
+    r = int(max(0, radius))
+    if r <= 0:
+        return image
+    if image.shape[1] == 0 or image.shape[2] == 0:
+        return image
+    x = image.permute(0, 3, 1, 2).contiguous()
+    _, C, H, W = x.shape
+    k = _disk_kernel2d(r).to(device=x.device, dtype=x.dtype)
+    pad = r
+    pad_mode = "reflect" if min(H, W) > pad else "replicate"
+    x_padded = torch.nn.functional.pad(x, (pad, pad, pad, pad), mode=pad_mode)
+    k2d = k.unsqueeze(0).unsqueeze(0).repeat(C, 1, 1, 1)
+    result = torch.nn.functional.conv2d(x_padded, k2d, groups=C)
+    return result.permute(0, 2, 3, 1).contiguous().clamp(0.0, 1.0)
+
+
+# Maximum spatial radius for the surface (bilateral) filter before memory becomes
+# prohibitive. Beyond this the effect is close to regular Gaussian anyway.
+_SURFACE_BLUR_MAX_RADIUS = 16
+
+
+def _apply_surface_blur(image: torch.Tensor, radius: int, sigma_color: float) -> torch.Tensor:
+    """
+    Edge-preserving bilateral blur.
+    Blurs within similar-colour regions while preserving sharp edges.
+
+    - radius:      spatial neighbourhood half-size (capped at _SURFACE_BLUR_MAX_RADIUS)
+    - sigma_color: colour similarity threshold (0 = auto ≈ 0.15, range 0-1)
+    """
+    r = int(max(1, min(radius, _SURFACE_BLUR_MAX_RADIUS)))
+    sc = float(sigma_color) if sigma_color > 0.0 else 0.15
+    sc = float(max(EPSILON, min(1.0, sc)))
+    ss = float(max(EPSILON, r / 3.0))   # spatial sigma derived from radius
+    if image.shape[1] == 0 or image.shape[2] == 0:
+        return image
+    x = image.float().clamp(0.0, 1.0)
+    B, H, W, C = x.shape
+    device = x.device
+    x_perm = x.permute(0, 3, 1, 2)  # [B, C, H, W]
+    pad_mode = "reflect" if min(H, W) > r else "replicate"
+    x_padded = torch.nn.functional.pad(x_perm, (r, r, r, r), mode=pad_mode)
+
+    inv2sc2 = 1.0 / (2.0 * sc * sc)
+    inv2ss2 = 1.0 / (2.0 * ss * ss)
+
+    accum = torch.zeros_like(x_perm, dtype=torch.float32)
+    weight_sum = torch.zeros(B, 1, H, W, device=device, dtype=torch.float32)
+
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            # Spatial (distance-based) Gaussian weight — scalar, computed once per offset.
+            spatial_w = math.exp(-(dx * dx + dy * dy) * inv2ss2)
+            if spatial_w < 1e-6:
+                continue
+            # Shifted neighbor slice (already padded, so no bounds check needed).
+            neighbor = x_padded[:, :, r + dy: r + dy + H, r + dx: r + dx + W]  # [B,C,H,W]
+            # Range / colour weight: penalise large colour differences.
+            diff_sq = ((neighbor - x_perm) ** 2).sum(dim=1, keepdim=True)       # [B,1,H,W]
+            range_w = torch.exp(-diff_sq * inv2sc2)                              # [B,1,H,W]
+            w = spatial_w * range_w                                              # [B,1,H,W]
+            accum += neighbor * w
+            weight_sum += w
+
+    result = accum / weight_sum.clamp(min=EPSILON)
+    return result.permute(0, 2, 3, 1).clamp(0.0, 1.0)
+
+
+def _dispatch_blur(
+    image: torch.Tensor,
+    radius,
+    sigma,
+    blur_type: str = "gaussian",
+) -> torch.Tensor:
+    """
+    Route to the right blur implementation based on blur_type.
+    Handles per-frame list params for all types.
+    """
+    if image.shape[1] == 0 or image.shape[2] == 0:
+        return image
+
+    if blur_type == "gaussian":
+        # _apply_blur already handles list params.
+        return _apply_blur(image, radius, sigma)
+
+    # For non-Gaussian types, handle per-frame param lists.
+    if _has_list_param(radius, sigma):
+        B = image.shape[0]
+        params = [(_scalar(radius, int, index=i), float(_scalar(sigma, index=i))) for i in range(B)]
+        group_map: dict[tuple[int, float], list[int]] = {}
+        for i, p in enumerate(params):
+            group_map.setdefault(p, []).append(i)
+        out = torch.empty_like(image)
+        for (r, s), idxs in group_map.items():
+            idx_t = torch.tensor(idxs, device=image.device)
+            out[idx_t] = _dispatch_blur(image[idx_t], r, s, blur_type)
+        return out
+
+    r = int(max(0, _scalar(radius, int)))
+    s = float(_scalar(sigma))
+    if r <= 0:
+        return image
+
+    if blur_type == "box":
+        return _apply_box_blur_direct(image, r)
+    if blur_type == "defocus":
+        return _apply_defocus_blur(image, r)
+    if blur_type == "surface":
+        return _apply_surface_blur(image, r, s)
+    # Fallback.
+    return _apply_blur(image, r, s)
 
 
 def _coerce_media_to_tensor(media, input_name="media"):
@@ -740,29 +921,35 @@ def _extract_channel_mask(image: torch.Tensor, channel: str) -> torch.Tensor:
 def _channel_mask_to_image(mask: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
     if mask is None:
         raise ValueError("mask is None")
-    rgb = mask.unsqueeze(-1).expand(-1, -1, -1, 3)
-    if reference.shape[-1] >= 4:
-        return torch.cat([rgb, mask.unsqueeze(-1)], dim=-1).to(device=reference.device, dtype=reference.dtype)
-    return rgb.to(device=reference.device, dtype=reference.dtype)
+    alpha = mask.unsqueeze(-1).clamp(0.0, 1.0)
+    rgb = torch.ones_like(alpha).expand(-1, -1, -1, 3)
+    return torch.cat([rgb, alpha], dim=-1).to(device=reference.device, dtype=reference.dtype)
 
 
 def _mask_to_preview_image(mask: torch.Tensor, device=None, dtype=torch.float32) -> torch.Tensor:
     prepared = _coerce_mask_tensor(mask, device=device, dtype=dtype)
     if prepared is None:
         raise ValueError("mask is None")
-    rgb = prepared.unsqueeze(-1).expand(-1, -1, -1, 3)
-    return rgb.to(device=prepared.device, dtype=prepared.dtype).clamp(0.0, 1.0)
+    alpha = prepared.unsqueeze(-1).clamp(0.0, 1.0)
+    rgb = torch.ones_like(alpha).expand(-1, -1, -1, 3)
+    return torch.cat([rgb, alpha], dim=-1).to(device=prepared.device, dtype=prepared.dtype).clamp(0.0, 1.0)
 
 
-def _blur_mask(mask: torch.Tensor, radius, sigma):
+def _blur_mask(mask: torch.Tensor, radius, sigma, blur_type: str = "gaussian"):
     if mask is None:
         return None
     x = mask.unsqueeze(-1)
-    y = _apply_blur(x, radius, sigma)
-    return y[..., 0].clamp(0.0, 1.0)
+    # Surface blur needs a colour reference — fall back to Gaussian for the mask.
+    bt = "gaussian" if blur_type == "surface" else blur_type
+    y = _dispatch_blur(x, radius, sigma, bt)
+    return y[..., 0]
 
 
-def _unpremultiply_rgb_by_mask(rgb: torch.Tensor, mask: torch.Tensor | None) -> torch.Tensor:
+def _unpremultiply_rgb_by_mask(
+    rgb: torch.Tensor,
+    mask: torch.Tensor | None,
+    fallback_rgb: torch.Tensor | None = None,
+) -> torch.Tensor:
     if rgb is None:
         raise ValueError("rgb is None")
     x = rgb.float().clamp(0.0, 1.0)
@@ -778,11 +965,19 @@ def _unpremultiply_rgb_by_mask(rgb: torch.Tensor, mask: torch.Tensor | None) -> 
         return x
     alpha = matte.unsqueeze(-1).clamp(0.0, 1.0)
     safe_alpha = torch.where(alpha > EPSILON, alpha, torch.ones_like(alpha))
-    straight = torch.where(alpha > EPSILON, x / safe_alpha, torch.zeros_like(x))
+    unpremult = (x / safe_alpha).clamp(0.0, 1.0)
+    # For pixels where the blurred mask is near-zero the premultiplied colour is also
+    # near-zero, so x/alpha is numerically unstable and collapses to black (fringe).
+    # Use the original source colour as a fallback to avoid a dark border at mask edges.
+    if fallback_rgb is not None:
+        fb = fallback_rgb.float().clamp(0.0, 1.0)
+        straight = torch.where(alpha > EPSILON, unpremult, fb)
+    else:
+        straight = torch.where(alpha > EPSILON, unpremult, torch.zeros_like(x))
     return straight.clamp(0.0, 1.0)
 
 
-def _apply_blur_with_mask_pair(image: torch.Tensor, mask: torch.Tensor, radius, sigma):
+def _apply_blur_with_mask_pair(image: torch.Tensor, mask: torch.Tensor, radius, sigma, blur_type: str = "gaussian"):
     if image is None:
         raise ValueError("image is None")
     prepared_mask = _prepare_mask_tensor(
@@ -798,12 +993,21 @@ def _apply_blur_with_mask_pair(image: torch.Tensor, mask: torch.Tensor, radius, 
 
     source = image.float().clamp(0.0, 1.0)
     premult_rgb = source[..., :3] * prepared_mask.unsqueeze(-1)
-    blurred_rgb = _apply_blur(premult_rgb, radius, sigma)[..., :3]
-    blurred_mask = _blur_mask(prepared_mask, radius, sigma)
-    rgb = _unpremultiply_rgb_by_mask(blurred_rgb, blurred_mask)
+    blurred_rgb = _dispatch_blur(premult_rgb, radius, sigma, blur_type)[..., :3]
+    blurred_mask = _blur_mask(prepared_mask, radius, sigma, blur_type)
+    # Pass the original source RGB as a fallback so near-zero-mask pixels don't turn
+    # black during the premultiplied→straight division (avoids dark fringe at edges).
+    rgb = _unpremultiply_rgb_by_mask(blurred_rgb, blurred_mask, fallback_rgb=source[..., :3])
 
     if source.shape[-1] >= 4:
-        alpha = _apply_blur(source[..., 3:4], radius, sigma)
+        # Premultiply alpha by the mask before blurring so the alpha blur respects the
+        # same boundary as the RGB blur.  Unpremultiply with blurred_mask afterwards,
+        # falling back to the original alpha in fully-transparent regions.
+        premult_alpha = source[..., 3:4] * prepared_mask.unsqueeze(-1)
+        blurred_alpha_premult = _dispatch_blur(premult_alpha, radius, sigma, blur_type)
+        alpha = _unpremultiply_rgb_by_mask(
+            blurred_alpha_premult, blurred_mask, fallback_rgb=source[..., 3:4]
+        )
         result = torch.cat([rgb, alpha], dim=-1)
     else:
         result = rgb

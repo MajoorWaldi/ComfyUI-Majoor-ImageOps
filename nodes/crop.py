@@ -108,7 +108,6 @@ class ImageOpsCrop:
             },
             "optional": {
                 "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input. Accepts IMAGE batches and VIDEO frame sources.", "forceInput": True, "display_name": "Images/Video"}),
-                "mask": ("MASK",),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
