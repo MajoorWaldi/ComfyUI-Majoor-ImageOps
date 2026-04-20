@@ -50,22 +50,6 @@ function renderImageSourceToCanvas(node, source, width, height, slot) {
   st[slot] = canvas;
   return canvas;
 }
-function syncVideoToTick(video, tick) {
-  if (!Number.isFinite(tick) || tick < 0) return;
-  if (video.readyState < 1) return;
-  const duration = Number(video.duration);
-  if (!Number.isFinite(duration) || duration <= 0) return;
-  const previewFps = 30;
-  const targetTime = tick / previewFps % duration;
-  if (video.seeking) return;
-  if (Math.abs(video.currentTime - targetTime) > 0.1) {
-    try {
-      video.currentTime = targetTime;
-    } catch (e) {
-      console.warn("[ImageOps] video seek failed:", e);
-    }
-  }
-}
 async function ensureImageElement(node, url) {
   node.__imageops_media ?? (node.__imageops_media = {});
   const st = node.__imageops_media;
@@ -125,12 +109,18 @@ async function ensureVideoFrameCanvas(node, url, size, tick = 0) {
     st.lastVideoURL = url;
   }
   const v = st.videoEl;
-  syncVideoToTick(v, tick);
+  void tick;
   const { width, height } = fitWithinMaxSize(v.videoWidth || size, v.videoHeight || size, size);
   const c = ensureCanvasSize(st.videoCanvas, width, height);
   const ctx = c.getContext("2d");
   if (!ctx) return c;
   if (v.readyState < 2) return c;
+  if (v.paused) {
+    try {
+      await v.play();
+    } catch {
+    }
+  }
   ctx.clearRect(0, 0, width, height);
   ctx.drawImage(v, 0, 0, width, height);
   st.videoCanvas = c;

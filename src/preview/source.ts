@@ -66,27 +66,6 @@ export function renderImageSourceToCanvas(
   return canvas;
 }
 
-function syncVideoToTick(video: HTMLVideoElement, tick: number): void {
-  if (!Number.isFinite(tick) || tick < 0) return;
-  if (video.readyState < 1) return;
-  const duration = Number(video.duration);
-  if (!Number.isFinite(duration) || duration <= 0) return;
-
-  // `tick` is a render-loop counter, not seconds. Map it to a stable preview
-  // timeline to avoid forced seeks on every animation frame.
-  const previewFps = 30;
-  const targetTime = (tick / previewFps) % duration;
-  // Skip if a seek is already in-flight — prevents seek queue accumulation at 60 fps.
-  if (video.seeking) return;
-  if (Math.abs(video.currentTime - targetTime) > 0.1) {
-    try {
-      video.currentTime = targetTime;
-    } catch (e) {
-      console.warn("[ImageOps] video seek failed:", e);
-    }
-  }
-}
-
 export async function ensureImageElement(node: ComfyNode, url: string): Promise<HTMLImageElement | null> {
   node.__imageops_media ??= {} as MediaState;
   const st = node.__imageops_media!;
@@ -146,13 +125,16 @@ export async function ensureVideoFrameCanvas(node: ComfyNode, url: string, size:
   }
 
   const v = st.videoEl!;
-  syncVideoToTick(v, tick);
+  void tick;
   const { width, height } = fitWithinMaxSize(v.videoWidth || size, v.videoHeight || size, size);
   const c = ensureCanvasSize(st.videoCanvas, width, height);
   const ctx = c.getContext("2d");
   if (!ctx) return c;
 
   if (v.readyState < 2) return c;
+  if (v.paused) {
+    try { await v.play(); } catch {}
+  }
 
   ctx.clearRect(0, 0, width, height);
   ctx.drawImage(v, 0, 0, width, height);
