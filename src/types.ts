@@ -10,6 +10,7 @@ export interface ComfyApp {
 export interface ComfyExtension {
   name: string;
   beforeRegisterNodeDef?(nodeType: ComfyNodeConstructor, nodeData: any): Promise<void> | void;
+  nodeCreated?(node: ComfyNode): void;
 }
 
 export interface ComfyNodeConstructor {
@@ -86,7 +87,7 @@ export interface ComfyNode {
   onExecuted?(...args: any[]): any;
   onNodeCreated?(...args: any[]): any;
   setSize?(size: [number, number]): void;
-  addDOMWidget(name: string, type: string, el: HTMLElement, opts: any): void;
+  addDOMWidget?(name: string, type: string, el: HTMLElement, opts: any): void;
   addInput?(name: string, type?: string, extra_info?: any): void;
   removeInput?(slot: number): void;
   __imageops_state?: NodeState;

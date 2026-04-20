@@ -467,6 +467,7 @@ function registerImageOpsLivePreview() {
       startLoopIfVideo(node);
     }
     for (const w of node.widgets ?? []) {
+      if (typeof w.callback !== "function" && typeof w.callback !== "undefined") continue;
       const orig = w.callback;
       w.callback = function() {
         const r = orig?.apply(this, arguments);
@@ -575,12 +576,15 @@ function registerImageOpsLivePreview() {
   app.registerExtension({
     name: EXT_NAME,
     async beforeRegisterNodeDef(nodeType, _nodeData) {
-      nodeType.prototype.onNodeCreated = /* @__PURE__ */ (function(orig) {
-        return function() {
-          orig?.apply(this, arguments);
-          hookNode(this);
-        };
-      })(nodeType.prototype.onNodeCreated);
+      const origOnNodeCreated = nodeType.prototype.onNodeCreated;
+      nodeType.prototype.onNodeCreated = function() {
+        origOnNodeCreated?.apply(this, arguments);
+        hookNode(this);
+      };
+    },
+    // Node 2.0 fallback: called per-instance after the node is fully constructed.
+    nodeCreated(node) {
+      hookNode(node);
     }
   });
 }

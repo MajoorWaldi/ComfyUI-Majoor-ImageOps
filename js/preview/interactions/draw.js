@@ -131,13 +131,17 @@ function attachInteractions(node, ctx) {
   st.drawPressureSizeInput?.addEventListener("change", syncDrawDynamics);
   st.drawPressureOpacityInput?.addEventListener("change", syncDrawDynamics);
   st.drawTiltSizeInput?.addEventListener("change", syncDrawDynamics);
-  canvas.addEventListener("wheel", (event) => {
+  const handleDrawWheel = (event) => {
+    const target = event.target;
+    if (target !== canvas && !canvas.contains(target)) return;
     if (!st.drawGeometry) return;
     if (event.ctrlKey || event.metaKey) {
+      event.stopImmediatePropagation();
       event.preventDefault();
       const rect = canvas.getBoundingClientRect();
-      const sx = canvas.width / Math.max(1, rect.width);
-      const sy = canvas.height / Math.max(1, rect.height);
+      if (rect.width < 1 || rect.height < 1) return;
+      const sx = canvas.width / rect.width;
+      const sy = canvas.height / rect.height;
       const mx = (event.clientX - rect.left) * sx - canvas.width / 2;
       const my = (event.clientY - rect.top) * sy - canvas.height / 2;
       const factor = event.deltaY < 0 ? 1.15 : 1 / 1.15;
@@ -153,13 +157,15 @@ function attachInteractions(node, ctx) {
     const point = getCanvasPointer(canvas, event);
     const hover = canvasToSource(point.x, point.y);
     if (!hover.inside) return;
+    event.stopImmediatePropagation();
     event.preventDefault();
     const current = widgetNumber(node, "brush_size", 10);
     const step = event.shiftKey ? 8 : 2;
     const direction = event.deltaY > 0 ? -step : step;
     ctx.setDrawBrushSize(node, current + direction);
     void ctx.renderDrawNode(node, 0);
-  }, { passive: false });
+  };
+  document.addEventListener("wheel", handleDrawWheel, { capture: true, passive: false });
   canvas.addEventListener("keydown", (event) => {
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
     event.preventDefault();
@@ -186,8 +192,9 @@ function attachInteractions(node, ctx) {
       } catch {
       }
       const rect = canvas.getBoundingClientRect();
-      const sx = canvas.width / Math.max(1, rect.width);
-      const sy = canvas.height / Math.max(1, rect.height);
+      if (rect.width < 1 || rect.height < 1) return;
+      const sx = canvas.width / rect.width;
+      const sy = canvas.height / rect.height;
       ctrlPanDrag = {
         pointerId: event.pointerId,
         startCanvasX: (event.clientX - rect.left) * sx,
@@ -235,8 +242,9 @@ function attachInteractions(node, ctx) {
   canvas.addEventListener("pointermove", (event) => {
     if (ctrlPanDrag && ctrlPanDrag.pointerId === event.pointerId) {
       const rect = canvas.getBoundingClientRect();
-      const sx = canvas.width / Math.max(1, rect.width);
-      const sy = canvas.height / Math.max(1, rect.height);
+      if (rect.width < 1 || rect.height < 1) return;
+      const sx = canvas.width / rect.width;
+      const sy = canvas.height / rect.height;
       const cx = (event.clientX - rect.left) * sx;
       const cy = (event.clientY - rect.top) * sy;
       st.previewPanX = ctrlPanDrag.startPanX + (cx - ctrlPanDrag.startCanvasX);

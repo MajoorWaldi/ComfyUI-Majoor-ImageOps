@@ -623,22 +623,32 @@ function ensurePreviewWidget(node, progress, canvasSize) {
   if (drawControls) root.appendChild(drawControls);
   if (compControls) root.appendChild(compControls);
   root.appendChild(progressWrap);
+  root.style.pointerEvents = "auto";
   const domMinHeight = getNodePreviewMinHeight(node);
-  node.addDOMWidget("preview", "ImageOpsPreview", root, {
-    serialize: false,
-    hideOnZoom: false,
-    getMinHeight: () => {
-      const mediaH = mediaWrap.style.display !== "none" ? mediaWrap.offsetHeight : 0;
-      const imageH = Math.max(canvas.offsetHeight, mediaH);
-      if (imageH === 0) return domMinHeight;
-      const metaH = metaRow.offsetHeight + 6;
-      const activeControls = previewControls ?? colorControls ?? drawControls ?? compControls;
-      const controlsH = activeControls ? activeControls.offsetHeight + 8 : 0;
-      const progressH = progressWrap.offsetHeight;
-      const naturalH = imageH + metaH + controlsH + progressH + 12;
-      return Math.max(domMinHeight, naturalH);
+  if (typeof node.addDOMWidget === "function") {
+    node.addDOMWidget("preview", "ImageOpsPreview", root, {
+      serialize: false,
+      hideOnZoom: false,
+      getMinHeight: () => {
+        const mediaH = mediaWrap.style.display !== "none" ? mediaWrap.offsetHeight : 0;
+        const imageH = Math.max(canvas.offsetHeight, mediaH);
+        if (imageH === 0) return domMinHeight;
+        const metaH = metaRow.offsetHeight + 6;
+        const activeControls = previewControls ?? colorControls ?? drawControls ?? compControls;
+        const controlsH = activeControls ? activeControls.offsetHeight + 8 : 0;
+        const progressH = progressWrap.offsetHeight;
+        const naturalH = imageH + metaH + controlsH + progressH + 12;
+        return Math.max(domMinHeight, naturalH);
+      }
+    });
+  } else {
+    const domEl = node.domElement ?? node.element;
+    if (domEl instanceof HTMLElement) {
+      domEl.appendChild(root);
+    } else {
+      console.warn("[ImageOps] addDOMWidget unavailable and no DOM container found on node", node.id);
     }
-  });
+  }
   try {
     const widgets = node.widgets ?? [];
     const idx = widgets.findIndex((w) => w?.name === "preview");

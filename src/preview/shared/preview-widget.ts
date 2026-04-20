@@ -735,24 +735,37 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
   if (compControls) root.appendChild(compControls);
   root.appendChild(progressWrap);
 
+  // Ensure pointer events reach our canvas even if Node 2.0 applies pointer-events:none on parent containers.
+  root.style.pointerEvents = "auto";
+
   const domMinHeight = getNodePreviewMinHeight(node);
-  node.addDOMWidget("preview", "ImageOpsPreview", root, {
-    serialize: false,
-    hideOnZoom: false,
-    getMinHeight: () => {
-      // Use canvas/mediaWrap rendered height (determined by node WIDTH, not height) to avoid
-      // the vertical feedback loop where a tall node makes the DOM tall which makes the node tall.
-      const mediaH = mediaWrap.style.display !== "none" ? mediaWrap.offsetHeight : 0;
-      const imageH = Math.max(canvas.offsetHeight, mediaH);
-      if (imageH === 0) return domMinHeight;
-      const metaH = metaRow.offsetHeight + 6; // 6px marginTop
-      const activeControls = previewControls ?? colorControls ?? drawControls ?? compControls;
-      const controlsH = activeControls ? activeControls.offsetHeight + 8 : 0;
-      const progressH = progressWrap.offsetHeight;
-      const naturalH = imageH + metaH + controlsH + progressH + 12; // 12px root padding
-      return Math.max(domMinHeight, naturalH);
-    },
-  });
+  if (typeof node.addDOMWidget === "function") {
+    node.addDOMWidget("preview", "ImageOpsPreview", root, {
+      serialize: false,
+      hideOnZoom: false,
+      getMinHeight: () => {
+        // Use canvas/mediaWrap rendered height (determined by node WIDTH, not height) to avoid
+        // the vertical feedback loop where a tall node makes the DOM tall which makes the node tall.
+        const mediaH = mediaWrap.style.display !== "none" ? mediaWrap.offsetHeight : 0;
+        const imageH = Math.max(canvas.offsetHeight, mediaH);
+        if (imageH === 0) return domMinHeight;
+        const metaH = metaRow.offsetHeight + 6; // 6px marginTop
+        const activeControls = previewControls ?? colorControls ?? drawControls ?? compControls;
+        const controlsH = activeControls ? activeControls.offsetHeight + 8 : 0;
+        const progressH = progressWrap.offsetHeight;
+        const naturalH = imageH + metaH + controlsH + progressH + 12; // 12px root padding
+        return Math.max(domMinHeight, naturalH);
+      },
+    });
+  } else {
+    // Node 2.0 fallback: inject the root element directly into the node's DOM container.
+    const domEl = (node as any).domElement ?? (node as any).element;
+    if (domEl instanceof HTMLElement) {
+      domEl.appendChild(root);
+    } else {
+      console.warn("[ImageOps] addDOMWidget unavailable and no DOM container found on node", node.id);
+    }
+  }
 
   // Force the preview widget to the top (before sliders), like KayTool.
   try {

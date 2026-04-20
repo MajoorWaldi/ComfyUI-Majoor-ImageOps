@@ -524,6 +524,7 @@ export function registerImageOpsLivePreview(): void {
     }
 
     for (const w of (node.widgets ?? [])) {
+      if (typeof w.callback !== 'function' && typeof w.callback !== 'undefined') continue;
       const orig = w.callback;
       w.callback = function (this: any) {
         const r = orig?.apply(this, arguments as any);
@@ -635,12 +636,15 @@ export function registerImageOpsLivePreview(): void {
   app.registerExtension({
     name: EXT_NAME,
     async beforeRegisterNodeDef(nodeType: ComfyNodeConstructor, _nodeData: any) {
-      nodeType.prototype.onNodeCreated = (function (orig: any) {
-        return function (this: ComfyNode) {
-          orig?.apply(this, arguments);
-          hookNode(this);
-        };
-      })(nodeType.prototype.onNodeCreated);
+      const origOnNodeCreated = nodeType.prototype.onNodeCreated;
+      nodeType.prototype.onNodeCreated = function (this: ComfyNode) {
+        origOnNodeCreated?.apply(this, arguments as any);
+        hookNode(this);
+      };
     },
-  });
+    // Node 2.0 fallback: called per-instance after the node is fully constructed.
+    nodeCreated(node: ComfyNode) {
+      hookNode(node);
+    },
+  } as any);
 }

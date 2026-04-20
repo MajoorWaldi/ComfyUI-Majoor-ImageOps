@@ -15,31 +15,35 @@ function attachPreviewNavigation(node, canvasSize) {
     if (!st.previewLastSource) return;
     blit(node, st, st.previewLastSource, canvasSize);
   };
+  const safeRect = () => {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return null;
+    return { rect, sx: canvas.width / rect.width, sy: canvas.height / rect.height };
+  };
   canvas.addEventListener("pointerdown", (event) => {
     if (event.button !== 1) return;
     event.preventDefault();
+    event.stopPropagation();
     try {
       canvas.setPointerCapture(event.pointerId);
     } catch {
     }
-    const rect = canvas.getBoundingClientRect();
-    const sx = canvas.width / Math.max(1, rect.width);
-    const sy = canvas.height / Math.max(1, rect.height);
+    const r = safeRect();
+    if (!r) return;
     st.previewPanDrag = {
       pointerId: event.pointerId,
-      startCanvasX: (event.clientX - rect.left) * sx,
-      startCanvasY: (event.clientY - rect.top) * sy,
+      startCanvasX: (event.clientX - r.rect.left) * r.sx,
+      startCanvasY: (event.clientY - r.rect.top) * r.sy,
       startPanX: st.previewPanX,
       startPanY: st.previewPanY
     };
   });
   canvas.addEventListener("pointermove", (event) => {
     if (!st.previewPanDrag || st.previewPanDrag.pointerId !== event.pointerId) return;
-    const rect = canvas.getBoundingClientRect();
-    const sx = canvas.width / Math.max(1, rect.width);
-    const sy = canvas.height / Math.max(1, rect.height);
-    const cx = (event.clientX - rect.left) * sx;
-    const cy = (event.clientY - rect.top) * sy;
+    const r = safeRect();
+    if (!r) return;
+    const cx = (event.clientX - r.rect.left) * r.sx;
+    const cy = (event.clientY - r.rect.top) * r.sy;
     st.previewPanX = st.previewPanDrag.startPanX + (cx - st.previewPanDrag.startCanvasX);
     st.previewPanY = st.previewPanDrag.startPanY + (cy - st.previewPanDrag.startCanvasY);
     reblitNow();
@@ -58,14 +62,16 @@ function attachPreviewNavigation(node, canvasSize) {
       st.previewPanDrag = null;
     }
   });
-  canvas.addEventListener("wheel", (event) => {
-    if (isInteractiveNode(node)) return;
+  const handleWheel = (event) => {
+    const target = event.target;
+    if (target !== canvas && !canvas.contains(target)) return;
+    event.stopImmediatePropagation();
     event.preventDefault();
-    const rect = canvas.getBoundingClientRect();
-    const sx = canvas.width / Math.max(1, rect.width);
-    const sy = canvas.height / Math.max(1, rect.height);
-    const mx = (event.clientX - rect.left) * sx - canvas.width / 2;
-    const my = (event.clientY - rect.top) * sy - canvas.height / 2;
+    if (isInteractiveNode(node)) return;
+    const r = safeRect();
+    if (!r) return;
+    const mx = (event.clientX - r.rect.left) * r.sx - canvas.width / 2;
+    const my = (event.clientY - r.rect.top) * r.sy - canvas.height / 2;
     const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
     const prevZoom = st.previewZoom ?? 1;
     const newZoom = clampPreviewZoom(prevZoom * factor);
@@ -74,7 +80,8 @@ function attachPreviewNavigation(node, canvasSize) {
     st.previewPanY = my - (my - (st.previewPanY ?? 0)) * ratio;
     st.previewZoom = newZoom;
     reblitNow();
-  }, { passive: false });
+  };
+  document.addEventListener("wheel", handleWheel, { capture: true, passive: false });
   canvas.addEventListener("dblclick", () => {
     if (isInteractiveNode(node)) return;
     if (st.previewZoom === 1 && st.previewPanX === 0 && st.previewPanY === 0) return;

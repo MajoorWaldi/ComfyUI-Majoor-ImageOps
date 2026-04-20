@@ -168,15 +168,21 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
   st.drawPressureOpacityInput?.addEventListener("change", syncDrawDynamics);
   st.drawTiltSizeInput?.addEventListener("change", syncDrawDynamics);
 
-  canvas.addEventListener("wheel", (event: WheelEvent) => {
+  // ── Wheel: zoom (Ctrl+scroll) and brush size (scroll) ──
+  // Use document capture phase to intercept before Node 2.0 graph container.
+  const handleDrawWheel = (event: WheelEvent): void => {
+    const target = event.target as Node | null;
+    if (target !== canvas && !canvas.contains(target)) return;
     if (!st.drawGeometry) return;
 
     // ── Ctrl+scroll: zoom the preview viewport ──────────────────────────────
     if (event.ctrlKey || event.metaKey) {
+      event.stopImmediatePropagation();
       event.preventDefault();
       const rect = canvas.getBoundingClientRect();
-      const sx = canvas.width / Math.max(1, rect.width);
-      const sy = canvas.height / Math.max(1, rect.height);
+      if (rect.width < 1 || rect.height < 1) return;
+      const sx = canvas.width / rect.width;
+      const sy = canvas.height / rect.height;
       // Cursor position relative to canvas centre — zoom toward the cursor.
       const mx = (event.clientX - rect.left) * sx - canvas.width  / 2;
       const my = (event.clientY - rect.top)  * sy - canvas.height / 2;
@@ -195,13 +201,15 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     const point = getCanvasPointer(canvas, event as unknown as PointerEvent);
     const hover = canvasToSource(point.x, point.y);
     if (!hover.inside) return;
+    event.stopImmediatePropagation();
     event.preventDefault();
     const current = widgetNumber(node, "brush_size", 10);
     const step = event.shiftKey ? 8 : 2;
     const direction = event.deltaY > 0 ? -step : step;
     ctx.setDrawBrushSize(node, current + direction);
     void ctx.renderDrawNode(node, 0);
-  }, { passive: false });
+  };
+  document.addEventListener("wheel", handleDrawWheel, { capture: true, passive: false });
 
   canvas.addEventListener("keydown", (event: KeyboardEvent) => {
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
@@ -230,8 +238,9 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
       canvas.focus();
       try { canvas.setPointerCapture?.(event.pointerId); } catch {}
       const rect = canvas.getBoundingClientRect();
-      const sx = canvas.width  / Math.max(1, rect.width);
-      const sy = canvas.height / Math.max(1, rect.height);
+      if (rect.width < 1 || rect.height < 1) return;
+      const sx = canvas.width  / rect.width;
+      const sy = canvas.height / rect.height;
       ctrlPanDrag = {
         pointerId:    event.pointerId,
         startCanvasX: (event.clientX - rect.left) * sx,
@@ -286,8 +295,9 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     // ── Ctrl+drag pan in progress ────────────────────────────────────────────
     if (ctrlPanDrag && ctrlPanDrag.pointerId === event.pointerId) {
       const rect = canvas.getBoundingClientRect();
-      const sx = canvas.width  / Math.max(1, rect.width);
-      const sy = canvas.height / Math.max(1, rect.height);
+      if (rect.width < 1 || rect.height < 1) return;
+      const sx = canvas.width  / rect.width;
+      const sy = canvas.height / rect.height;
       const cx = (event.clientX - rect.left) * sx;
       const cy = (event.clientY - rect.top)  * sy;
       st.previewPanX = ctrlPanDrag.startPanX + (cx - ctrlPanDrag.startCanvasX);

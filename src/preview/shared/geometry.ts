@@ -75,8 +75,10 @@ export function drawOutputFormatBox(ctx: CanvasRenderingContext2D, fit: FitPlace
 
 export function getCanvasPointer(canvas: HTMLCanvasElement, event: PointerEvent): { x: number; y: number } {
   const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / Math.max(1, rect.width);
-  const scaleY = canvas.height / Math.max(1, rect.height);
+  // Guard against detached or zero-size canvas (Node 2.0 deferred DOM insertion).
+  if (rect.width < 1 || rect.height < 1) return { x: 0, y: 0 };
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
   return {
     x: (event.clientX - rect.left) * scaleX,
     y: (event.clientY - rect.top) * scaleY,

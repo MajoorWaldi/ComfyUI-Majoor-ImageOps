@@ -21,18 +21,25 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
     blit(node, st, st.previewLastSource, canvasSize);
   };
 
+  /** Safe rect helper — returns null if canvas is detached / zero-size. */
+  const safeRect = (): { rect: DOMRect; sx: number; sy: number } | null => {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return null;
+    return { rect, sx: canvas.width / rect.width, sy: canvas.height / rect.height };
+  };
+
   // ── Middle-button pan ──
   canvas.addEventListener("pointerdown", (event: PointerEvent) => {
     if (event.button !== 1) return;
     event.preventDefault();
+    event.stopPropagation();
     try { canvas.setPointerCapture(event.pointerId); } catch {}
-    const rect = canvas.getBoundingClientRect();
-    const sx = canvas.width / Math.max(1, rect.width);
-    const sy = canvas.height / Math.max(1, rect.height);
+    const r = safeRect();
+    if (!r) return;
     st.previewPanDrag = {
       pointerId: event.pointerId,
-      startCanvasX: (event.clientX - rect.left) * sx,
-      startCanvasY: (event.clientY - rect.top) * sy,
+      startCanvasX: (event.clientX - r.rect.left) * r.sx,
+      startCanvasY: (event.clientY - r.rect.top) * r.sy,
       startPanX: st.previewPanX,
       startPanY: st.previewPanY,
     };
@@ -40,11 +47,10 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
 
   canvas.addEventListener("pointermove", (event: PointerEvent) => {
     if (!st.previewPanDrag || st.previewPanDrag.pointerId !== event.pointerId) return;
-    const rect = canvas.getBoundingClientRect();
-    const sx = canvas.width / Math.max(1, rect.width);
-    const sy = canvas.height / Math.max(1, rect.height);
-    const cx = (event.clientX - rect.left) * sx;
-    const cy = (event.clientY - rect.top) * sy;
+    const r = safeRect();
+    if (!r) return;
+    const cx = (event.clientX - r.rect.left) * r.sx;
+    const cy = (event.clientY - r.rect.top) * r.sy;
     st.previewPanX = st.previewPanDrag.startPanX + (cx - st.previewPanDrag.startCanvasX);
     st.previewPanY = st.previewPanDrag.startPanY + (cy - st.previewPanDrag.startCanvasY);
     reblitNow();
@@ -64,15 +70,21 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
   });
 
   // ── Wheel: zoom toward cursor (disabled for interactive nodes — they handle wheel themselves) ──
-  canvas.addEventListener("wheel", (event: WheelEvent) => {
-    if (isInteractiveNode(node)) return;
+  // In Node 2.0, graph-canvas-container intercepts wheel events in capture phase
+  // before they reach our canvas.  We therefore register our own capture-phase
+  // handler on the document so we can stop the event first.
+  const handleWheel = (event: WheelEvent): void => {
+    const target = event.target as Node | null;
+    if (target !== canvas && !canvas.contains(target)) return;
+    // Always prevent graph zoom when cursor is on our preview canvas
+    event.stopImmediatePropagation();
     event.preventDefault();
-    const rect = canvas.getBoundingClientRect();
-    const sx = canvas.width / Math.max(1, rect.width);
-    const sy = canvas.height / Math.max(1, rect.height);
+    if (isInteractiveNode(node)) return;
+    const r = safeRect();
+    if (!r) return;
     // Mouse position relative to canvas center
-    const mx = (event.clientX - rect.left) * sx - canvas.width / 2;
-    const my = (event.clientY - rect.top) * sy - canvas.height / 2;
+    const mx = (event.clientX - r.rect.left) * r.sx - canvas.width / 2;
+    const my = (event.clientY - r.rect.top) * r.sy - canvas.height / 2;
     const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
     const prevZoom = st.previewZoom ?? 1;
     const newZoom = clampPreviewZoom(prevZoom * factor);
@@ -82,7 +94,8 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
     st.previewPanY = my - (my - (st.previewPanY ?? 0)) * ratio;
     st.previewZoom = newZoom;
     reblitNow();
-  }, { passive: false });
+  };
+  document.addEventListener("wheel", handleWheel, { capture: true, passive: false });
 
   // ── Double-click: reset zoom/pan ──
   canvas.addEventListener("dblclick", () => {
