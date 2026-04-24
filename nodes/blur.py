@@ -79,6 +79,11 @@ class ImageOpsBlur:
         bt = str(blur_type) if blur_type in _BLUR_TYPES else "gaussian"
 
         if input_mask is not None:
+            # _apply_blur_with_mask_pair returns a blurred-mask alongside the
+            # blurred image, but the user-facing MASK output should remain the
+            # *original* prepared mask: the blur affects the image, not the mask
+            # selection. The blurred mask is consumed locally to composite the
+            # blurred result back over the source.
             result, blurred_mask = _apply_blur_with_mask_pair(source, input_mask, radius, sigma, blur_type=bt)
             result = _apply_mask_to_image(source, result, blurred_mask)
             output_mask = output_mask_source

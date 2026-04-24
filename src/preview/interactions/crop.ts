@@ -19,6 +19,7 @@ export function attachInteractions(node: ComfyNode, ctx: CropInteractionContext)
   const st = (node as any).__imageops_state as any;
   if (!st?.canvas || st.cropInteractiveHooked) return;
   st.cropInteractiveHooked = true;
+  let moveRafPending = false;
 
   const canvas: HTMLCanvasElement = st.canvas;
 
@@ -45,7 +46,8 @@ export function attachInteractions(node: ComfyNode, ctx: CropInteractionContext)
     if (!mode) return;
 
     event.preventDefault();
-    canvas.setPointerCapture?.(event.pointerId);
+    event.stopPropagation();
+    try { canvas.setPointerCapture?.(event.pointerId); } catch { /* ignore */ }
     const controls = getCropControlState(node, geometry.sourceWidth, geometry.sourceHeight);
     st.cropDrag = {
       pointerId: event.pointerId,
@@ -141,13 +143,16 @@ export function attachInteractions(node: ComfyNode, ctx: CropInteractionContext)
     }
 
     setCropControlState(node, nextCenterX, nextCenterY, nextScale);
-    ctx.refreshNode(node);
+    if (!moveRafPending) {
+      moveRafPending = true;
+      requestAnimationFrame(() => { moveRafPending = false; ctx.refreshNode(node); });
+    }
   });
 
   const releaseDrag = (event: PointerEvent) => {
     if (!st.cropDrag || st.cropDrag.pointerId !== event.pointerId) return;
     st.cropDrag = null;
-    canvas.releasePointerCapture?.(event.pointerId);
+    try { canvas.releasePointerCapture?.(event.pointerId); } catch { /* ignore */ }
     const point = worldPt(event);
     canvas.style.cursor = getCropCursor(getCropInteractionMode(st.cropGeometry, point.x, point.y));
     ctx.refreshNode(node);

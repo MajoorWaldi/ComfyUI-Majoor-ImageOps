@@ -280,6 +280,27 @@ def _apply_color_adjust(
     midtones_amount: ScalarOrList = 0.0,
     highlights_hue: ScalarOrList = 0.0,
     highlights_amount: ScalarOrList = 0.0,
+    shadows_temperature: ScalarOrList = 0.0,
+    shadows_tint: ScalarOrList = 0.0,
+    shadows_contrast: ScalarOrList = 0.0,
+    shadows_saturation: ScalarOrList = 0.0,
+    shadows_vibrance: ScalarOrList = 0.0,
+    shadows_gamma: ScalarOrList = 1.0,
+    shadows_brightness: ScalarOrList = 0.0,
+    midtones_temperature: ScalarOrList = 0.0,
+    midtones_tint: ScalarOrList = 0.0,
+    midtones_contrast: ScalarOrList = 0.0,
+    midtones_saturation: ScalarOrList = 0.0,
+    midtones_vibrance: ScalarOrList = 0.0,
+    midtones_gamma: ScalarOrList = 1.0,
+    midtones_brightness: ScalarOrList = 0.0,
+    highlights_temperature: ScalarOrList = 0.0,
+    highlights_tint: ScalarOrList = 0.0,
+    highlights_contrast: ScalarOrList = 0.0,
+    highlights_saturation: ScalarOrList = 0.0,
+    highlights_vibrance: ScalarOrList = 0.0,
+    highlights_gamma: ScalarOrList = 1.0,
+    highlights_brightness: ScalarOrList = 0.0,
 ) -> torch.Tensor:
     """Pure PyTorch color adjustment in linear RGB; alpha/extra channels pass through."""
     if image is None:
@@ -306,28 +327,67 @@ def _apply_color_adjust(
     C = x.shape[-1]
     d, dt = image.device, image.dtype
 
-    brightness_t = 1.0 + _param_tensor(brightness, B, d, torch.float32) / 100.0
-    contrast_t = 1.0 + _param_tensor(contrast, B, d, torch.float32) / 100.0
-    saturation_t = 1.0 + _param_tensor(saturation, B, d, torch.float32) / 100.0
-    temperature_t = _param_tensor(temperature, B, d, torch.float32) / 100.0
-    tint_t = _param_tensor(tint, B, d, torch.float32) / 100.0
-    vibrance_t = _param_tensor(vibrance, B, d, torch.float32) / 100.0
+    # ----- Per-zone resolution ----------------------------------------------
+    # Each primary param has an effective per-pixel value built as:
+    #   eff(P) = global_P + shadows_P*mask_S + midtones_P*mask_M + highlights_P*mask_H
+    # (and gamma anchored at 1.0 instead of 0). The masks below are spatial
+    # [B,H,W,1] tensors derived from the source-image luma; once a zone slider
+    # is non-zero the corresponding param tensor becomes per-pixel. When all
+    # zone sliders are zero, eff(P) collapses back to a [B,1,1,1] scalar and
+    # the code path is identical to the previous global-only version.
+    rgb_src_linear = _srgb_to_linear(x[..., :3])
+    luma_src = _linear_luma(rgb_src_linear)
+    shadow_mask = ((0.5 - luma_src) / 0.5).clamp(0.0, 1.0)
+    shadow_mask = shadow_mask * shadow_mask
+    highlight_mask = ((luma_src - 0.5) / 0.5).clamp(0.0, 1.0)
+    highlight_mask = highlight_mask * highlight_mask
+    mid_mask = (1.0 - shadow_mask - highlight_mask).clamp(0.0, 1.0)
+
+    def _zoned(global_v: ScalarOrList, sh: ScalarOrList, mi: ScalarOrList, hi: ScalarOrList,
+               *, anchor: float = 0.0, scale: float = 1.0) -> "torch.Tensor":
+        base = (_param_tensor(global_v, B, d, torch.float32) - anchor) * scale
+        if (_param_all_close(sh, anchor) and _param_all_close(mi, anchor) and _param_all_close(hi, anchor)):
+            return base + anchor
+        sh_t = (_param_tensor(sh, B, d, torch.float32) - anchor) * scale
+        mi_t = (_param_tensor(mi, B, d, torch.float32) - anchor) * scale
+        hi_t = (_param_tensor(hi, B, d, torch.float32) - anchor) * scale
+        return base + sh_t * shadow_mask + mi_t * mid_mask + hi_t * highlight_mask + anchor
+
+    brightness_t = 1.0 + _zoned(brightness, shadows_brightness, midtones_brightness, highlights_brightness, scale=1.0 / 100.0)
+    contrast_t = 1.0 + _zoned(contrast, shadows_contrast, midtones_contrast, highlights_contrast, scale=1.0 / 100.0)
+    saturation_t = 1.0 + _zoned(saturation, shadows_saturation, midtones_saturation, highlights_saturation, scale=1.0 / 100.0)
+    temperature_t = _zoned(temperature, shadows_temperature, midtones_temperature, highlights_temperature, scale=1.0 / 100.0)
+    tint_t = _zoned(tint, shadows_tint, midtones_tint, highlights_tint, scale=1.0 / 100.0)
+    vibrance_t = _zoned(vibrance, shadows_vibrance, midtones_vibrance, highlights_vibrance, scale=1.0 / 100.0)
     hue_shift_t = _param_tensor(hue, B, d, torch.float32) / 360.0
-    gamma_t = _param_tensor(gamma, B, d, torch.float32).clamp(GAMMA_SAFE_MIN, GAMMA_MAX)
-    has_temperature = not _param_all_close(temperature, 0.0)
-    has_tint = not _param_all_close(tint, 0.0)
-    has_contrast = not _param_all_close(contrast, 0.0)
-    has_saturation = not _param_all_close(saturation, 0.0)
-    has_vibrance = not _param_all_close(vibrance, 0.0)
+    gamma_t = _zoned(gamma, shadows_gamma, midtones_gamma, highlights_gamma, anchor=1.0).clamp(GAMMA_SAFE_MIN, GAMMA_MAX)
+
+    has_temperature = not _param_all_close(temperature, 0.0) or not (
+        _param_all_close(shadows_temperature, 0.0) and _param_all_close(midtones_temperature, 0.0) and _param_all_close(highlights_temperature, 0.0)
+    )
+    has_tint = not _param_all_close(tint, 0.0) or not (
+        _param_all_close(shadows_tint, 0.0) and _param_all_close(midtones_tint, 0.0) and _param_all_close(highlights_tint, 0.0)
+    )
+    has_contrast = not _param_all_close(contrast, 0.0) or not (
+        _param_all_close(shadows_contrast, 0.0) and _param_all_close(midtones_contrast, 0.0) and _param_all_close(highlights_contrast, 0.0)
+    )
+    has_saturation = not _param_all_close(saturation, 0.0) or not (
+        _param_all_close(shadows_saturation, 0.0) and _param_all_close(midtones_saturation, 0.0) and _param_all_close(highlights_saturation, 0.0)
+    )
+    has_vibrance = not _param_all_close(vibrance, 0.0) or not (
+        _param_all_close(shadows_vibrance, 0.0) and _param_all_close(midtones_vibrance, 0.0) and _param_all_close(highlights_vibrance, 0.0)
+    )
     has_hue = not _param_all_close(hue, 0.0)
-    has_gamma = not _param_all_close(gamma, 1.0)
+    has_gamma = not _param_all_close(gamma, 1.0) or not (
+        _param_all_close(shadows_gamma, 1.0) and _param_all_close(midtones_gamma, 1.0) and _param_all_close(highlights_gamma, 1.0)
+    )
     has_three_way = (
         not _param_all_close(shadows_amount, 0.0)
         or not _param_all_close(midtones_amount, 0.0)
         or not _param_all_close(highlights_amount, 0.0)
     )
 
-    rgb = _srgb_to_linear(x[..., :3])
+    rgb = rgb_src_linear
     extra = x[..., 3:] if C > 3 else None
 
     rgb = (rgb * brightness_t).clamp(0.0, 1.0)
@@ -756,6 +816,14 @@ def _expand_mask_batch(mask: torch.Tensor, target_batch: int) -> torch.Tensor:
         return mask
     if mask.shape[0] == 1:
         return mask.expand(target_batch, -1, -1)
+    # Non-trivial batch mismatch (mask batch > 1 and != image batch). The repeat
+    # path below preserves backward compat but the user probably wired the wrong
+    # mask source — surface it once so it's debuggable instead of silent.
+    logger.debug(
+        "mask batch mismatch: mask.shape[0]=%d target_batch=%d; repeating to fit",
+        int(mask.shape[0]),
+        int(target_batch),
+    )
     reps = math.ceil(target_batch / mask.shape[0])
     return mask.repeat(reps, 1, 1)[:target_batch]
 

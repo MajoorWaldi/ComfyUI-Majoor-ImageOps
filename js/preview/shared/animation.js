@@ -25,7 +25,7 @@ function getProceduralFrameCount(node) {
   const frameLength = Math.max(0, Math.round(numeric("frame_length", 0)));
   const frameCount = frameLength > 0 ? frameLength : batchSize;
   const animSpeed = numeric("animation_speed", 0);
-  if (animSpeed !== 0) return 1e6;
+  if (animSpeed !== 0) return 3600;
   return Math.max(frameCount, animatedLength);
 }
 function hasProceduralAnimation(node) {

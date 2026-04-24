@@ -33,6 +33,10 @@ function clampDrawSize(value, fallback = 10) {
   const parsed = Number.isFinite(value) ? value : fallback;
   return Math.max(1, Math.min(256, Math.round(parsed)));
 }
+function clampDrawSoftness(value, fallback = 0.5) {
+  const parsed = Number.isFinite(value) ? value : fallback;
+  return Math.max(0, Math.min(1, parsed));
+}
 function normalizeDrawColor(value, fallback = "#ffffff") {
   const text = String(value || fallback).trim();
   const match = /^#?([0-9a-f]{6})$/i.exec(text);
@@ -283,6 +287,7 @@ export {
   clampDrawDimension,
   clampDrawOpacity,
   clampDrawSize,
+  clampDrawSoftness,
   loadOverlayCanvas,
   makeCanvas,
   makeSolidBackgroundCanvas,

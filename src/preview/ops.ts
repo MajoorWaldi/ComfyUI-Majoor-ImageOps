@@ -5,6 +5,8 @@ import { getOpsConstants, initOpsConstants } from "./constants.js";
 import { clampCropCenter, clampCropScale, computeCropRect, resolveCropAspectRatio } from "./crop.js";
 import { computeCompRect, getCompLayerOutputCorners, getCompSlots, hasCompLayerCornerPin, syncCompLayers } from "./comp.js";
 import { renderDrawPreview, resolveDrawOverlayCanvas } from "./draw.js";
+import { acquireCanvas, releaseCanvas } from "./shared/canvas-pool.js";
+import { applyColorCorrectGL, type ColorCorrectParams } from "./shared/webgl-color.js";
 
 initOpsConstants();
 
@@ -974,8 +976,21 @@ function applyColorCorrectReference(
   midtonesAmount: number,
   highlightsHue: number,
   highlightsAmount: number,
+  perZone?: Partial<ColorCorrectParams>,
 ): void {
   const { luma_weights: LW } = getOpsConstants();
+
+  // Try the GPU path first — a single fragment-shader pass instead of a full
+  // pixel loop in JS. Falls back transparently to the CPU implementation
+  // below if WebGL is unavailable, the context is lost, or any draw fails.
+  const okGL = applyColorCorrectGL(ctx, W, H, {
+    temperature, tint, hue, brightness, contrast, saturation, vibrance, gamma,
+    shadowsHue, shadowsAmount, midtonesHue, midtonesAmount, highlightsHue, highlightsAmount,
+    lumaWeights: [LW[0], LW[1], LW[2]],
+    ...(perZone ?? {}),
+  });
+  if (okGL) return;
+
   const img = getImageData(ctx, W, H);
   const d = img.data;
   const brightnessFactor = 1 + brightness / 100;
@@ -1122,14 +1137,19 @@ function applyBlur(ctx: CanvasRenderingContext2D, W: number, H: number, radiusPx
   // only controls truncation which CSS cannot replicate anyway.
   const safeSigma = Math.max(0, sigmaPx);
   const cssSigma = safeSigma > 0 ? Math.min(blurPx, safeSigma) : Math.max(0.1, blurPx / 3);
-  const tmp=document.createElement("canvas");
-  tmp.width=W; tmp.height=H;
-  const tctx=tmp.getContext("2d")!;
-  tctx.filter=`blur(${cssSigma}px)`;
-  tctx.drawImage(ctx.canvas,0,0);
-  tctx.filter="none";
-  ctx.clearRect(0,0,W,H);
-  ctx.drawImage(tmp,0,0);
+  // Pool the tmp canvas — acquired/released per call so we don't allocate a fresh
+  // canvas on every video tick (hot path: 30+ allocations/sec per blur node).
+  const tmp = acquireCanvas(W, H);
+  try {
+    const tctx = tmp.getContext("2d")!;
+    tctx.filter = `blur(${cssSigma}px)`;
+    tctx.drawImage(ctx.canvas, 0, 0);
+    tctx.filter = "none";
+    ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(tmp, 0, 0);
+  } finally {
+    releaseCanvas(tmp);
+  }
 }
 
 function resolveBlurRadiusPx(radiusPx: number, sigmaPx: number): number {
@@ -1840,6 +1860,10 @@ function renderCornerPinCanvases(
       let premulB = 0;
       let alphaSum = 0;
       let insideSum = 0;
+      // Track per-subsample coverage*alpha so the mask edge is supersampled
+      // in lockstep with the colour: avg(cov_i * alpha_i) is more faithful than
+      // avg(cov_i) * avg(alpha_i) on transparent or semi-covered edges.
+      let coveredAlphaSum = 0;
 
       for (let subY = 0; subY < supersample; subY++) {
         const dstY = supersample === 1 ? y : y + (subY + 0.5) / supersample - 0.5;
@@ -1887,6 +1911,7 @@ function renderCornerPinCanvases(
           premulG += g * (a / 255);
           premulB += b * (a / 255);
           alphaSum += a;
+          if (inside) coveredAlphaSum += a;
         }
       }
 
@@ -1909,7 +1934,7 @@ function renderCornerPinCanvases(
       outData[outOffset + 3] = Math.round(clamp01(outA) * 255);
 
       const maskValue = fillMode === "transparent"
-        ? Math.round(clamp01((insideSum / sampleCount) * alpha01) * 255)
+        ? Math.round(clamp01(coveredAlphaSum / sampleCount / 255) * 255)
         : 255;
       const finalMask = invertMask ? 255 - maskValue : maskValue;
       outMaskData[outOffset] = 255;
@@ -2976,6 +3001,29 @@ export const ops = {
           numAny(node, ["midtones_amount"], 0, frameIndex),
           numAny(node, ["highlights_hue"], 0, frameIndex),
           numAny(node, ["highlights_amount"], 0, frameIndex),
+          {
+            shadowsTemperature: numAny(node, ["shadows_temperature"], 0, frameIndex),
+            shadowsTint: numAny(node, ["shadows_tint"], 0, frameIndex),
+            shadowsContrast: numAny(node, ["shadows_contrast"], 0, frameIndex),
+            shadowsSaturation: numAny(node, ["shadows_saturation"], 0, frameIndex),
+            shadowsVibrance: numAny(node, ["shadows_vibrance"], 0, frameIndex),
+            shadowsGamma: numAny(node, ["shadows_gamma"], 1, frameIndex),
+            shadowsBrightness: numAny(node, ["shadows_brightness"], 0, frameIndex),
+            midtonesTemperature: numAny(node, ["midtones_temperature"], 0, frameIndex),
+            midtonesTint: numAny(node, ["midtones_tint"], 0, frameIndex),
+            midtonesContrast: numAny(node, ["midtones_contrast"], 0, frameIndex),
+            midtonesSaturation: numAny(node, ["midtones_saturation"], 0, frameIndex),
+            midtonesVibrance: numAny(node, ["midtones_vibrance"], 0, frameIndex),
+            midtonesGamma: numAny(node, ["midtones_gamma"], 1, frameIndex),
+            midtonesBrightness: numAny(node, ["midtones_brightness"], 0, frameIndex),
+            highlightsTemperature: numAny(node, ["highlights_temperature"], 0, frameIndex),
+            highlightsTint: numAny(node, ["highlights_tint"], 0, frameIndex),
+            highlightsContrast: numAny(node, ["highlights_contrast"], 0, frameIndex),
+            highlightsSaturation: numAny(node, ["highlights_saturation"], 0, frameIndex),
+            highlightsVibrance: numAny(node, ["highlights_vibrance"], 0, frameIndex),
+            highlightsGamma: numAny(node, ["highlights_gamma"], 1, frameIndex),
+            highlightsBrightness: numAny(node, ["highlights_brightness"], 0, frameIndex),
+          },
         );
       }),
       { frameIndex },
@@ -3020,31 +3068,39 @@ export const ops = {
     const mask = resolvePreviewMaskCanvas(node, source, rawMask, frameIndex);
     if (!mask) return blurFn(source);
 
-    // Direct pixel-level blend: result = source × (1-mask) + blurred × mask.
-    // Bypasses CSS destination-in compositing, which can silently produce wrong
-    // results in some browsers when the prepared mask has semi-transparent edges.
+    // GPU-accelerated mask blend: result = source * (1-mask) + blurred * mask.
+    // Done with canvas2D compositing instead of a JS pixel loop \u2014 the browser
+    // executes drawImage + composite ops on the GPU on most platforms, and we
+    // skip three full ImageData round-trips (source/blurred/mask).
     const sw = source.width || 1;
     const sh = source.height || 1;
     const blurred = blurFn(source);
     const fittedMask = buildMaskAlphaCanvas(mask, sw, sh);
 
-    const srcData = source.getContext("2d")!.getImageData(0, 0, sw, sh).data;
-    const blrData = blurred.getContext("2d")!.getImageData(0, 0, sw, sh).data;
-    const mskData = fittedMask.getContext("2d")!.getImageData(0, 0, sw, sh).data;
-
     const output = makeCanvas(sw, sh);
     const outCtx = output.getContext("2d")!;
-    const outImg = outCtx.createImageData(sw, sh);
-    const outData = outImg.data;
 
-    for (let i = 0; i < outData.length; i += 4) {
-      const m = mskData[i + 3] / 255;
-      outData[i]     = Math.round(srcData[i]     * (1 - m) + blrData[i]     * m);
-      outData[i + 1] = Math.round(srcData[i + 1] * (1 - m) + blrData[i + 1] * m);
-      outData[i + 2] = Math.round(srcData[i + 2] * (1 - m) + blrData[i + 2] * m);
-      outData[i + 3] = Math.round(srcData[i + 3] * (1 - m) + blrData[i + 3] * m);
+    // Step 1: "blurred * mask" goes into a pooled tmp canvas.
+    const blurredMasked = acquireCanvas(sw, sh);
+    try {
+      const bmCtx = blurredMasked.getContext("2d")!;
+      bmCtx.clearRect(0, 0, sw, sh);
+      bmCtx.globalCompositeOperation = "source-over";
+      bmCtx.drawImage(blurred, 0, 0);
+      bmCtx.globalCompositeOperation = "destination-in";
+      bmCtx.drawImage(fittedMask, 0, 0);
+      bmCtx.globalCompositeOperation = "source-over";
+
+      // Step 2: lay down source, erase the masked region, then add blurred*mask.
+      outCtx.clearRect(0, 0, sw, sh);
+      outCtx.drawImage(source, 0, 0);
+      outCtx.globalCompositeOperation = "destination-out";
+      outCtx.drawImage(fittedMask, 0, 0);
+      outCtx.globalCompositeOperation = "source-over";
+      outCtx.drawImage(blurredMasked, 0, 0);
+    } finally {
+      releaseCanvas(blurredMasked);
     }
-    outCtx.putImageData(outImg, 0, 0);
     return output;
   },
   channel(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, outputSlot?: number | null, inputs: HTMLCanvasElement[] = [], frameIndex: number = 0): HTMLCanvasElement {
@@ -3390,7 +3446,26 @@ export const ops = {
     const width = base?.width || Math.max(1, Math.round(numAny(node, ["width"], 1024)));
     const height = base?.height || Math.max(1, Math.round(numAny(node, ["height"], 1024)));
     const overlay = await resolveDrawOverlayCanvas(node, width, height);
-    const mask = buildMaskAlphaCanvas(overlay, overlay.width || 1, overlay.height || 1);
+    // Backend draw.py returns overlay_alpha[..., 0] as the mask (alpha channel
+    // only, brush colour is irrelevant). buildMaskAlphaCanvas applies luma*alpha
+    // which would dim the preview mask whenever the user paints with a non-white
+    // colour — that diverges from the backend. Build an alpha-only matte instead.
+    const ow = overlay.width || 1;
+    const oh = overlay.height || 1;
+    const matte = makeCanvas(ow, oh);
+    const mctx = matte.getContext("2d")!;
+    mctx.drawImage(overlay, 0, 0);
+    const img = mctx.getImageData(0, 0, ow, oh);
+    const data = img.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const a = data[i + 3];
+      data[i] = 255;
+      data[i + 1] = 255;
+      data[i + 2] = 255;
+      data[i + 3] = a;
+    }
+    mctx.putImageData(img, 0, 0);
+    const mask = markPreparedMaskCanvas(matte);
     return boolAny(node, ["invert_mask"], false) ? invertMaskCanvas(mask) : mask;
   },
   imageOpsMask(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, cls: string, inputs: HTMLCanvasElement[] = [], frameIndex: number = 0): HTMLCanvasElement | null {
@@ -3413,10 +3488,12 @@ export const ops = {
     }
 
     if (cls === "ImageOpsBlur") {
-      const blurRadius = numAny(node, ["radius", "blur", "blur_radius"], 0, frameIndex);
-      const blurSigma = numAny(node, ["sigma"], blurRadius > 0 ? Math.max(0.1, blurRadius / 3) : 0, frameIndex);
-      const baseMask = resolvedMask ?? alphaMaskCanvas(source);
-      return blurMaskAlphaCanvas(baseMask, blurSigma > 0 ? blurSigma : Math.max(0.1, blurRadius / 3));
+      // Backend blur.py returns the *original* prepared mask as MASK output
+      // (output_mask = output_mask_source) — the blur affects the image, not the
+      // mask itself. Mirror that here so the Preview MASK matches what's
+      // actually sent downstream. If no upstream mask, fall back to the
+      // implicit alpha matte of the source.
+      return resolvedMask ?? alphaMaskCanvas(source);
     }
 
     if (cls === "ImageOpsTransform") {

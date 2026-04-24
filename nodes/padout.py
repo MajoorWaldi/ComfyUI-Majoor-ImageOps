@@ -134,7 +134,7 @@ class ImageOpsPadOut:
                 "fill_mode": (_PADOUT_FILL_MODES, {"default": "constant"}),
                 "fill_color": ("COLOR", {"default": "#000000"}),
                 "blur_radius": ("INT", {"default": 32, "min": 0, "max": 512, "step": 1, "tooltip": "Used by blurry padding."}),
-                "invert_mask": ("BOOLEAN", {"default": False}),
+                "invert_mask": ("BOOLEAN", {"default": False, "tooltip": "By default the output mask marks the *padded* area as 1 and the original source as 0. Toggle to invert (source=1, padding=0)."}),
             },
             "optional": {
                 "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input. Accepts IMAGE batches and VIDEO frame sources.", "forceInput": True, "display_name": "Images/Video"}),

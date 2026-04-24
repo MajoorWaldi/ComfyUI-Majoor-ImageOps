@@ -31,9 +31,11 @@ export function getProceduralFrameCount(node: ComfyNode): number | null {
   const frameLength = Math.max(0, Math.round(numeric("frame_length", 0)));
   const frameCount = frameLength > 0 ? frameLength : batchSize;
 
-  // animation_speed != 0 means infinite animation — return a large cycle so tick is never clamped to 0.
+  // animation_speed != 0 means infinite animation — return a bounded cycle so the tick is never clamped
+  // to 0 yet remains small enough that animation seeds wrap predictably and modulo math stays cheap.
+  // 3600 frames ≈ 5 minutes at 12 fps, far longer than any practical preview session.
   const animSpeed = numeric("animation_speed", 0);
-  if (animSpeed !== 0) return 1_000_000;
+  if (animSpeed !== 0) return 3600;
 
   return Math.max(frameCount, animatedLength);
 }

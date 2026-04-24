@@ -2,6 +2,8 @@ import { getOpsConstants, initOpsConstants } from "./constants.js";
 import { clampCropCenter, clampCropScale, computeCropRect, resolveCropAspectRatio } from "./crop.js";
 import { computeCompRect, getCompLayerOutputCorners, getCompSlots, hasCompLayerCornerPin, syncCompLayers } from "./comp.js";
 import { renderDrawPreview, resolveDrawOverlayCanvas } from "./draw.js";
+import { acquireCanvas, releaseCanvas } from "./shared/canvas-pool.js";
+import { applyColorCorrectGL } from "./shared/webgl-color.js";
 initOpsConstants();
 function w(node, name) {
   return node?.widgets?.find((x) => x?.name === name) ?? null;
@@ -822,8 +824,27 @@ function applyColorCorrect(ctx, W, H, brightness, contrast, gamma, saturation) {
   }
   putImageData(ctx, img);
 }
-function applyColorCorrectReference(ctx, W, H, temperature, tint, hue, brightness, contrast, saturation, vibrance, gamma, shadowsHue, shadowsAmount, midtonesHue, midtonesAmount, highlightsHue, highlightsAmount) {
+function applyColorCorrectReference(ctx, W, H, temperature, tint, hue, brightness, contrast, saturation, vibrance, gamma, shadowsHue, shadowsAmount, midtonesHue, midtonesAmount, highlightsHue, highlightsAmount, perZone) {
   const { luma_weights: LW } = getOpsConstants();
+  const okGL = applyColorCorrectGL(ctx, W, H, {
+    temperature,
+    tint,
+    hue,
+    brightness,
+    contrast,
+    saturation,
+    vibrance,
+    gamma,
+    shadowsHue,
+    shadowsAmount,
+    midtonesHue,
+    midtonesAmount,
+    highlightsHue,
+    highlightsAmount,
+    lumaWeights: [LW[0], LW[1], LW[2]],
+    ...perZone ?? {}
+  });
+  if (okGL) return;
   const img = getImageData(ctx, W, H);
   const d = img.data;
   const brightnessFactor = 1 + brightness / 100;
@@ -956,15 +977,17 @@ function applyBlur(ctx, W, H, radiusPx, sigmaPx) {
   if (blurPx <= 0) return;
   const safeSigma = Math.max(0, sigmaPx);
   const cssSigma = safeSigma > 0 ? Math.min(blurPx, safeSigma) : Math.max(0.1, blurPx / 3);
-  const tmp = document.createElement("canvas");
-  tmp.width = W;
-  tmp.height = H;
-  const tctx = tmp.getContext("2d");
-  tctx.filter = `blur(${cssSigma}px)`;
-  tctx.drawImage(ctx.canvas, 0, 0);
-  tctx.filter = "none";
-  ctx.clearRect(0, 0, W, H);
-  ctx.drawImage(tmp, 0, 0);
+  const tmp = acquireCanvas(W, H);
+  try {
+    const tctx = tmp.getContext("2d");
+    tctx.filter = `blur(${cssSigma}px)`;
+    tctx.drawImage(ctx.canvas, 0, 0);
+    tctx.filter = "none";
+    ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(tmp, 0, 0);
+  } finally {
+    releaseCanvas(tmp);
+  }
 }
 function resolveBlurRadiusPx(radiusPx, sigmaPx) {
   const safeRadius = Math.max(0, Math.round(radiusPx));
@@ -1544,6 +1567,7 @@ function renderCornerPinCanvases(node, source, frameIndex = 0) {
       let premulB = 0;
       let alphaSum = 0;
       let insideSum = 0;
+      let coveredAlphaSum = 0;
       for (let subY = 0; subY < supersample; subY++) {
         const dstY = supersample === 1 ? y : y + (subY + 0.5) / supersample - 0.5;
         for (let subX = 0; subX < supersample; subX++) {
@@ -1573,6 +1597,7 @@ function renderCornerPinCanvases(node, source, frameIndex = 0) {
           premulG += g * (a / 255);
           premulB += b * (a / 255);
           alphaSum += a;
+          if (inside) coveredAlphaSum += a;
         }
       }
       const alpha = alphaSum / sampleCount;
@@ -1592,7 +1617,7 @@ function renderCornerPinCanvases(node, source, frameIndex = 0) {
       outData[outOffset + 1] = outA > 1e-6 ? Math.round(clamp01(premulOutG / outA) * 255) : 0;
       outData[outOffset + 2] = outA > 1e-6 ? Math.round(clamp01(premulOutB / outA) * 255) : 0;
       outData[outOffset + 3] = Math.round(clamp01(outA) * 255);
-      const maskValue = fillMode === "transparent" ? Math.round(clamp01(insideSum / sampleCount * alpha01) * 255) : 255;
+      const maskValue = fillMode === "transparent" ? Math.round(clamp01(coveredAlphaSum / sampleCount / 255) * 255) : 255;
       const finalMask = invertMask ? 255 - maskValue : maskValue;
       outMaskData[outOffset] = 255;
       outMaskData[outOffset + 1] = 255;
@@ -2459,7 +2484,30 @@ const ops = {
           numAny(node, ["midtones_hue"], 0, frameIndex),
           numAny(node, ["midtones_amount"], 0, frameIndex),
           numAny(node, ["highlights_hue"], 0, frameIndex),
-          numAny(node, ["highlights_amount"], 0, frameIndex)
+          numAny(node, ["highlights_amount"], 0, frameIndex),
+          {
+            shadowsTemperature: numAny(node, ["shadows_temperature"], 0, frameIndex),
+            shadowsTint: numAny(node, ["shadows_tint"], 0, frameIndex),
+            shadowsContrast: numAny(node, ["shadows_contrast"], 0, frameIndex),
+            shadowsSaturation: numAny(node, ["shadows_saturation"], 0, frameIndex),
+            shadowsVibrance: numAny(node, ["shadows_vibrance"], 0, frameIndex),
+            shadowsGamma: numAny(node, ["shadows_gamma"], 1, frameIndex),
+            shadowsBrightness: numAny(node, ["shadows_brightness"], 0, frameIndex),
+            midtonesTemperature: numAny(node, ["midtones_temperature"], 0, frameIndex),
+            midtonesTint: numAny(node, ["midtones_tint"], 0, frameIndex),
+            midtonesContrast: numAny(node, ["midtones_contrast"], 0, frameIndex),
+            midtonesSaturation: numAny(node, ["midtones_saturation"], 0, frameIndex),
+            midtonesVibrance: numAny(node, ["midtones_vibrance"], 0, frameIndex),
+            midtonesGamma: numAny(node, ["midtones_gamma"], 1, frameIndex),
+            midtonesBrightness: numAny(node, ["midtones_brightness"], 0, frameIndex),
+            highlightsTemperature: numAny(node, ["highlights_temperature"], 0, frameIndex),
+            highlightsTint: numAny(node, ["highlights_tint"], 0, frameIndex),
+            highlightsContrast: numAny(node, ["highlights_contrast"], 0, frameIndex),
+            highlightsSaturation: numAny(node, ["highlights_saturation"], 0, frameIndex),
+            highlightsVibrance: numAny(node, ["highlights_vibrance"], 0, frameIndex),
+            highlightsGamma: numAny(node, ["highlights_gamma"], 1, frameIndex),
+            highlightsBrightness: numAny(node, ["highlights_brightness"], 0, frameIndex)
+          }
         );
       }),
       { frameIndex }
@@ -2493,21 +2541,26 @@ const ops = {
     const sh = source.height || 1;
     const blurred = blurFn(source);
     const fittedMask = buildMaskAlphaCanvas(mask, sw, sh);
-    const srcData = source.getContext("2d").getImageData(0, 0, sw, sh).data;
-    const blrData = blurred.getContext("2d").getImageData(0, 0, sw, sh).data;
-    const mskData = fittedMask.getContext("2d").getImageData(0, 0, sw, sh).data;
     const output = makeCanvas(sw, sh);
     const outCtx = output.getContext("2d");
-    const outImg = outCtx.createImageData(sw, sh);
-    const outData = outImg.data;
-    for (let i = 0; i < outData.length; i += 4) {
-      const m = mskData[i + 3] / 255;
-      outData[i] = Math.round(srcData[i] * (1 - m) + blrData[i] * m);
-      outData[i + 1] = Math.round(srcData[i + 1] * (1 - m) + blrData[i + 1] * m);
-      outData[i + 2] = Math.round(srcData[i + 2] * (1 - m) + blrData[i + 2] * m);
-      outData[i + 3] = Math.round(srcData[i + 3] * (1 - m) + blrData[i + 3] * m);
+    const blurredMasked = acquireCanvas(sw, sh);
+    try {
+      const bmCtx = blurredMasked.getContext("2d");
+      bmCtx.clearRect(0, 0, sw, sh);
+      bmCtx.globalCompositeOperation = "source-over";
+      bmCtx.drawImage(blurred, 0, 0);
+      bmCtx.globalCompositeOperation = "destination-in";
+      bmCtx.drawImage(fittedMask, 0, 0);
+      bmCtx.globalCompositeOperation = "source-over";
+      outCtx.clearRect(0, 0, sw, sh);
+      outCtx.drawImage(source, 0, 0);
+      outCtx.globalCompositeOperation = "destination-out";
+      outCtx.drawImage(fittedMask, 0, 0);
+      outCtx.globalCompositeOperation = "source-over";
+      outCtx.drawImage(blurredMasked, 0, 0);
+    } finally {
+      releaseCanvas(blurredMasked);
     }
-    outCtx.putImageData(outImg, 0, 0);
     return output;
   },
   channel(ctx, W, node, outputSlot, inputs = [], frameIndex = 0) {
@@ -2851,7 +2904,22 @@ const ops = {
     const width = base?.width || Math.max(1, Math.round(numAny(node, ["width"], 1024)));
     const height = base?.height || Math.max(1, Math.round(numAny(node, ["height"], 1024)));
     const overlay = await resolveDrawOverlayCanvas(node, width, height);
-    const mask = buildMaskAlphaCanvas(overlay, overlay.width || 1, overlay.height || 1);
+    const ow = overlay.width || 1;
+    const oh = overlay.height || 1;
+    const matte = makeCanvas(ow, oh);
+    const mctx = matte.getContext("2d");
+    mctx.drawImage(overlay, 0, 0);
+    const img = mctx.getImageData(0, 0, ow, oh);
+    const data = img.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const a = data[i + 3];
+      data[i] = 255;
+      data[i + 1] = 255;
+      data[i + 2] = 255;
+      data[i + 3] = a;
+    }
+    mctx.putImageData(img, 0, 0);
+    const mask = markPreparedMaskCanvas(matte);
     return boolAny(node, ["invert_mask"], false) ? invertMaskCanvas(mask) : mask;
   },
   imageOpsMask(ctx, W, node, cls, inputs = [], frameIndex = 0) {
@@ -2868,10 +2936,7 @@ const ops = {
       return renderDistortCanvas(node, inputs, frameIndex).mask;
     }
     if (cls === "ImageOpsBlur") {
-      const blurRadius = numAny(node, ["radius", "blur", "blur_radius"], 0, frameIndex);
-      const blurSigma = numAny(node, ["sigma"], blurRadius > 0 ? Math.max(0.1, blurRadius / 3) : 0, frameIndex);
-      const baseMask = resolvedMask ?? alphaMaskCanvas(source);
-      return blurMaskAlphaCanvas(baseMask, blurSigma > 0 ? blurSigma : Math.max(0.1, blurRadius / 3));
+      return resolvedMask ?? alphaMaskCanvas(source);
     }
     if (cls === "ImageOpsTransform") {
       return ops.transform(ctx, W, node, [resolvedMask ?? alphaMaskCanvas(source)], frameIndex);

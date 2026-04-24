@@ -9,6 +9,7 @@ import {
   clampDrawDimension,
   clampDrawOpacity,
   clampDrawSize,
+  clampDrawSoftness,
   canvasToOverlayData
 } from "../draw.js";
 const NODE_CLASS = "ImageOpsDraw";
@@ -25,6 +26,7 @@ function hideDrawWidgets(node) {
   hideWidgetForGood(node, findWidget(node, "tool"));
   hideWidgetForGood(node, findWidget(node, "brush_color"));
   hideWidgetForGood(node, findWidget(node, "brush_edge"));
+  hideWidgetForGood(node, findWidget(node, "brush_softness"));
   hideWidgetForGood(node, findWidget(node, "brush_opacity"));
   hideWidgetForGood(node, findWidget(node, "brush_size"));
   hideWidgetForGood(node, findWidget(node, "brush_pressure_size"));
@@ -120,7 +122,19 @@ function syncDrawWidgets(node, changedName) {
     syncDarkColorInputUI(st.drawColorInput, brushColor);
   }
   if (st.drawEdgeSelect) {
-    st.drawEdgeSelect.value = normalizeDrawEdge(widgetString(node, "brush_edge", "hard"));
+    const edgeMode = normalizeDrawEdge(widgetString(node, "brush_edge", "hard"));
+    st.drawEdgeSelect.value = edgeMode;
+    if (st.drawSoftnessInput) {
+      const softness = Math.round(clampDrawSoftness(widgetNumber(node, "brush_softness", 0.5), 0.5) * 100);
+      st.drawSoftnessInput.value = String(softness);
+      st.drawSoftnessInput.disabled = edgeMode === "hard";
+      st.drawSoftnessInput.style.opacity = edgeMode === "hard" ? "0.45" : "1";
+      st.drawSoftnessInput.title = `Soft brush feather ${softness}%`;
+      if (st.drawSoftnessLabel) {
+        st.drawSoftnessLabel.textContent = `${softness}%`;
+        st.drawSoftnessLabel.style.opacity = edgeMode === "hard" ? "0.45" : "0.82";
+      }
+    }
   }
   if (st.drawOpacityInput) {
     const opacity = Math.round(clampDrawOpacity(widgetNumber(node, "brush_opacity", 1), 1) * 100);

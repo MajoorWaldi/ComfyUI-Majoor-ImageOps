@@ -1,5 +1,5 @@
 import type { ComfyNode } from "../../types.js";
-import { ensureState } from "./state.js";
+import { ensureState, markPreviewInteraction } from "./state.js";
 import { clampPreviewZoom } from "./geometry.js";
 import { blit } from "./bounds.js";
 import { isNode as isDrawNode } from "../nodes/draw.js";
@@ -45,6 +45,7 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
     };
   });
 
+  let panRafPending = false;
   canvas.addEventListener("pointermove", (event: PointerEvent) => {
     if (!st.previewPanDrag || st.previewPanDrag.pointerId !== event.pointerId) return;
     const r = safeRect();
@@ -53,7 +54,11 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
     const cy = (event.clientY - r.rect.top) * r.sy;
     st.previewPanX = st.previewPanDrag.startPanX + (cx - st.previewPanDrag.startCanvasX);
     st.previewPanY = st.previewPanDrag.startPanY + (cy - st.previewPanDrag.startCanvasY);
-    reblitNow();
+    markPreviewInteraction(node);
+    if (!panRafPending) {
+      panRafPending = true;
+      requestAnimationFrame(() => { panRafPending = false; reblitNow(); });
+    }
   });
 
   canvas.addEventListener("pointerup", (event: PointerEvent) => {
@@ -76,10 +81,11 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
   const handleWheel = (event: WheelEvent): void => {
     const target = event.target as Node | null;
     if (target !== canvas && !canvas.contains(target)) return;
-    // Always prevent graph zoom when cursor is on our preview canvas
+    // Let interactive nodes (Draw) handle wheel themselves — don't block their handlers.
+    if (isInteractiveNode(node)) return;
+    // Prevent the graph from zooming when the cursor is over our preview canvas.
     event.stopImmediatePropagation();
     event.preventDefault();
-    if (isInteractiveNode(node)) return;
     const r = safeRect();
     if (!r) return;
     // Mouse position relative to canvas center
@@ -93,9 +99,12 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
     st.previewPanX = mx - (mx - (st.previewPanX ?? 0)) * ratio;
     st.previewPanY = my - (my - (st.previewPanY ?? 0)) * ratio;
     st.previewZoom = newZoom;
+    markPreviewInteraction(node);
     reblitNow();
   };
   document.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+  // Store cleanup ref so onRemoved can deregister the document-level listener.
+  (st as any)._navWheelCleanup = () => document.removeEventListener("wheel", handleWheel, { capture: true } as EventListenerOptions);
 
   // ── Double-click: reset zoom/pan ──
   canvas.addEventListener("dblclick", () => {

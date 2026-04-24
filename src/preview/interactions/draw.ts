@@ -5,6 +5,7 @@ import {
   normalizeDrawOverlayFormat,
   clampDrawOpacity,
   clampDrawSize,
+  clampDrawSoftness,
   clampDrawDimension,
 } from "../draw.js";
 import { isNode as isDrawNode, canvasToDrawSourcePoint } from "../nodes/draw.js";
@@ -89,6 +90,14 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     const edge = normalizeDrawEdge(st.drawEdgeSelect?.value ?? "hard");
     setWidgetStringValue(findWidget(node, "brush_edge"), edge);
     if (st.drawEdgeSelect) st.drawEdgeSelect.value = edge;
+    ctx.syncDrawWidgets(node);
+    void ctx.renderDrawNode(node, 0);
+  });
+
+  st.drawSoftnessInput?.addEventListener("input", () => {
+    const softness = clampDrawSoftness(Number(st.drawSoftnessInput?.value ?? 50) / 100, 0.5);
+    setWidgetValue(findWidget(node, "brush_softness"), softness);
+    if (st.drawSoftnessLabel) st.drawSoftnessLabel.textContent = `${Math.round(softness * 100)}%`;
     void ctx.renderDrawNode(node, 0);
   });
 
@@ -210,6 +219,17 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     void ctx.renderDrawNode(node, 0);
   };
   document.addEventListener("wheel", handleDrawWheel, { capture: true, passive: false });
+  // Store cleanup ref so onRemoved can deregister the document-level listener.
+  // Use idempotent removal so multiple onRemoved calls (or replays during reconfigure)
+  // never leak duplicate listeners on the document.
+  let _drawWheelRemoved = false;
+  (st as any)._drawWheelCleanup = () => {
+    if (_drawWheelRemoved) return;
+    _drawWheelRemoved = true;
+    try {
+      document.removeEventListener("wheel", handleDrawWheel, { capture: true } as EventListenerOptions);
+    } catch {}
+  };
 
   canvas.addEventListener("keydown", (event: KeyboardEvent) => {
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;

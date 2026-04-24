@@ -109,9 +109,8 @@ export async function ensureVideoFrameCanvas(node: ComfyNode, url: string, size:
   if (!st.videoEl || st.lastVideoURL !== url) {
     // Stop and unload the previous element to release CPU/memory before replacing it.
     if (st.videoEl) {
-      st.videoEl.pause();
-      st.videoEl.removeAttribute("src");
-      st.videoEl.load();
+      try { st.videoEl.pause(); } catch {}
+      try { st.videoEl.removeAttribute("src"); st.videoEl.load(); } catch {}
     }
     const v = document.createElement("video");
     v.src = url;
@@ -122,6 +121,8 @@ export async function ensureVideoFrameCanvas(node: ComfyNode, url: string, size:
     try { await v.play(); } catch (e) { console.warn("[ImageOps] video play failed:", e); }
     st.videoEl = v;
     st.lastVideoURL = url;
+    // URL changed — invalidate the per-frame draw fingerprint so the next call re-draws.
+    (st as any).lastVideoFrameKey = null;
   }
 
   const v = st.videoEl!;
@@ -136,8 +137,45 @@ export async function ensureVideoFrameCanvas(node: ComfyNode, url: string, size:
     try { await v.play(); } catch {}
   }
 
+  // Frame de-duplication: a 60 FPS preview loop pulling from a 24/30 FPS source
+  // will redraw the same frame 2-3 times per cycle. Skip the drawImage when the
+  // currentTime/size fingerprint hasn't moved — saves CPU + GC pressure.
+  const frameKey = `${v.currentTime.toFixed(4)}|${width}x${height}`;
+  if ((st as any).lastVideoFrameKey === frameKey) return c;
+  (st as any).lastVideoFrameKey = frameKey;
+
   ctx.clearRect(0, 0, width, height);
   ctx.drawImage(v, 0, 0, width, height);
   st.videoCanvas = c;
   return c;
+}
+
+/**
+ * Release every transient resource held by a node's MediaState. Safe to call
+ * multiple times. Should be invoked from `node.onRemoved` so videos stop playing
+ * and ImageBitmaps return GPU memory immediately, instead of waiting for GC.
+ */
+export function disposeMediaState(node: ComfyNode): void {
+  const st = node.__imageops_media;
+  if (!st) return;
+  try {
+    if (st.videoEl) {
+      try { st.videoEl.pause(); } catch {}
+      try { st.videoEl.removeAttribute("src"); st.videoEl.load(); } catch {}
+    }
+  } catch {}
+  try { st.lastBitmap?.close(); } catch {}
+  st.videoEl = undefined;
+  st.lastVideoURL = undefined;
+  st.lastBitmap = undefined;
+  st.lastBitmapURL = undefined;
+  st.imageEl = undefined;
+  st.lastImageURL = undefined;
+  st.imageCanvas = undefined;
+  st.animatedImageCanvas = undefined;
+  st.videoCanvas = undefined;
+  st.nativeCanvas = undefined;
+  st.staticRenderCache?.clear();
+  st.staticRenderCache = undefined;
+  (st as any).lastVideoFrameKey = null;
 }

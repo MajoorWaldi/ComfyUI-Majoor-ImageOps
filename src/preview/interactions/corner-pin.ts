@@ -20,6 +20,7 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
   const st = node.__imageops_state ?? null;
   if (!st?.canvas || st.cornerPinInteractiveHooked) return;
   st.cornerPinInteractiveHooked = true;
+  let moveRafPending = false;
   const canvas = st.canvas;
 
   const worldPt = (event: PointerEvent) => {
@@ -34,6 +35,7 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     const hit = getCornerPinHit(node, geometry, point.x, point.y);
     if (!hit) return;
     event.preventDefault();
+    event.stopPropagation();
     canvas.focus();
     safeSetPointerCapture(canvas, event.pointerId);
     st.cornerPinDrag = { pointerId: event.pointerId, handle: hit };
@@ -51,8 +53,11 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     event.preventDefault();
     const mapped = cornerPinCanvasToNormalized(geometry, point.x, point.y);
     setCornerPinHandle(node, drag.handle, mapped.xNorm, mapped.yNorm);
-    ctx.refreshNode(node);
     canvas.style.cursor = "grabbing";
+    if (!moveRafPending) {
+      moveRafPending = true;
+      requestAnimationFrame(() => { moveRafPending = false; ctx.refreshNode(node); });
+    }
   });
 
   const releaseDrag = (event: PointerEvent) => {

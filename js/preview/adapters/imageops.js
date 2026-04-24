@@ -74,7 +74,11 @@ function imageOpsAdapter() {
         return ops.imageOpsMask(ctx, canvasSize, node, cls, inputs, tick ?? 0) ?? inputs[0];
       }
       if (cls === "ImageOpsDraw" && outputSlot === 2) {
-        return await ops.drawMask(ctx, canvasSize, node, inputs);
+        const outs = node.outputs;
+        if (Array.isArray(outs) && outs.length >= 3) {
+          return await ops.drawMask(ctx, canvasSize, node, inputs);
+        }
+        return inputs[0] ?? null;
       }
       if (cls === "ImageOpsDraw" && outputSlot === 1) {
         const width = clampDrawDimension(Number((node?.widgets ?? []).find((widget) => widget?.name === "width")?.value ?? 1024), 1024);

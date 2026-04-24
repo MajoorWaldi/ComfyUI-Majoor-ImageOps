@@ -1,4 +1,4 @@
-import { ensureState } from "./state.js";
+import { ensureState, markPreviewInteraction } from "./state.js";
 import { clampPreviewZoom } from "./geometry.js";
 import { blit } from "./bounds.js";
 import { isNode as isDrawNode } from "../nodes/draw.js";
@@ -38,6 +38,7 @@ function attachPreviewNavigation(node, canvasSize) {
       startPanY: st.previewPanY
     };
   });
+  let panRafPending = false;
   canvas.addEventListener("pointermove", (event) => {
     if (!st.previewPanDrag || st.previewPanDrag.pointerId !== event.pointerId) return;
     const r = safeRect();
@@ -46,7 +47,14 @@ function attachPreviewNavigation(node, canvasSize) {
     const cy = (event.clientY - r.rect.top) * r.sy;
     st.previewPanX = st.previewPanDrag.startPanX + (cx - st.previewPanDrag.startCanvasX);
     st.previewPanY = st.previewPanDrag.startPanY + (cy - st.previewPanDrag.startCanvasY);
-    reblitNow();
+    markPreviewInteraction(node);
+    if (!panRafPending) {
+      panRafPending = true;
+      requestAnimationFrame(() => {
+        panRafPending = false;
+        reblitNow();
+      });
+    }
   });
   canvas.addEventListener("pointerup", (event) => {
     if (st.previewPanDrag?.pointerId === event.pointerId) {
@@ -65,9 +73,9 @@ function attachPreviewNavigation(node, canvasSize) {
   const handleWheel = (event) => {
     const target = event.target;
     if (target !== canvas && !canvas.contains(target)) return;
+    if (isInteractiveNode(node)) return;
     event.stopImmediatePropagation();
     event.preventDefault();
-    if (isInteractiveNode(node)) return;
     const r = safeRect();
     if (!r) return;
     const mx = (event.clientX - r.rect.left) * r.sx - canvas.width / 2;
@@ -79,9 +87,11 @@ function attachPreviewNavigation(node, canvasSize) {
     st.previewPanX = mx - (mx - (st.previewPanX ?? 0)) * ratio;
     st.previewPanY = my - (my - (st.previewPanY ?? 0)) * ratio;
     st.previewZoom = newZoom;
+    markPreviewInteraction(node);
     reblitNow();
   };
   document.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+  st._navWheelCleanup = () => document.removeEventListener("wheel", handleWheel, { capture: true });
   canvas.addEventListener("dblclick", () => {
     if (isInteractiveNode(node)) return;
     if (st.previewZoom === 1 && st.previewPanX === 0 && st.previewPanY === 0) return;

@@ -15,6 +15,7 @@ import { buildRenderer } from "./renderer.js";
 import { buildAdapterRegistry } from "./registry.js";
 import { detectSourceUpstream, getInputOriginSlot, getUpstreamNode, getUpstreamNodes, isGraphTooLarge, findDependents } from "./graph.js";
 import { resolveNodeStreamPreview } from "./nodestream.js";
+import { disposeMediaState } from "./source.js";
 import { attachProgressBus } from "./progress.js";
 import { getPreviewConfig } from "./config.js";
 import { initOpsConstants } from "./constants.js";
@@ -44,6 +45,7 @@ import { isNode as isCornerPinNode, getCornerPinInfoText } from "./nodes/corner-
 import { isNode as isPadOutNode, getPadOutInfoText } from "./nodes/pad-out.js";
 import { ensureState, setInfo, schedule, stopRAF, markPreviewInteraction, getRenderCanvasSize, buildPreviewRenderKey } from "./shared/state.js";
 import { markCanvasDirty } from "./shared/canvas.js";
+import { noteFrame } from "./shared/fps-monitor.js";
 import { IMAGEOPS_CLASSES } from "./shared/classes.js";
 import { ensurePreviewWidget, getNodePreviewMinHeight, getNodePreviewTargetSize } from "./shared/preview-widget.js";
 import { blit, tryRenderNativePreview } from "./shared/bounds.js";
@@ -442,6 +444,9 @@ export function registerImageOpsLivePreview(): void {
     const hasProcedural = proceduralFrameCount != null;
     const startedAt = performance.now();
     const loop = (): void => {
+      // Feed the global FPS monitor so getRenderCanvasSize() can downscale
+      // automatically when the system is stressed (LOD adaptive).
+      noteFrame(performance.now());
       if (hasProcedural) {
         // Re-read fps on every tick so widget changes take effect immediately.
         const currentFps = getProceduralPlaybackFps(node) ?? (upstreamProcedural ? getProceduralPlaybackFps(upstreamProcedural) : null) ?? 12;
@@ -469,9 +474,43 @@ export function registerImageOpsLivePreview(): void {
   }
 
   function hookNode(node: ComfyNode): void {
+    // Non-ImageOps nodes: only hook onExecuted to refresh downstream ImageOps nodes.
+    // Avoid creating heavy state objects or wrapping widgets on every node in the graph.
+    if (!IMAGEOPS_CLASSES.has(node.comfyClass)) {
+      if ((node as any).__imageops_hooked_ext) return;
+      (node as any).__imageops_hooked_ext = true;
+      const origOnExecuted0 = node.onExecuted;
+      node.onExecuted = function (this: any, message: any) {
+        let r: any;
+        try { r = origOnExecuted0?.apply(this, arguments as any); } catch (e) { console.warn("[ImageOps] upstream onExecuted threw", e); }
+        try { refreshDependents(node); } catch (e) { console.warn("[ImageOps] refreshDependents threw", e); }
+        return r;
+      };
+      return;
+    }
+
     const st = ensureState(node);
     if (st.hooked) return;
     st.hooked = true;
+
+    // Cleanup RAF and timers when the node is removed from the graph.
+    const origOnRemoved = (node as any).onRemoved;
+    (node as any).onRemoved = function (this: any) {
+      let r: any;
+      try { r = origOnRemoved?.apply(this, arguments as any); } catch (e) { console.warn("[ImageOps] origOnRemoved threw", e); }
+      try { stopRAF(st); } catch {}
+      if (st.debounceTimer != null) {
+        try { clearTimeout(st.debounceTimer); } catch {}
+        st.debounceTimer = null;
+      }
+      try { (st as any)._navWheelCleanup?.(); } catch {}
+      try { (st as any)._drawWheelCleanup?.(); } catch {}
+      // Trigger AbortController-based cleanups, if any interaction module attached one.
+      try { (st as any)._abortController?.abort(); } catch {}
+      // Release video element and ImageBitmap GPU memory immediately.
+      try { disposeMediaState(node); } catch (e) { console.warn("[ImageOps] disposeMediaState threw", e); }
+      return r;
+    };
 
     if (isCropNode(node)) {
       hideCropGeometryWidgets(node);
@@ -638,13 +677,13 @@ export function registerImageOpsLivePreview(): void {
     async beforeRegisterNodeDef(nodeType: ComfyNodeConstructor, _nodeData: any) {
       const origOnNodeCreated = nodeType.prototype.onNodeCreated;
       nodeType.prototype.onNodeCreated = function (this: ComfyNode) {
-        origOnNodeCreated?.apply(this, arguments as any);
-        hookNode(this);
+        try { origOnNodeCreated?.apply(this, arguments as any); } catch (e) { console.warn("[ImageOps] origOnNodeCreated threw", e); }
+        try { hookNode(this); } catch (e) { console.warn("[ImageOps] hookNode failed for", this?.comfyClass, e); }
       };
     },
     // Node 2.0 fallback: called per-instance after the node is fully constructed.
     nodeCreated(node: ComfyNode) {
-      hookNode(node);
+      try { hookNode(node); } catch (e) { console.warn("[ImageOps] hookNode (nodeCreated) failed for", node?.comfyClass, e); }
     },
   } as any);
 }

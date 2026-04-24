@@ -187,6 +187,8 @@ export interface NodeState {
   drawClearButton: HTMLButtonElement | null;
   drawColorInput: HTMLInputElement | null;
   drawEdgeSelect: HTMLSelectElement | null;
+  drawSoftnessInput: HTMLInputElement | null;
+  drawSoftnessLabel: HTMLDivElement | null;
   drawOpacityInput: HTMLInputElement | null;
   drawOpacityLabel: HTMLDivElement | null;
   drawSizeInput: HTMLInputElement | null;
@@ -223,6 +225,16 @@ export interface NodeState {
   colorMidtoneLabel: HTMLDivElement | null;
   colorHighlightWheelCanvas: HTMLCanvasElement | null;
   colorHighlightLabel: HTMLDivElement | null;
+  colorBrightnessInput: HTMLInputElement | null;
+  colorBrightnessLabel: HTMLDivElement | null;
+  colorZoneTabsRow: HTMLDivElement | null;
+  colorZoneTabGlobal: HTMLButtonElement | null;
+  colorZoneTabShadows: HTMLButtonElement | null;
+  colorZoneTabMidtones: HTMLButtonElement | null;
+  colorZoneTabHighlights: HTMLButtonElement | null;
+  // Active zone for the per-zone primaries UI. "global" maps to the
+  // existing widget names; the others map to e.g. shadows_<param>.
+  colorActiveZone: "global" | "shadows" | "midtones" | "highlights";
   colorInteractiveHooked: boolean;
   compLayers: CompLayerPreviewGeometry[];
   compOutputWidth: number;

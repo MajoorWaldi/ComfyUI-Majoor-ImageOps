@@ -26,6 +26,7 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
   const st = (node as any).__imageops_state as any;
   if (!st?.canvas || st.compInteractiveHooked) return;
   st.compInteractiveHooked = true;
+  let moveRafPending = false;
 
   const canvas: HTMLCanvasElement = st.canvas;
 
@@ -112,6 +113,7 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
     const hit = ctx.getCompHit(node, canvas.width, canvas.height, point.x, point.y);
     if (!hit) return;
     event.preventDefault();
+    event.stopPropagation();
     safeSetPointerCapture(canvas, event.pointerId);
     st.compSelectedSlot = hit.layer.slot;
     ctx.updateCompControls(node);
@@ -227,10 +229,16 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
     });
     ctx.markPreviewInteraction(node);
     ctx.markCanvasDirty();
-    ctx.schedule(node, () => {
-      ctx.startLoopIfVideo(node);
-      ctx.refreshDependents(node);
-    }, 0);
+    if (!moveRafPending) {
+      moveRafPending = true;
+      requestAnimationFrame(() => {
+        moveRafPending = false;
+        ctx.schedule(node, () => {
+          ctx.startLoopIfVideo(node);
+          ctx.refreshDependents(node);
+        }, 0);
+      });
+    }
   });
 
   const releaseDrag = (event: PointerEvent) => {

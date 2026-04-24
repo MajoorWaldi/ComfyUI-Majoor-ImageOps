@@ -4,6 +4,7 @@ import {
   normalizeDrawOverlayFormat,
   clampDrawOpacity,
   clampDrawSize,
+  clampDrawSoftness,
   clampDrawDimension
 } from "../draw.js";
 import { canvasToDrawSourcePoint } from "../nodes/draw.js";
@@ -61,6 +62,13 @@ function attachInteractions(node, ctx) {
     const edge = normalizeDrawEdge(st.drawEdgeSelect?.value ?? "hard");
     setWidgetStringValue(findWidget(node, "brush_edge"), edge);
     if (st.drawEdgeSelect) st.drawEdgeSelect.value = edge;
+    ctx.syncDrawWidgets(node);
+    void ctx.renderDrawNode(node, 0);
+  });
+  st.drawSoftnessInput?.addEventListener("input", () => {
+    const softness = clampDrawSoftness(Number(st.drawSoftnessInput?.value ?? 50) / 100, 0.5);
+    setWidgetValue(findWidget(node, "brush_softness"), softness);
+    if (st.drawSoftnessLabel) st.drawSoftnessLabel.textContent = `${Math.round(softness * 100)}%`;
     void ctx.renderDrawNode(node, 0);
   });
   st.drawOpacityInput?.addEventListener("input", () => {
@@ -166,6 +174,15 @@ function attachInteractions(node, ctx) {
     void ctx.renderDrawNode(node, 0);
   };
   document.addEventListener("wheel", handleDrawWheel, { capture: true, passive: false });
+  let _drawWheelRemoved = false;
+  st._drawWheelCleanup = () => {
+    if (_drawWheelRemoved) return;
+    _drawWheelRemoved = true;
+    try {
+      document.removeEventListener("wheel", handleDrawWheel, { capture: true });
+    } catch {
+    }
+  };
   canvas.addEventListener("keydown", (event) => {
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
     event.preventDefault();

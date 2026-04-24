@@ -181,7 +181,13 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
       out.height = 1;
       const octx = out.getContext("2d");
       if (!octx) { ctx.visited.delete(node.id); return null; }
-      const adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs: [], tick: ctx.tick });
+      let adapted: HTMLCanvasElement | void | null | undefined = out;
+      try {
+        adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs: [], tick: ctx.tick });
+      } catch (err) {
+        console.warn(`[ImageOps] adapter '${(adapter as any)?.name ?? node.comfyClass}' threw — falling back to placeholder.`, err);
+        adapted = out;
+      }
       const result = adapted instanceof HTMLCanvasElement ? adapted : out;
       ctx.cache.set(sig, result);
       if (ctx.tick === 0) {
@@ -244,7 +250,15 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
     if (!octx) { ctx.visited.delete(node.id); return null; }
     octx.drawImage(inputs[0], 0, 0);
 
-    const adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs, inputInfos, outputSlot, tick: ctx.tick });
+    let adapted: HTMLCanvasElement | void | null | undefined = out;
+    try {
+      adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs, inputInfos, outputSlot, tick: ctx.tick });
+    } catch (err) {
+      // A failing adapter must never bubble up and break the whole preview chain.
+      // Fall back to the first input (passthrough) so downstream nodes still render.
+      console.warn(`[ImageOps] adapter '${(adapter as any)?.name ?? node.comfyClass}' threw — passthrough first input.`, err);
+      adapted = inputs[0] ?? out;
+    }
     const result = adapted instanceof HTMLCanvasElement ? adapted : out;
 
     ctx.cache.set(sig, result);

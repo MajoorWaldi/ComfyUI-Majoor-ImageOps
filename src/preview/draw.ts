@@ -68,6 +68,11 @@ export function clampDrawSize(value: number, fallback: number = 10): number {
   return Math.max(1, Math.min(256, Math.round(parsed)));
 }
 
+export function clampDrawSoftness(value: number, fallback: number = 0.5): number {
+  const parsed = Number.isFinite(value) ? value : fallback;
+  return Math.max(0, Math.min(1, parsed));
+}
+
 export function normalizeDrawColor(value: string, fallback: string = "#ffffff"): string {
   const text = String(value || fallback).trim();
   const match = /^#?([0-9a-f]{6})$/i.exec(text);

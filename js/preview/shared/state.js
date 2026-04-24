@@ -1,5 +1,6 @@
 import { isNode as isPreviewNode } from "../nodes/preview.js";
 import { getPreviewConfig } from "../config.js";
+import { isStressed } from "./fps-monitor.js";
 function ensureState(node) {
   node.__imageops_state ?? (node.__imageops_state = {
     hooked: false,
@@ -47,6 +48,8 @@ function ensureState(node) {
     drawClearButton: null,
     drawColorInput: null,
     drawEdgeSelect: null,
+    drawSoftnessInput: null,
+    drawSoftnessLabel: null,
     drawOpacityInput: null,
     drawOpacityLabel: null,
     drawSizeInput: null,
@@ -83,6 +86,14 @@ function ensureState(node) {
     colorMidtoneLabel: null,
     colorHighlightWheelCanvas: null,
     colorHighlightLabel: null,
+    colorBrightnessInput: null,
+    colorBrightnessLabel: null,
+    colorZoneTabsRow: null,
+    colorZoneTabGlobal: null,
+    colorZoneTabShadows: null,
+    colorZoneTabMidtones: null,
+    colorZoneTabHighlights: null,
+    colorActiveZone: "global",
     colorInteractiveHooked: false,
     compLayers: [],
     compOutputWidth: 1,
@@ -125,16 +136,21 @@ function stopRAF(st) {
     st.rafId = null;
   }
 }
-function markPreviewInteraction(node, holdMs = 180) {
+function markPreviewInteraction(node, holdMs = 350) {
   const st = ensureState(node);
   st.interactionUntil = Math.max(st.interactionUntil ?? 0, performance.now() + holdMs);
 }
 function getRenderCanvasSize(st) {
   const cfg = getPreviewConfig();
   const now = performance.now();
-  if ((st.interactionUntil ?? 0) > now) return cfg.interactionCanvasSize;
-  if (st.rafId != null) return cfg.playbackCanvasSize;
-  return cfg.canvasSize;
+  const stressed = isStressed();
+  if ((st.interactionUntil ?? 0) > now) {
+    return stressed ? Math.max(1, Math.round(cfg.interactionCanvasSize * 0.75)) : cfg.interactionCanvasSize;
+  }
+  if (st.rafId != null) {
+    return stressed ? Math.max(1, Math.round(cfg.playbackCanvasSize * 0.75)) : cfg.playbackCanvasSize;
+  }
+  return stressed ? Math.max(1, Math.round(cfg.canvasSize * 0.85)) : cfg.canvasSize;
 }
 function hashText(value) {
   let hash = 2166136261;

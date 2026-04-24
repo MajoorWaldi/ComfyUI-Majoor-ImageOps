@@ -7,7 +7,7 @@ function isNode(node) {
   return String(node?.comfyClass ?? "") === NODE_CLASS;
 }
 function hideColorCorrectWidgets(node) {
-  for (const name of [
+  const baseNames = [
     "bypass",
     "temperature",
     "tint",
@@ -24,9 +24,23 @@ function hideColorCorrectWidgets(node) {
     "highlights_hue",
     "highlights_amount",
     "invert_mask"
-  ]) {
+  ];
+  const zoneParams = ["temperature", "tint", "contrast", "saturation", "vibrance", "gamma", "brightness"];
+  for (const zone of ["shadows", "midtones", "highlights"]) {
+    for (const param of zoneParams) baseNames.push(`${zone}_${param}`);
+  }
+  for (const name of baseNames) {
     hideWidgetForGood(node, findWidget(node, name));
   }
+}
+function colorWidgetNameForZone(param, zone) {
+  if (zone === "global" || zone == null) return param;
+  if (param === "hue") return `${zone}_hue`;
+  if (param === "saturation") return `${zone}_amount`;
+  return `${zone}_${param}`;
+}
+function colorWidgetDefaultFor(param) {
+  return param === "gamma" ? 1 : 0;
 }
 function syncRange(input, label, value, decimals = 0) {
   if (input) input.value = String(value);
@@ -36,48 +50,54 @@ function syncColorCorrectWidgets(node) {
   if (!isNode(node)) return;
   const st = node.__imageops_state ?? null;
   if (!st) return;
-  const hue = widgetNumber(node, "hue", 0);
-  const saturation = widgetNumber(node, "saturation", 0);
-  const temperature = widgetNumber(node, "temperature", 0);
-  const tint = widgetNumber(node, "tint", 0);
-  const contrast = widgetNumber(node, "contrast", 0);
-  const vibrance = widgetNumber(node, "vibrance", 0);
-  const gamma = widgetNumber(node, "gamma", 1);
-  const shadowsHue = widgetNumber(node, "shadows_hue", 0);
-  const shadowsAmount = widgetNumber(node, "shadows_amount", 0);
-  const midtonesHue = widgetNumber(node, "midtones_hue", 0);
-  const midtonesAmount = widgetNumber(node, "midtones_amount", 0);
-  const highlightsHue = widgetNumber(node, "highlights_hue", 0);
-  const highlightsAmount = widgetNumber(node, "highlights_amount", 0);
+  const zone = st.colorActiveZone ?? "global";
+  const readZ = (param) => widgetNumber(node, colorWidgetNameForZone(param, zone), colorWidgetDefaultFor(param));
+  const brightness = readZ("brightness");
+  const temperature = readZ("temperature");
+  const contrast = readZ("contrast");
+  const vibrance = readZ("vibrance");
+  const gamma = readZ("gamma");
+  const hue = readZ("hue");
+  const saturation = readZ("saturation");
+  syncRange(st.colorBrightnessInput, st.colorBrightnessLabel, brightness);
   syncRange(st.colorTemperatureInput, st.colorTemperatureLabel, temperature);
-  syncRange(st.colorTintInput, st.colorTintLabel, tint);
+  syncRange(st.colorTintInput, st.colorTintLabel, hue);
   syncRange(st.colorContrastInput, st.colorContrastLabel, contrast);
   syncRange(st.colorSaturationInput, st.colorSaturationValueLabel, saturation);
   syncRange(st.colorVibranceInput, st.colorVibranceLabel, vibrance);
   syncRange(st.colorGammaInput, st.colorGammaLabel, gamma, 2);
   if (st.colorWheelCanvas) drawColorWheel(st.colorWheelCanvas, hue, Math.max(0, saturation));
-  if (st.colorShadowWheelCanvas) drawColorWheel(st.colorShadowWheelCanvas, shadowsHue, shadowsAmount);
-  if (st.colorMidtoneWheelCanvas) drawColorWheel(st.colorMidtoneWheelCanvas, midtonesHue, midtonesAmount);
-  if (st.colorHighlightWheelCanvas) drawColorWheel(st.colorHighlightWheelCanvas, highlightsHue, highlightsAmount);
   if (st.colorHueLabel) st.colorHueLabel.textContent = `Hue ${Math.round(hue)} deg`;
   if (st.colorSatLabel) st.colorSatLabel.textContent = `Sat ${Math.round(saturation)}%`;
-  if (st.colorShadowLabel) st.colorShadowLabel.textContent = `Shadows ${Math.round(shadowsAmount)}%`;
-  if (st.colorMidtoneLabel) st.colorMidtoneLabel.textContent = `Midtones ${Math.round(midtonesAmount)}%`;
-  if (st.colorHighlightLabel) st.colorHighlightLabel.textContent = `Highlights ${Math.round(highlightsAmount)}%`;
   if (st.colorSwatch) {
     const tintCss = getColorWheelSwatchCss(hue, Math.max(0, saturation));
     const desat = clampDrawOpacity(1 + saturation / 100, 0);
     st.colorSwatch.style.background = saturation < 0 ? `linear-gradient(135deg, rgba(255,255,255,${0.12 + desat * 0.18}), rgba(255,255,255,0.04))` : `linear-gradient(135deg, ${tintCss}, rgba(12,12,16,0.22))`;
   }
+  const tabs = [
+    [st.colorZoneTabGlobal, "global"],
+    [st.colorZoneTabShadows, "shadows"],
+    [st.colorZoneTabMidtones, "midtones"],
+    [st.colorZoneTabHighlights, "highlights"]
+  ];
+  for (const [btn, name] of tabs) {
+    if (btn) styleSoftButton(btn, name === zone);
+  }
   if (st.colorResetButton) {
+    const anyZoneNonDefault = (zoneName) => {
+      const z = (p) => widgetNumber(node, colorWidgetNameForZone(p, zoneName), colorWidgetDefaultFor(p));
+      return Math.abs(z("brightness")) > 0.01 || Math.abs(z("temperature")) > 0.01 || Math.abs(z("hue")) > 0.01 || Math.abs(z("contrast")) > 0.01 || Math.abs(z("saturation")) > 0.01 || Math.abs(z("vibrance")) > 0.01 || Math.abs(z("gamma") - 1) > 0.01;
+    };
     styleSoftButton(
       st.colorResetButton,
-      Math.abs(temperature) > 0.01 || Math.abs(tint) > 0.01 || Math.abs(hue) > 0.01 || Math.abs(saturation) > 0.01 || Math.abs(contrast) > 0.01 || Math.abs(vibrance) > 0.01 || Math.abs(gamma - 1) > 0.01 || Math.abs(shadowsAmount) > 0.01 || Math.abs(midtonesAmount) > 0.01 || Math.abs(highlightsAmount) > 0.01
+      anyZoneNonDefault("global") || anyZoneNonDefault("shadows") || anyZoneNonDefault("midtones") || anyZoneNonDefault("highlights")
     );
   }
 }
 export {
   NODE_CLASS,
+  colorWidgetDefaultFor,
+  colorWidgetNameForZone,
   hideColorCorrectWidgets,
   isNode,
   syncColorCorrectWidgets

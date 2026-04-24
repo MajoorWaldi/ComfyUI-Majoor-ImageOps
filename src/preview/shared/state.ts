@@ -1,6 +1,7 @@
 import type { ComfyNode, NodeState } from "../../types.js";
 import { isNode as isPreviewNode } from "../nodes/preview.js";
 import { getPreviewConfig } from "../config.js";
+import { isStressed } from "./fps-monitor.js";
 
 export function ensureState(node: ComfyNode): NodeState {
   node.__imageops_state ??= {
@@ -49,6 +50,8 @@ export function ensureState(node: ComfyNode): NodeState {
     drawClearButton: null,
     drawColorInput: null,
     drawEdgeSelect: null,
+    drawSoftnessInput: null,
+    drawSoftnessLabel: null,
     drawOpacityInput: null,
     drawOpacityLabel: null,
     drawSizeInput: null,
@@ -85,6 +88,14 @@ export function ensureState(node: ComfyNode): NodeState {
     colorMidtoneLabel: null,
     colorHighlightWheelCanvas: null,
     colorHighlightLabel: null,
+    colorBrightnessInput: null,
+    colorBrightnessLabel: null,
+    colorZoneTabsRow: null,
+    colorZoneTabGlobal: null,
+    colorZoneTabShadows: null,
+    colorZoneTabMidtones: null,
+    colorZoneTabHighlights: null,
+    colorActiveZone: "global",
     colorInteractiveHooked: false,
     compLayers: [],
     compOutputWidth: 1,
@@ -131,7 +142,7 @@ export function stopRAF(st: NodeState): void {
   }
 }
 
-export function markPreviewInteraction(node: ComfyNode, holdMs: number = 180): void {
+export function markPreviewInteraction(node: ComfyNode, holdMs: number = 350): void {
   const st = ensureState(node);
   st.interactionUntil = Math.max(st.interactionUntil ?? 0, performance.now() + holdMs);
 }
@@ -139,9 +150,17 @@ export function markPreviewInteraction(node: ComfyNode, holdMs: number = 180): v
 export function getRenderCanvasSize(st: NodeState): number {
   const cfg = getPreviewConfig();
   const now = performance.now();
-  if ((st.interactionUntil ?? 0) > now) return cfg.interactionCanvasSize;
-  if (st.rafId != null) return cfg.playbackCanvasSize;
-  return cfg.canvasSize;
+  // LOD adaptive: when the global RAF loop is dropping frames, downscale one
+  // step further than usual. The FPS monitor latches for a short hold window
+  // so the size doesn't oscillate between two values every few frames.
+  const stressed = isStressed();
+  if ((st.interactionUntil ?? 0) > now) {
+    return stressed ? Math.max(1, Math.round(cfg.interactionCanvasSize * 0.75)) : cfg.interactionCanvasSize;
+  }
+  if (st.rafId != null) {
+    return stressed ? Math.max(1, Math.round(cfg.playbackCanvasSize * 0.75)) : cfg.playbackCanvasSize;
+  }
+  return stressed ? Math.max(1, Math.round(cfg.canvasSize * 0.85)) : cfg.canvasSize;
 }
 
 export function hashText(value: string): string {

@@ -90,9 +90,15 @@ async function ensureVideoFrameCanvas(node, url, size, tick = 0) {
   const st = node.__imageops_media;
   if (!st.videoEl || st.lastVideoURL !== url) {
     if (st.videoEl) {
-      st.videoEl.pause();
-      st.videoEl.removeAttribute("src");
-      st.videoEl.load();
+      try {
+        st.videoEl.pause();
+      } catch {
+      }
+      try {
+        st.videoEl.removeAttribute("src");
+        st.videoEl.load();
+      } catch {
+      }
     }
     const v2 = document.createElement("video");
     v2.src = url;
@@ -107,6 +113,7 @@ async function ensureVideoFrameCanvas(node, url, size, tick = 0) {
     }
     st.videoEl = v2;
     st.lastVideoURL = url;
+    st.lastVideoFrameKey = null;
   }
   const v = st.videoEl;
   void tick;
@@ -121,12 +128,51 @@ async function ensureVideoFrameCanvas(node, url, size, tick = 0) {
     } catch {
     }
   }
+  const frameKey = `${v.currentTime.toFixed(4)}|${width}x${height}`;
+  if (st.lastVideoFrameKey === frameKey) return c;
+  st.lastVideoFrameKey = frameKey;
   ctx.clearRect(0, 0, width, height);
   ctx.drawImage(v, 0, 0, width, height);
   st.videoCanvas = c;
   return c;
 }
+function disposeMediaState(node) {
+  const st = node.__imageops_media;
+  if (!st) return;
+  try {
+    if (st.videoEl) {
+      try {
+        st.videoEl.pause();
+      } catch {
+      }
+      try {
+        st.videoEl.removeAttribute("src");
+        st.videoEl.load();
+      } catch {
+      }
+    }
+  } catch {
+  }
+  try {
+    st.lastBitmap?.close();
+  } catch {
+  }
+  st.videoEl = void 0;
+  st.lastVideoURL = void 0;
+  st.lastBitmap = void 0;
+  st.lastBitmapURL = void 0;
+  st.imageEl = void 0;
+  st.lastImageURL = void 0;
+  st.imageCanvas = void 0;
+  st.animatedImageCanvas = void 0;
+  st.videoCanvas = void 0;
+  st.nativeCanvas = void 0;
+  st.staticRenderCache?.clear();
+  st.staticRenderCache = void 0;
+  st.lastVideoFrameKey = null;
+}
 export {
+  disposeMediaState,
   ensureBitmap,
   ensureImageElement,
   ensureVideoFrameCanvas,

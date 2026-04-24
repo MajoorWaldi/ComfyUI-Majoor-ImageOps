@@ -70,13 +70,15 @@ def _field_factory(kind: str):
     return getattr(_node20_io, fallback_map.get(kind, "String"), None)
 
 
-def _make_schema_input(name: str, spec):
+def _make_schema_input(name: str, spec, optional: bool = False):
     if _node20_io is None:
         return None
 
     raw_type = spec[0] if isinstance(spec, (tuple, list)) and spec else "STRING"
     opts = spec[1] if isinstance(spec, (tuple, list)) and len(spec) > 1 and isinstance(spec[1], dict) else {}
     kwargs = dict(opts)
+    if optional:
+        kwargs["optional"] = True
 
     # Remap legacy INPUT_TYPES option keys that changed in the Node 2.0 API.
     # forceInput (legacy camelCase) -> force_input (new snake_case on WidgetInput).
@@ -175,10 +177,34 @@ def _build_legacy_schema(node_id: str, cls, display_name: str):
     hidden = legacy_inputs.get("hidden", {}) if isinstance(legacy_inputs, dict) else {}
 
     inputs = []
-    for group in (required, optional):
+    for is_optional, group in ((False, required), (True, optional)):
         for input_name, input_spec in group.items():
             field = _make_schema_input(input_name, input_spec)
             if field is not None:
+                if is_optional:
+                    # Newer ComfyUI Node 2.0 builds may return a frozen dict-like
+                    # field object that disallows attribute assignment. Try every
+                    # known shape so the schema always carries the optional flag.
+                    _set = False
+                    try:
+                        field.optional = True  # dataclass / object form
+                        _set = True
+                    except (AttributeError, TypeError):
+                        pass
+                    if not _set:
+                        try:
+                            field["optional"] = True  # dict form
+                            _set = True
+                        except (TypeError, KeyError):
+                            pass
+                    if not _set:
+                        # Fallback: rebuild the field with optional kwarg if supported.
+                        try:
+                            rebuilt = _make_schema_input(input_name, input_spec, optional=True)
+                            if rebuilt is not None:
+                                field = rebuilt
+                        except TypeError:
+                            pass
                 inputs.append(field)
 
     return_names = tuple(getattr(cls, "RETURN_NAMES", ()) or ())
@@ -214,9 +240,39 @@ def _wrap_legacy_node20(node_id: str, cls, display_name: str):
     bases = (cls,) if not isinstance(comfy_node_base, type) or issubclass(cls, comfy_node_base) else (cls, comfy_node_base)
 
     class Node20Compat(*bases):
+        # v3 execution path uses FUNCTION to locate the callable; must point to
+        # a classmethod so that getattr(cls, FUNCTION).__func__ works correctly.
+        FUNCTION = "execute"
+
         @classmethod
         def define_schema(inner_cls):
             return _build_legacy_schema(node_id, cls, display_name)
+
+        @classmethod
+        def INPUT_TYPES(inner_cls):
+            # Explicitly override the legacy INPUT_TYPES() so that ComfyUI's v3
+            # validation path receives a schema-derived dict with "COMBO" io_type
+            # strings instead of raw lists.  Without this, Python's MRO resolves
+            # INPUT_TYPES to the legacy classmethod (which returns list-based Combo
+            # values), and parse_class_inputs then tries `list_value in dict` which
+            # raises TypeError: unhashable type: 'list'.
+            schema = _build_legacy_schema(node_id, cls, display_name)
+            # Older Comfy builds expose Schema.finalize(); newer builds drop it
+            # because the Schema is finalised lazily. Guard so both shapes work.
+            finalize = getattr(schema, "finalize", None)
+            if callable(finalize):
+                try:
+                    finalize()
+                except Exception:
+                    pass
+            try:
+                return schema.get_v1_info(inner_cls).input
+            except AttributeError:
+                # Fall back to the legacy INPUT_TYPES from the original class so
+                # the v1 validation path still has data even if the v3 schema
+                # cannot be downgraded by this Comfy version.
+                legacy = getattr(cls, "INPUT_TYPES", None)
+                return legacy() if callable(legacy) else {"required": {}}
 
         @classmethod
         def execute(inner_cls, **kwargs):

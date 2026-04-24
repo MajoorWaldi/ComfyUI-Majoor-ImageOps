@@ -17,6 +17,7 @@ function attachInteractions(node, ctx) {
   const st = node.__imageops_state;
   if (!st?.canvas || st.cropInteractiveHooked) return;
   st.cropInteractiveHooked = true;
+  let moveRafPending = false;
   const canvas = st.canvas;
   const worldPt = (event) => {
     const raw = getCanvasPointer(canvas, event);
@@ -36,7 +37,11 @@ function attachInteractions(node, ctx) {
     const mode = getCropInteractionMode(geometry, point.x, point.y);
     if (!mode) return;
     event.preventDefault();
-    canvas.setPointerCapture?.(event.pointerId);
+    event.stopPropagation();
+    try {
+      canvas.setPointerCapture?.(event.pointerId);
+    } catch {
+    }
     const controls = getCropControlState(node, geometry.sourceWidth, geometry.sourceHeight);
     st.cropDrag = {
       pointerId: event.pointerId,
@@ -126,12 +131,21 @@ function attachInteractions(node, ctx) {
       }
     }
     setCropControlState(node, nextCenterX, nextCenterY, nextScale);
-    ctx.refreshNode(node);
+    if (!moveRafPending) {
+      moveRafPending = true;
+      requestAnimationFrame(() => {
+        moveRafPending = false;
+        ctx.refreshNode(node);
+      });
+    }
   });
   const releaseDrag = (event) => {
     if (!st.cropDrag || st.cropDrag.pointerId !== event.pointerId) return;
     st.cropDrag = null;
-    canvas.releasePointerCapture?.(event.pointerId);
+    try {
+      canvas.releasePointerCapture?.(event.pointerId);
+    } catch {
+    }
     const point = worldPt(event);
     canvas.style.cursor = getCropCursor(getCropInteractionMode(st.cropGeometry, point.x, point.y));
     ctx.refreshNode(node);

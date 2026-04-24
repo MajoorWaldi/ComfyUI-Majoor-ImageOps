@@ -162,7 +162,13 @@ function buildRenderer({ api, registry, canvasSize }) {
         ctx.visited.delete(node.id);
         return null;
       }
-      const adapted2 = await adapter.apply({ node, ctx: octx2, canvasSize: ctx.canvasSize, inputs: [], tick: ctx.tick });
+      let adapted2 = out2;
+      try {
+        adapted2 = await adapter.apply({ node, ctx: octx2, canvasSize: ctx.canvasSize, inputs: [], tick: ctx.tick });
+      } catch (err) {
+        console.warn(`[ImageOps] adapter '${adapter?.name ?? node.comfyClass}' threw \u2014 falling back to placeholder.`, err);
+        adapted2 = out2;
+      }
       const result2 = adapted2 instanceof HTMLCanvasElement ? adapted2 : out2;
       ctx.cache.set(sig, result2);
       if (ctx.tick === 0) {
@@ -224,7 +230,13 @@ function buildRenderer({ api, registry, canvasSize }) {
       return null;
     }
     octx.drawImage(inputs[0], 0, 0);
-    const adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs, inputInfos, outputSlot, tick: ctx.tick });
+    let adapted = out;
+    try {
+      adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs, inputInfos, outputSlot, tick: ctx.tick });
+    } catch (err) {
+      console.warn(`[ImageOps] adapter '${adapter?.name ?? node.comfyClass}' threw \u2014 passthrough first input.`, err);
+      adapted = inputs[0] ?? out;
+    }
     const result = adapted instanceof HTMLCanvasElement ? adapted : out;
     ctx.cache.set(sig, result);
     if (ctx.tick === 0) {

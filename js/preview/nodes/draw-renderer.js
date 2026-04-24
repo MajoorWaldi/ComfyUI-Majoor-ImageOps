@@ -11,6 +11,7 @@ import {
   clampDrawDimension,
   clampDrawOpacity,
   clampDrawSize,
+  clampDrawSoftness,
   resizeCanvasPreserve,
   renderDrawPreview,
   resolveDrawOverlayCanvas
@@ -43,41 +44,82 @@ function paintDrawSegment(node, fromX, fromY, toX, toY, dynamics = { size: 1, op
   if (!ctx) return;
   const tool = normalizeDrawTool(widgetString(node, "tool", "brush"));
   const edge = normalizeDrawEdge(widgetString(node, "brush_edge", "hard"));
+  const softness = clampDrawSoftness(widgetNumber(node, "brush_softness", 0.5), 0.5);
   const brushSize = Math.max(1, clampDrawSize(widgetNumber(node, "brush_size", 10)) * Math.max(0.05, dynamics.size));
   const brushOpacity = clampDrawOpacity(widgetNumber(node, "brush_opacity", 1) * Math.max(0.05, dynamics.opacity), 1);
   const brushColor = widgetString(node, "brush_color", "#FFFFFF");
   ctx.save();
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = brushSize;
   ctx.shadowColor = "transparent";
   ctx.shadowBlur = 0;
-  if (tool === "eraser") {
-    ctx.globalCompositeOperation = "destination-out";
-    ctx.strokeStyle = `rgba(0,0,0,${brushOpacity})`;
+  if (edge === "soft" && softness > 0.01) {
+    const stamp = buildSoftBrushStamp(brushSize, softness, brushColor, brushOpacity, tool);
+    ctx.globalCompositeOperation = tool === "eraser" ? "destination-out" : "source-over";
+    const stampSize = stamp.width;
+    const half = stampSize / 2;
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const dist = Math.hypot(dx, dy);
+    const step = Math.max(0.5, brushSize * 0.12);
+    const count = Math.max(1, Math.ceil(dist / step));
+    for (let i = 0; i <= count; i++) {
+      const t = count === 0 ? 0 : i / count;
+      const x = fromX + dx * t;
+      const y = fromY + dy * t;
+      ctx.drawImage(stamp, x - half, y - half);
+    }
   } else {
-    ctx.globalCompositeOperation = "source-over";
-    ctx.strokeStyle = strokeStyle(brushColor, brushOpacity);
-  }
-  if (edge === "soft") {
-    ctx.shadowColor = tool === "eraser" ? `rgba(0,0,0,${clampDrawOpacity(brushOpacity * 0.75)})` : strokeStyle(brushColor, clampDrawOpacity(brushOpacity * 0.75));
-    ctx.shadowBlur = Math.max(2, brushSize * 0.4);
-  }
-  ctx.beginPath();
-  ctx.moveTo(fromX, fromY);
-  ctx.lineTo(toX, toY);
-  ctx.stroke();
-  if (edge === "soft" && tool !== "eraser") {
-    ctx.shadowColor = "transparent";
-    ctx.shadowBlur = 0;
-    ctx.lineWidth = Math.max(1, brushSize * 0.55);
-    ctx.strokeStyle = strokeStyle(brushColor, clampDrawOpacity(brushOpacity * 0.45));
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = brushSize;
+    if (tool === "eraser") {
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.strokeStyle = `rgba(0,0,0,${brushOpacity})`;
+    } else {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = strokeStyle(brushColor, brushOpacity);
+    }
     ctx.beginPath();
     ctx.moveTo(fromX, fromY);
     ctx.lineTo(toX, toY);
     ctx.stroke();
   }
   ctx.restore();
+}
+let _softStampCache = null;
+function buildSoftBrushStamp(brushSize, softness, color, opacity, tool) {
+  const sizePx = Math.max(2, Math.ceil(brushSize));
+  const sizeKey = sizePx;
+  const softKey = Math.round(softness * 100) / 100;
+  const opacityKey = Math.round(opacity * 100) / 100;
+  if (_softStampCache && _softStampCache.size === sizeKey && _softStampCache.softness === softKey && _softStampCache.color === color && _softStampCache.opacity === opacityKey && _softStampCache.tool === tool) {
+    return _softStampCache.canvas;
+  }
+  const stamp = document.createElement("canvas");
+  stamp.width = stamp.height = sizePx;
+  const sctx = stamp.getContext("2d");
+  const r = sizePx / 2;
+  const innerR = Math.max(0, r * (1 - softness));
+  const stampColor = tool === "eraser" ? "#FFFFFF" : color;
+  const grad = sctx.createRadialGradient(r, r, innerR, r, r, r);
+  grad.addColorStop(0, strokeStyle(stampColor, opacity));
+  if (innerR < r) {
+    grad.addColorStop(0.5, strokeStyle(stampColor, opacity * 0.55));
+    grad.addColorStop(0.85, strokeStyle(stampColor, opacity * 0.12));
+  }
+  grad.addColorStop(1, strokeStyle(stampColor, 0));
+  sctx.fillStyle = grad;
+  sctx.beginPath();
+  sctx.arc(r, r, r, 0, Math.PI * 2);
+  sctx.fill();
+  _softStampCache = {
+    size: sizeKey,
+    softness: softKey,
+    color,
+    opacity: opacityKey,
+    tool,
+    canvas: stamp
+  };
+  return stamp;
 }
 function drawBrushCursorOverlay(node, ctx) {
   const st = ensureState(node);
@@ -94,8 +136,9 @@ function drawBrushCursorOverlay(node, ctx) {
   ctx.save();
   ctx.setLineDash(tool === "eraser" ? [5, 3] : []);
   if (edge === "soft") {
+    const softness = clampDrawSoftness(widgetNumber(node, "brush_softness", 0.5), 0.5);
     ctx.shadowColor = tool === "eraser" ? "rgba(255,120,120,0.35)" : strokeStyle(color, Math.max(0.4, opacity * 0.85));
-    ctx.shadowBlur = Math.max(4, radius * 0.45);
+    ctx.shadowBlur = Math.max(0, radius * 0.9 * softness);
   }
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = tool === "eraser" ? "rgba(255,120,120,0.95)" : strokeStyle(color, Math.max(0.45, opacity));

@@ -172,6 +172,17 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
   let colorMidtoneLabel: HTMLDivElement | null = null;
   let colorHighlightWheelCanvas: HTMLCanvasElement | null = null;
   let colorHighlightLabel: HTMLDivElement | null = null;
+  let colorBrightnessInput: HTMLInputElement | null = null;
+  let colorBrightnessLabel: HTMLDivElement | null = null;
+  // Zone tabs let one slider set drive global, shadows, midtones or highlights
+  // sliders depending on the active tab. The DOM stays compact (one set of
+  // sliders) but bound widget names switch dynamically — the active zone is
+  // exposed on the node state so the interaction layer can route writes.
+  let colorZoneTabsRow: HTMLDivElement | null = null;
+  let colorZoneTabGlobal: HTMLButtonElement | null = null;
+  let colorZoneTabShadows: HTMLButtonElement | null = null;
+  let colorZoneTabMidtones: HTMLButtonElement | null = null;
+  let colorZoneTabHighlights: HTMLButtonElement | null = null;
   let colorControls: HTMLDivElement | null = null;
   if (colorCorrectNode) {
     colorControls = document.createElement("div");
@@ -282,7 +293,7 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
       input.step = String(step);
       input.value = String(value);
       styleSoftRange(input);
-      input.style.accentColor = accent;
+      if (accent) input.style.accentColor = accent;
 
       valueLabel.style.fontSize = "11px";
       valueLabel.style.opacity = "0.84";
@@ -314,88 +325,73 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
     primariesTop.appendChild(colorResetButton);
     primariesCard.appendChild(primariesTop);
 
+    // Zone tab row — Global / Shadows / Midtones / Highlights. Active tab
+    // controls which underlying widget the sliders below read & write.
+    colorZoneTabsRow = document.createElement("div");
+    colorZoneTabsRow.style.display = "grid";
+    colorZoneTabsRow.style.gridTemplateColumns = "repeat(4, 1fr)";
+    colorZoneTabsRow.style.gap = "4px";
+    const makeZoneTab = (label: string): HTMLButtonElement => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = label;
+      btn.style.fontSize = "11px";
+      btn.style.padding = "4px 6px";
+      styleSoftButton(btn, false);
+      return btn;
+    };
+    colorZoneTabGlobal = makeZoneTab("Global");
+    colorZoneTabShadows = makeZoneTab("Shadows");
+    colorZoneTabMidtones = makeZoneTab("Midtones");
+    colorZoneTabHighlights = makeZoneTab("Highlights");
+    colorZoneTabsRow.appendChild(colorZoneTabGlobal);
+    colorZoneTabsRow.appendChild(colorZoneTabShadows);
+    colorZoneTabsRow.appendChild(colorZoneTabMidtones);
+    colorZoneTabsRow.appendChild(colorZoneTabHighlights);
+    primariesCard.appendChild(colorZoneTabsRow);
+
+    colorBrightnessInput = document.createElement("input");
+    colorBrightnessLabel = document.createElement("div");
+    primariesCard.appendChild(makeRangeRow("Bright", colorBrightnessInput, colorBrightnessLabel, -100, 100, 1, 0, ""));
+
     colorTemperatureInput = document.createElement("input");
     colorTemperatureLabel = document.createElement("div");
+    // Only Temp & Hue carry a semantically meaningful axis colour (warm /
+    // hue-spectrum); the other primaries (Contrast, Sat, Vibrance, Gamma)
+    // keep the neutral track because their accent colours weren't tied to
+    // what the slider does.
     primariesCard.appendChild(makeRangeRow("Temp", colorTemperatureInput, colorTemperatureLabel, -100, 100, 1, 0, "#ffb347"));
 
+    // Hue slider — mirrors the angle of the active-zone wheel below.
+    // Range -180..180 deg; the wheel pointer and this slider stay in sync.
     colorTintInput = document.createElement("input");
     colorTintLabel = document.createElement("div");
-    primariesCard.appendChild(makeRangeRow("Tint", colorTintInput, colorTintLabel, -100, 100, 1, 0, "#d77dff"));
+    primariesCard.appendChild(makeRangeRow("Hue", colorTintInput, colorTintLabel, -180, 180, 1, 0, "#d77dff"));
 
     colorContrastInput = document.createElement("input");
     colorContrastLabel = document.createElement("div");
-    primariesCard.appendChild(makeRangeRow("Contrast", colorContrastInput, colorContrastLabel, -100, 100, 1, 0, "#8bd3ff"));
+    primariesCard.appendChild(makeRangeRow("Contrast", colorContrastInput, colorContrastLabel, -100, 100, 1, 0, ""));
 
     colorSaturationInput = document.createElement("input");
     colorSaturationValueLabel = document.createElement("div");
-    primariesCard.appendChild(makeRangeRow("Sat", colorSaturationInput, colorSaturationValueLabel, -100, 100, 1, 0, "#7dffb3"));
+    primariesCard.appendChild(makeRangeRow("Sat", colorSaturationInput, colorSaturationValueLabel, -100, 100, 1, 0, ""));
 
     colorVibranceInput = document.createElement("input");
     colorVibranceLabel = document.createElement("div");
-    primariesCard.appendChild(makeRangeRow("Vibrance", colorVibranceInput, colorVibranceLabel, -100, 100, 1, 0, "#9bff67"));
+    primariesCard.appendChild(makeRangeRow("Vibrance", colorVibranceInput, colorVibranceLabel, -100, 100, 1, 0, ""));
 
     colorGammaInput = document.createElement("input");
     colorGammaLabel = document.createElement("div");
-    primariesCard.appendChild(makeRangeRow("Gamma", colorGammaInput, colorGammaLabel, 0.2, 2.2, 0.01, 1, "#ffd166"));
+    primariesCard.appendChild(makeRangeRow("Gamma", colorGammaInput, colorGammaLabel, 0.2, 2.2, 0.01, 1, ""));
 
     colorControls.appendChild(primariesCard);
 
-    const wheelsTitle = document.createElement("div");
-    wheelsTitle.textContent = "3-Way Color";
-    wheelsTitle.style.fontSize = "12px";
-    wheelsTitle.style.fontWeight = "600";
-    wheelsTitle.style.letterSpacing = "0.02em";
-    wheelsTitle.style.marginTop = "2px";
-    colorControls.appendChild(wheelsTitle);
-
-    const wheelsGrid = document.createElement("div");
-    wheelsGrid.style.display = "grid";
-    wheelsGrid.style.gridTemplateColumns = "repeat(3, minmax(0,1fr))";
-    wheelsGrid.style.gap = "10px";
-
-    const makeWheelCard = (title: string): [HTMLDivElement, HTMLCanvasElement, HTMLDivElement] => {
-      const card = document.createElement("div");
-      card.style.display = "grid";
-      card.style.gap = "6px";
-      card.style.justifyItems = "center";
-
-      const cardTitle = document.createElement("div");
-      cardTitle.textContent = title;
-      cardTitle.style.fontSize = "11px";
-      cardTitle.style.opacity = "0.82";
-
-      const wheel = document.createElement("canvas");
-      wheel.width = 120;
-      wheel.height = 120;
-      wheel.style.width = "100%";
-      wheel.style.maxWidth = "120px";
-      wheel.style.aspectRatio = "1";
-      wheel.style.borderRadius = "999px";
-      wheel.style.cursor = "crosshair";
-      wheel.style.background = "radial-gradient(circle at center, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.18) 100%)";
-      wheel.style.border = "1px solid rgba(255,255,255,0.1)";
-      wheel.style.boxSizing = "border-box";
-
-      const label = document.createElement("div");
-      label.style.fontSize = "11px";
-      label.style.opacity = "0.84";
-      label.textContent = `${title} 0%`;
-
-      card.appendChild(cardTitle);
-      card.appendChild(wheel);
-      card.appendChild(label);
-      return [card, wheel, label];
-    };
-
-    let wheelCard: HTMLDivElement;
-    [wheelCard, colorShadowWheelCanvas, colorShadowLabel] = makeWheelCard("Shadows");
-    wheelsGrid.appendChild(wheelCard);
-    [wheelCard, colorMidtoneWheelCanvas, colorMidtoneLabel] = makeWheelCard("Midtones");
-    wheelsGrid.appendChild(wheelCard);
-    [wheelCard, colorHighlightWheelCanvas, colorHighlightLabel] = makeWheelCard("Highlights");
-    wheelsGrid.appendChild(wheelCard);
-
-    colorControls.appendChild(wheelsGrid);
+    // The 3-way colour wheel grid was removed: per-zone tinting now happens
+    // through the single big wheel above (which writes to <zone>_hue /
+    // <zone>_amount based on the active tab). Keeping the colorShadow* /
+    // colorMidtone* / colorHighlight* canvas refs as null is fine: the sync
+    // code is null-safe and the node's invisible widgets retain whatever
+    // value the workflow had before.
   }
 
   let compAddButton: HTMLButtonElement | null = null;
@@ -489,6 +485,8 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
   let drawClearButton: HTMLButtonElement | null = null;
   let drawColorInput: HTMLInputElement | null = null;
   let drawEdgeSelect: HTMLSelectElement | null = null;
+  let drawSoftnessInput: HTMLInputElement | null = null;
+  let drawSoftnessLabel: HTMLDivElement | null = null;
   let drawOpacityInput: HTMLInputElement | null = null;
   let drawOpacityLabel: HTMLDivElement | null = null;
   let drawSizeInput: HTMLInputElement | null = null;
@@ -602,6 +600,39 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
     strokeRow.appendChild(drawOpacityLabel);
     strokeRow.appendChild(drawOpacityInput);
 
+    // Softness row — only meaningful when Soft edge is selected. We always
+    // build it so the layout is stable; the row is dimmed via opacity when
+    // edge=hard (handled in syncDrawWidgets).
+    const softnessRow = document.createElement("div");
+    softnessRow.style.display = "grid";
+    softnessRow.style.gridTemplateColumns = "auto minmax(0,1fr) auto";
+    softnessRow.style.alignItems = "center";
+    softnessRow.style.gap = "6px";
+
+    const softnessLabel = document.createElement("div");
+    softnessLabel.textContent = "Softness";
+    softnessLabel.style.fontSize = "11px";
+    softnessLabel.style.opacity = "0.78";
+
+    drawSoftnessInput = document.createElement("input");
+    drawSoftnessInput.type = "range";
+    drawSoftnessInput.min = "0";
+    drawSoftnessInput.max = "100";
+    drawSoftnessInput.step = "1";
+    drawSoftnessInput.value = "50";
+    drawSoftnessInput.title = "Soft brush feather (only when edge=Soft)";
+    styleSoftRange(drawSoftnessInput);
+
+    drawSoftnessLabel = document.createElement("div");
+    drawSoftnessLabel.textContent = "50%";
+    drawSoftnessLabel.style.fontSize = "11px";
+    drawSoftnessLabel.style.opacity = "0.82";
+    drawSoftnessLabel.style.justifySelf = "end";
+
+    softnessRow.appendChild(softnessLabel);
+    softnessRow.appendChild(drawSoftnessInput);
+    softnessRow.appendChild(drawSoftnessLabel);
+
     const sizeRow = document.createElement("div");
     sizeRow.style.display = "grid";
     sizeRow.style.gridTemplateColumns = "auto minmax(0,1fr) auto auto auto auto auto";
@@ -705,6 +736,7 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
 
     drawControls.appendChild(topRow);
     drawControls.appendChild(strokeRow);
+    drawControls.appendChild(softnessRow);
     drawControls.appendChild(sizeRow);
     drawControls.appendChild(dynamicsRow);
   }
@@ -790,6 +822,8 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
   st.drawClearButton = drawClearButton;
   st.drawColorInput = drawColorInput;
   st.drawEdgeSelect = drawEdgeSelect;
+  st.drawSoftnessInput = drawSoftnessInput;
+  st.drawSoftnessLabel = drawSoftnessLabel;
   st.drawOpacityInput = drawOpacityInput;
   st.drawOpacityLabel = drawOpacityLabel;
   st.drawSizeInput = drawSizeInput;
@@ -825,6 +859,13 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
   st.colorMidtoneLabel = colorMidtoneLabel;
   st.colorHighlightWheelCanvas = colorHighlightWheelCanvas;
   st.colorHighlightLabel = colorHighlightLabel;
+  st.colorBrightnessInput = colorBrightnessInput;
+  st.colorBrightnessLabel = colorBrightnessLabel;
+  st.colorZoneTabsRow = colorZoneTabsRow;
+  st.colorZoneTabGlobal = colorZoneTabGlobal;
+  st.colorZoneTabShadows = colorZoneTabShadows;
+  st.colorZoneTabMidtones = colorZoneTabMidtones;
+  st.colorZoneTabHighlights = colorZoneTabHighlights;
   st.compAddButton = compAddButton;
   st.compResetButton = compResetButton;
   st.compResizeButton = compResizeButton;
