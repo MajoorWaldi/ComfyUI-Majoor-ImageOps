@@ -336,6 +336,15 @@ export function makeSolidBackgroundCanvas(width: number, height: number, bgColor
 export async function renderDrawPreview(node: ComfyNode, baseCanvas: HTMLCanvasElement | null = null): Promise<HTMLCanvasElement> {
   const width = baseCanvas?.width || clampDrawDimension(widgetNumber(node, "width", 1024));
   const height = baseCanvas?.height || clampDrawDimension(widgetNumber(node, "height", 1024));
+  // When an input image drives the canvas size, reflect that back into the
+  // width/height widgets so the user sees the actual output dimensions.
+  if (baseCanvas) {
+    const widgets = (node?.widgets ?? []) as Array<{ name?: string; value?: number }>;
+    const ww = widgets.find((entry) => entry?.name === "width");
+    const hw = widgets.find((entry) => entry?.name === "height");
+    if (ww && ww.value !== width) ww.value = width;
+    if (hw && hw.value !== height) hw.value = height;
+  }
   const output = baseCanvas ? resizeCanvasPreserve(baseCanvas, width, height) : makeSolidBackgroundCanvas(width, height, widgetString(node, "bg_color", "#000000"));
   if (widgetBoolean(node, "bypass", false)) {
     return output;

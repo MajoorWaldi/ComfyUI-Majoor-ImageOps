@@ -104,7 +104,6 @@ class ImageOpsCrop:
                 "crop_center_x": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.001}),
                 "crop_center_y": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.001}),
                 "crop_scale": ("FLOAT", {"default": 1.0, "min": 0.05, "max": 1.0, "step": 0.001}),
-                "invert_mask": ("BOOLEAN", {"default": False}),
             },
             "optional": {
                 "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input. Accepts IMAGE batches and VIDEO frame sources.", "forceInput": True, "display_name": "Images/Video"}),
@@ -115,11 +114,11 @@ class ImageOpsCrop:
         }
 
     def apply(self, image=None, bypass=False, aspect_ratio="1:1", width=1024, height=1024,
-              sync_dimensions=True, invert_mask=False, video=None, mask=None, crop_center_x=0.5, crop_center_y=0.5, crop_scale=1.0, unique_id=None):
+              sync_dimensions=True, video=None, mask=None, crop_center_x=0.5, crop_center_y=0.5, crop_scale=1.0, unique_id=None):
         del sync_dimensions  # UI-only link/free toggle used by the frontend preview controls.
         source = _select_media_tensor(image, video)
-        input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
-        output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
+        input_mask = _prepare_effect_mask(mask, source)
+        output_mask_source = _resolve_mask_output_source(mask, source)
         progress = start_progress(unique_id=unique_id)
 
         if _scalar(bypass, bool):

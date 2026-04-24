@@ -118,7 +118,11 @@ function ensureState(node) {
     padOutInteractiveHooked: false,
     padOutSourceWidth: 0,
     padOutSourceHeight: 0,
-    padOutSourceCanvas: null
+    padOutSourceCanvas: null,
+    padOutBackendSourceW: 0,
+    padOutBackendSourceH: 0,
+    padOutBackendPadL: 0,
+    padOutBackendPadT: 0
   });
   return node.__imageops_state;
 }

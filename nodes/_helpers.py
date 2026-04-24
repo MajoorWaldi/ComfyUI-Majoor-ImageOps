@@ -989,8 +989,9 @@ def _extract_channel_mask(image: torch.Tensor, channel: str) -> torch.Tensor:
 def _channel_mask_to_image(mask: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
     if mask is None:
         raise ValueError("mask is None")
-    alpha = mask.unsqueeze(-1).clamp(0.0, 1.0)
-    rgb = torch.ones_like(alpha).expand(-1, -1, -1, 3)
+    gray = mask.unsqueeze(-1).clamp(0.0, 1.0)
+    rgb = gray.expand(-1, -1, -1, 3)
+    alpha = torch.ones_like(gray)
     return torch.cat([rgb, alpha], dim=-1).to(device=reference.device, dtype=reference.dtype)
 
 

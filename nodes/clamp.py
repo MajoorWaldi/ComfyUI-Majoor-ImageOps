@@ -20,8 +20,8 @@ class ImageOpsClamp:
         return {
             "required": {
                 "bypass": ("BOOLEAN", {"default": False}),
-                "min_v": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001}),
-                "max_v": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.01, "display": "slider", "round": 0.001}),
+                "min_v": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.01, "round": 0.001}),
+                "max_v": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.01, "round": 0.001}),
                 "invert_mask": ("BOOLEAN", {"default": False}),
             },
             "optional": {

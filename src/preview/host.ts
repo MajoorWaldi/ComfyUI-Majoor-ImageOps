@@ -661,6 +661,15 @@ export function registerImageOpsLivePreview(): void {
     node.onExecuted = function (this: any, message: any) {
       const r = origExecuted?.apply(this, arguments as any);
       st.nativeAnimated = !!message?.animated?.[0];
+      if (isPadOutNode(node)) {
+        const src = message?.imageops_padout_source?.[0] ?? message?.imageops_padout_source ?? null;
+        if (src && typeof src === "object") {
+          st.padOutBackendSourceW = Math.max(0, Math.round(Number(src.source_w) || 0));
+          st.padOutBackendSourceH = Math.max(0, Math.round(Number(src.source_h) || 0));
+          st.padOutBackendPadL    = Math.max(0, Math.round(Number(src.pad_left) || 0));
+          st.padOutBackendPadT    = Math.max(0, Math.round(Number(src.pad_top)  || 0));
+        }
+      }
       st.nativeDirty = false;
       st.lastKey = null;
       st.lastRenderTick = null;

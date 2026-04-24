@@ -44,7 +44,7 @@ class ImageOpsMerge:
                     "pin_light",
                     "hard_mix",
                 ], {"default": "over"}),
-                "mix": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001}),
+                "mix": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "round": 0.001}),
                 "foreground_fit": (["stretch", "contain", "cover", "none"], {"default": "stretch"}),
                 "blend_space": (["linear", "srgb"], {"default": "linear"}),
                 "invert_mask": ("BOOLEAN", {"default": False}),

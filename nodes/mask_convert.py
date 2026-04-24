@@ -107,9 +107,9 @@ class ImageOpsMaskConvert:
             "required": {
                 "reverse": ("BOOLEAN", {"default": False, "label_on": "image -> mask", "label_off": "mask -> image"}),
                 "mask_source": (["auto", "luma", "max_rgb", "saturation", "red", "green", "blue", "alpha"], {"default": "auto"}),
-                "black_point": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001}),
-                "white_point": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001}),
-                "antialias_radius": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 4.0, "step": 0.1, "display": "slider", "round": 0.001}),
+                "black_point": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "round": 0.001}),
+                "white_point": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "round": 0.001}),
+                "antialias_radius": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 4.0, "step": 0.1, "round": 0.001}),
             },
             "optional": {
                 "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input used when reverse is enabled.", "forceInput": True, "display_name": "Images/Video"}),

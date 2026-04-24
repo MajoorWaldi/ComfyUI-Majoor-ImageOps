@@ -428,16 +428,30 @@ export function blit(
     padOutPr = Math.max(0, Math.round(widgetNumber(node, "pad_right", 0)));
     padOutPb = Math.max(0, Math.round(widgetNumber(node, "pad_bottom", 0)));
     if (isNewSource) {
-      // Derive stable source dims from the freshly received output image.
-      st.padOutSourceWidth  = Math.max(1, resolvedWidth  - padOutPl - padOutPr);
-      st.padOutSourceHeight = Math.max(1, resolvedHeight - padOutPt - padOutPb);
-      // Crop source pixels out of the output image into an offscreen canvas.
-      const sw = st.padOutSourceWidth, sh = st.padOutSourceHeight;
-      const srcCanvas = document.createElement("canvas");
-      srcCanvas.width = sw;
-      srcCanvas.height = sh;
-      srcCanvas.getContext("2d")?.drawImage(source, padOutPl, padOutPt, sw, sh, 0, 0, sw, sh);
-      st.padOutSourceCanvas = srcCanvas;
+      // Use backend-provided values if available — handles target_format extra padding.
+      const bsw = st.padOutBackendSourceW ?? 0;
+      const bsh = st.padOutBackendSourceH ?? 0;
+      const bpl = st.padOutBackendPadL ?? 0;
+      const bpt = st.padOutBackendPadT ?? 0;
+      if (bsw > 0 && bsh > 0) {
+        st.padOutSourceWidth  = bsw;
+        st.padOutSourceHeight = bsh;
+        const srcCanvas = document.createElement("canvas");
+        srcCanvas.width  = bsw;
+        srcCanvas.height = bsh;
+        srcCanvas.getContext("2d")?.drawImage(source, bpl, bpt, bsw, bsh, 0, 0, bsw, bsh);
+        st.padOutSourceCanvas = srcCanvas;
+      } else {
+        // Fallback when backend hasn't run yet (widget-only values).
+        st.padOutSourceWidth  = Math.max(1, resolvedWidth  - padOutPl - padOutPr);
+        st.padOutSourceHeight = Math.max(1, resolvedHeight - padOutPt - padOutPb);
+        const sw = st.padOutSourceWidth, sh = st.padOutSourceHeight;
+        const srcCanvas = document.createElement("canvas");
+        srcCanvas.width  = sw;
+        srcCanvas.height = sh;
+        srcCanvas.getContext("2d")?.drawImage(source, padOutPl, padOutPt, sw, sh, 0, 0, sw, sh);
+        st.padOutSourceCanvas = srcCanvas;
+      }
     }
     padOutSw = st.padOutSourceWidth;
     padOutSh = st.padOutSourceHeight;

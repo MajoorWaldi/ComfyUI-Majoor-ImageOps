@@ -8,6 +8,7 @@ from ._helpers import (
     LUMA_WEIGHTS,
     MEDIA_INPUT_TYPE,
     _alpha_mask_from_image,
+    _apply_blur,
     _coerce_media_to_tensor,
     _extract_channel_mask,
     _match_image_to_reference,
@@ -207,6 +208,7 @@ class ImageOpsDistort:
                 "y_channel": (_DISTORT_CHANNELS, {"default": "Green"}),
                 "strength_x": ("FLOAT", {"default": 40.0, "min": -2048.0, "max": 2048.0, "step": 0.1, "round": 0.001}),
                 "strength_y": ("FLOAT", {"default": 40.0, "min": -2048.0, "max": 2048.0, "step": 0.1, "round": 0.001}),
+                "blur_map": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 200.0, "step": 0.1, "round": 0.001, "tooltip": "Gaussian blur radius (in pixels) applied to the distortion map(s) before warping. 0 = no blur."}),
                 "centered_map": ("BOOLEAN", {"default": True}),
                 "invert_map": ("BOOLEAN", {"default": False}),
                 "filter": (_DISTORT_FILTERS, {"default": "bilinear"}),
@@ -232,6 +234,7 @@ class ImageOpsDistort:
         y_channel="Green",
         strength_x=40.0,
         strength_y=40.0,
+        blur_map=0.0,
         centered_map=True,
         invert_map=False,
         filter="bilinear",
@@ -259,6 +262,12 @@ class ImageOpsDistort:
             displacement=displacement_tensor,
             mask=mask,
         )
+        blur_radius = int(round(float(_scalar(blur_map, float))))
+        if blur_radius > 0:
+            x_map = _apply_blur(x_map.unsqueeze(-1), blur_radius, 0.0).squeeze(-1)
+            y_map = _apply_blur(y_map.unsqueeze(-1), blur_radius, 0.0).squeeze(-1)
+            if driver_preview_mask is not None:
+                driver_preview_mask = _apply_blur(driver_preview_mask.unsqueeze(-1), blur_radius, 0.0).squeeze(-1)
         apply_effect_mask = effect_mask.clone() if effect_mask is not None else None
         if apply_effect_mask is not None:
             for frame_index, is_mask_source in enumerate(mask_source_frames):

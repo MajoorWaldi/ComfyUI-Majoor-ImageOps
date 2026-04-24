@@ -270,6 +270,13 @@ function makeSolidBackgroundCanvas(width, height, bgColor) {
 async function renderDrawPreview(node, baseCanvas = null) {
   const width = baseCanvas?.width || clampDrawDimension(widgetNumber(node, "width", 1024));
   const height = baseCanvas?.height || clampDrawDimension(widgetNumber(node, "height", 1024));
+  if (baseCanvas) {
+    const widgets = node?.widgets ?? [];
+    const ww = widgets.find((entry) => entry?.name === "width");
+    const hw = widgets.find((entry) => entry?.name === "height");
+    if (ww && ww.value !== width) ww.value = width;
+    if (hw && hw.value !== height) hw.value = height;
+  }
   const output = baseCanvas ? resizeCanvasPreserve(baseCanvas, width, height) : makeSolidBackgroundCanvas(width, height, widgetString(node, "bg_color", "#000000"));
   if (widgetBoolean(node, "bypass", false)) {
     return output;

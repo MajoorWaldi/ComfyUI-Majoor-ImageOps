@@ -260,6 +260,10 @@ export interface NodeState {
   padOutSourceWidth: number;
   padOutSourceHeight: number;
   padOutSourceCanvas: HTMLCanvasElement | null;
+  padOutBackendSourceW: number;
+  padOutBackendSourceH: number;
+  padOutBackendPadL: number;
+  padOutBackendPadT: number;
 }
 
 export interface CropPreviewGeometry {

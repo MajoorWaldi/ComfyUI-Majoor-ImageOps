@@ -58,6 +58,8 @@ def _spherize_frame(
             return gx * blend, gy * blend
 
         elif m == "fisheye":
+            if abs(s) <= 1e-6:
+                return gx, gy
             # equidistant: angle from centre → r_out = r_in (already linear),
             # but source UV is r_in = sin(θ) while we want θ for the projection.
             # Forward: r_src = sin(r_dst * pi/2 * s) / (r_dst * pi/2 * s + 1e-6) * r_dst
@@ -67,6 +69,8 @@ def _spherize_frame(
             return gx * scale, gy * scale
 
         elif m == "defisheye":
+            if abs(s) <= 1e-6:
+                return gx, gy
             # Inverse equidistant: flatten a fish-eye – expand centre outward.
             angle = r * (math.pi * 0.5) * s
             r_dst = torch.where(angle.abs() > 1e-6, torch.tan(angle.clamp(-1.5, 1.5)) / (math.pi * 0.5 * s + 1e-8), r)
@@ -107,6 +111,8 @@ def _spherize_frame(
             return gx * blend, gy * blend
 
         elif m == "fisheye":
+            if abs(s) <= 1e-6:
+                return gx, gy
             # Inverse fisheye = defisheye
             angle = r * (math.pi * 0.5) * s
             r_dst = torch.where(angle.abs() > 1e-6, torch.tan(angle.clamp(-1.5, 1.5)) / (math.pi * 0.5 * s + 1e-8), r)
@@ -114,6 +120,8 @@ def _spherize_frame(
             return gx * scale, gy * scale
 
         elif m == "defisheye":
+            if abs(s) <= 1e-6:
+                return gx, gy
             # Inverse defisheye = fisheye
             angle = r * (math.pi * 0.5) * s
             r_src = torch.where(r > 1e-6, torch.sin(angle) / r.clamp(min=1e-6) * r, torch.zeros_like(r))
@@ -156,10 +164,13 @@ def _spherize_frame(
     warped = F.grid_sample(img, grid, mode=safe_filter, padding_mode=safe_edge, align_corners=True)
     warped = warped.permute(0, 2, 3, 1).clamp(0.0, 1.0).to(device=device, dtype=dtype)
 
-    # Mask out pixels outside the unit circle (the sphere boundary)
-    r2 = grid_x * grid_x + grid_y * grid_y  # [H, W]
-    circle = (r2 <= 1.0).to(dtype=warped.dtype)  # 1 inside, 0 outside
-    warped = warped * circle.unsqueeze(0).unsqueeze(-1)  # [B, H, W, C]
+    # Mask out pixels outside the unit circle (the sphere boundary), but only
+    # for projections that actually map onto a disk. Rectangular projections
+    # (latlong/unlatlong) fill the whole canvas.
+    if m not in ("latlong", "unlatlong"):
+        r2 = grid_x * grid_x + grid_y * grid_y  # [H, W]
+        circle = (r2 <= 1.0).to(dtype=warped.dtype)  # 1 inside, 0 outside
+        warped = warped * circle.unsqueeze(0).unsqueeze(-1)  # [B, H, W, C]
     return warped
 
 
@@ -252,13 +263,18 @@ class ImageOpsSpherize:
 
         out = torch.cat(frames, dim=0).clamp(0.0, 1.0)
 
-        # Build circle mask [H, W] — 1 inside the sphere, 0 outside
+        # Build per-frame mask: circle for disk projections, full rect for latlong/unlatlong
         H, W = out.shape[1], out.shape[2]
         ys = torch.linspace(-1.0, 1.0, H, device=out.device, dtype=torch.float32)
         xs = torch.linspace(-1.0, 1.0, W, device=out.device, dtype=torch.float32)
         gy, gx = torch.meshgrid(ys, xs, indexing="ij")
         circle_mask = (gx * gx + gy * gy <= 1.0).float()  # [H, W]
-        circle_mask_b = circle_mask.unsqueeze(0).expand(out.shape[0], -1, -1)  # [B, H, W]
+        ones_mask = torch.ones_like(circle_mask)
+        per_frame = []
+        for fi in range(out.shape[0]):
+            frame_mode = str(_scalar(mode, str, index=fi)).strip().lower()
+            per_frame.append(ones_mask if frame_mode in ("latlong", "unlatlong") else circle_mask)
+        circle_mask_b = torch.stack(per_frame, dim=0)  # [B, H, W]
 
         if prepared_mask is not None:
             out_mask = circle_mask_b * prepared_mask

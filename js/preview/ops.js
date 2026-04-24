@@ -566,6 +566,54 @@ function neutralField(width, height, centered) {
   field.fill(centered ? 0.5 : 0);
   return field;
 }
+function blurField(field, width, height, radiusPx) {
+  const r = Math.max(0, Math.round(radiusPx));
+  if (r <= 0 || width < 2 || height < 2) return field;
+  const passes = 3;
+  let src = new Float32Array(field);
+  let dst = new Float32Array(field.length);
+  const win = 2 * r + 1;
+  for (let p = 0; p < passes; p++) {
+    for (let y = 0; y < height; y++) {
+      const row = y * width;
+      let sum = 0;
+      for (let i = -r; i <= r; i++) {
+        const xi = i < 0 ? -i : i;
+        sum += src[row + Math.min(width - 1, xi)];
+      }
+      dst[row] = sum / win;
+      for (let x = 1; x < width; x++) {
+        const addX = x + r;
+        const remX = x - r - 1;
+        const addCoord = addX >= width ? (2 * (width - 1) - addX) : addX;
+        const remCoord = remX < 0 ? -remX : remX;
+        sum += src[row + Math.max(0, Math.min(width - 1, addCoord))];
+        sum -= src[row + Math.max(0, Math.min(width - 1, remCoord))];
+        dst[row + x] = sum / win;
+      }
+    }
+    [src, dst] = [dst, src];
+    for (let x = 0; x < width; x++) {
+      let sum = 0;
+      for (let i = -r; i <= r; i++) {
+        const yi = i < 0 ? -i : i;
+        sum += src[Math.min(height - 1, yi) * width + x];
+      }
+      dst[x] = sum / win;
+      for (let y = 1; y < height; y++) {
+        const addY = y + r;
+        const remY = y - r - 1;
+        const addCoord = addY >= height ? (2 * (height - 1) - addY) : addY;
+        const remCoord = remY < 0 ? -remY : remY;
+        sum += src[Math.max(0, Math.min(height - 1, addCoord)) * width + x];
+        sum -= src[Math.max(0, Math.min(height - 1, remCoord)) * width + x];
+        dst[y * width + x] = sum / win;
+      }
+    }
+    [src, dst] = [dst, src];
+  }
+  return src;
+}
 function reflectCoordinate(value, size) {
   if (size <= 1) return 0;
   let coord = value;
@@ -637,6 +685,11 @@ function renderDistortCanvas(node, inputs, frameIndex = 0) {
     const yChannel = strAny(node, ["y_channel"], "Green", frameIndex);
     xField = extractCanvasField(driver, width, height, xChannel);
     yField = String(xChannel).toLowerCase() === String(yChannel).toLowerCase() ? xField : extractCanvasField(driver, width, height, yChannel);
+  }
+  const blurRadius = Math.max(0, Math.round(numAny(node, ["blur_map"], 0, frameIndex)));
+  if (blurRadius > 0) {
+    xField = blurField(xField, width, height, blurRadius);
+    yField = xField === yField ? xField : blurField(yField, width, height, blurRadius);
   }
   const sourceCanvas = source;
   const sourceCtx = sourceCanvas.getContext("2d");
@@ -1923,6 +1976,12 @@ function renderCompPreview(node, inputLayers) {
   const largestHeight = inputLayers.reduce((value, entry) => Math.max(value, entry.image.height || 1), 1);
   const outputWidth = useAutoLayering ? largestWidth : useFirst && firstInput ? Math.max(1, firstInput.width) : Math.max(1, Math.round(num(node, "width", firstInput?.width ?? 1024)));
   const outputHeight = useAutoLayering ? largestHeight : useFirst && firstInput ? Math.max(1, firstInput.height) : Math.max(1, Math.round(num(node, "height", firstInput?.height ?? 1024)));
+  if (useAutoLayering || useFirst && firstInput) {
+    const ww = w(node, "width");
+    const hw = w(node, "height");
+    if (ww && ww.value !== outputWidth) ww.value = outputWidth;
+    if (hw && hw.value !== outputHeight) hw.value = outputHeight;
+  }
   const output = makeCanvas(outputWidth, outputHeight);
   const octx = output.getContext("2d");
   const alphaCanvas = makeCanvas(outputWidth, outputHeight);
@@ -2361,7 +2420,8 @@ function applySpherize(ctx, width, height, mode, strength, invert) {
       const nx = px / (width - 1) * 2 - 1;
       const ny = py / (height - 1) * 2 - 1;
       const dstIdx = (py * width + px) * 4;
-      if (nx * nx + ny * ny > 1) {
+      const isDiskMode = m !== "latlong" && m !== "unlatlong";
+      if (isDiskMode && nx * nx + ny * ny > 1) {
         dd[dstIdx] = 0;
         dd[dstIdx + 1] = 0;
         dd[dstIdx + 2] = 0;
@@ -2409,11 +2469,13 @@ function _spherizeMapFwd(nx, ny, mode, s) {
     return [nx * scale, ny * scale];
   }
   if (mode === "fisheye") {
+    if (Math.abs(s) <= 1e-6) return [nx, ny];
     const angle = r * Math.PI * 0.5 * s;
     const rSrc = Math.sin(angle);
     return [nx / r * rSrc, ny / r * rSrc];
   }
   if (mode === "defisheye") {
+    if (Math.abs(s) <= 1e-6) return [nx, ny];
     const angle = r * Math.PI * 0.5 * s;
     const rDst = Math.tan(Math.min(angle, 1.5)) / (Math.PI * 0.5 * s + 1e-8);
     const scale = rDst / (r + 1e-8);
@@ -2565,7 +2627,6 @@ const ops = {
   },
   channel(ctx, W, node, outputSlot, inputs = [], frameIndex = 0) {
     const source = inputs[0] ?? ctx.canvas;
-    const rawMask = inputs[1] ?? null;
     const splitMode = strAny(node, ["mode"], "RGBA", frameIndex);
     const hasSingleChannelWidget = !!wAny(node, ["channel"]);
     if (!hasSingleChannelWidget && outputSlot != null) {
@@ -2574,9 +2635,12 @@ const ops = {
     const extracted = applyEffectToCanvas(source, (effectCtx, width, height) => {
       applyChannel(effectCtx, width, height, strAny(node, ["channel"], "Red", frameIndex));
     });
-    const resolvedMask = resolvePreviewMaskCanvas(node, source, rawMask, frameIndex);
-    const maskedExtracted = resolvedMask ? ops.imageOpsMask(ctx, W, node, "ImageOpsChannel", inputs, frameIndex) ?? alphaMaskCanvas(extracted) : alphaMaskCanvas(extracted);
-    return maskCanvasToPreviewCanvas(maskedExtracted, canvasHasVisibleTransparency(source));
+    const ectx = extracted.getContext("2d");
+    const img = ectx.getImageData(0, 0, extracted.width, extracted.height);
+    const data = img.data;
+    for (let i = 3; i < data.length; i += 4) data[i] = 255;
+    ectx.putImageData(img, 0, 0);
+    return extracted;
   },
   crop(ctx, W, node, inputs = [], frameIndex = 0) {
     const source = inputs[0] ?? ctx.canvas;
@@ -2954,25 +3018,7 @@ const ops = {
       const extracted = applyEffectToCanvas(source, (effectCtx, width, height) => {
         applyChannel(effectCtx, width, height, strAny(node, ["channel"], "Red", frameIndex));
       });
-      if (!resolvedMask) return buildMaskAlphaCanvas(extracted, extracted.width || 1, extracted.height || 1);
-      const fittedMask = buildMaskAlphaCanvas(resolvedMask, extracted.width || 1, extracted.height || 1);
-      const output = makeCanvas(extracted.width || 1, extracted.height || 1);
-      const octx = output.getContext("2d");
-      octx.drawImage(extracted, 0, 0, output.width, output.height);
-      const image = octx.getImageData(0, 0, output.width, output.height);
-      const data = image.data;
-      const maskData = fittedMask.getContext("2d").getImageData(0, 0, output.width, output.height).data;
-      for (let i = 0; i < data.length; i += 4) {
-        const maskValue = maskData[i + 3] / 255;
-        const matte = Math.round(data[i] / 255 * maskValue * 255);
-        const rgb = matte > 0 ? 255 : 0;
-        data[i] = rgb;
-        data[i + 1] = rgb;
-        data[i + 2] = rgb;
-        data[i + 3] = matte;
-      }
-      octx.putImageData(image, 0, 0);
-      return markPreparedMaskCanvas(output);
+      return buildMaskAlphaCanvas(extracted, extracted.width || 1, extracted.height || 1);
     }
     if (cls === "ImageOpsClamp") {
       if (!resolvedMask) return alphaMaskCanvas(source);

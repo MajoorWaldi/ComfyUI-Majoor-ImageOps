@@ -172,7 +172,8 @@ class ImageOpsPadOut:
             if _scalar(invert_mask, bool):
                 mask = 1.0 - mask
             progress.finish()
-            return build_node_preview_result(source, (source, mask, source_w, source_h), prefix="imageops_padout")
+            meta = {"imageops_padout_source": {"source_w": source_w, "source_h": source_h, "pad_left": 0, "pad_top": 0}}
+            return build_node_preview_result(source, (source, mask, source_w, source_h), prefix="imageops_padout", metadata=meta)
 
         left = max(0, _scalar(pad_left, int))
         top = max(0, _scalar(pad_top, int))
@@ -218,4 +219,5 @@ class ImageOpsPadOut:
             mask = 1.0 - mask
 
         progress.finish()
-        return build_node_preview_result(out, (out, mask.clamp(0.0, 1.0), out_w, out_h), prefix="imageops_padout")
+        meta = {"imageops_padout_source": {"source_w": source_w, "source_h": source_h, "pad_left": left, "pad_top": top}}
+        return build_node_preview_result(out, (out, mask.clamp(0.0, 1.0), out_w, out_h), prefix="imageops_padout", metadata=meta)

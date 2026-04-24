@@ -354,7 +354,7 @@ class ImageOpsNoise:
                 "seamless": ("BOOLEAN", {"default": False, "tooltip": "Wrap X/Y lattice so the texture tiles seamlessly."}),
                 "contrast": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 4.0, "step": 0.01, "round": 0.001}),
                 "invert": ("BOOLEAN", {"default": False}),
-                "low_color": ("COLOR", {"default": "#000000"}),
+                "low_color": ("COLOR", {"default": "#FFFFFF"}),
                 "high_color": ("COLOR", {"default": "#FFFFFF"}),
             },
             "hidden": {
@@ -379,7 +379,7 @@ class ImageOpsNoise:
         seamless=False,
         contrast=1.0,
         invert=False,
-        low_color="#000000",
+        low_color="#FFFFFF",
         high_color="#FFFFFF",
         # legacy / compat params (ignored if present in old workflows)
         batch_size=None,
