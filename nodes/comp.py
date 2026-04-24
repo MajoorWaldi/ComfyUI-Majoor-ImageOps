@@ -125,7 +125,7 @@ class ImageOpsComp(io.ComfyNode):
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="ImageOpsComp",
-            display_name="ImageOps Comp",
+            display_name="〽️ ImageOps Comp",
             category="image/imageops",
             search_aliases=["comp", "composite", "compositor", "image comp", "image composite"],
             accept_all_inputs=True,
