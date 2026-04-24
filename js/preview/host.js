@@ -629,8 +629,8 @@ function registerImageOpsLivePreview() {
         if (src && typeof src === "object") {
           st.padOutBackendSourceW = Math.max(0, Math.round(Number(src.source_w) || 0));
           st.padOutBackendSourceH = Math.max(0, Math.round(Number(src.source_h) || 0));
-          st.padOutBackendPadL    = Math.max(0, Math.round(Number(src.pad_left) || 0));
-          st.padOutBackendPadT    = Math.max(0, Math.round(Number(src.pad_top)  || 0));
+          st.padOutBackendPadL = Math.max(0, Math.round(Number(src.pad_left) || 0));
+          st.padOutBackendPadT = Math.max(0, Math.round(Number(src.pad_top) || 0));
         }
       }
       st.nativeDirty = false;

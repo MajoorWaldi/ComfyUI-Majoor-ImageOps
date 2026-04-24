@@ -585,7 +585,7 @@ function blurField(field, width, height, radiusPx) {
       for (let x = 1; x < width; x++) {
         const addX = x + r;
         const remX = x - r - 1;
-        const addCoord = addX >= width ? (2 * (width - 1) - addX) : addX;
+        const addCoord = addX >= width ? 2 * (width - 1) - addX : addX;
         const remCoord = remX < 0 ? -remX : remX;
         sum += src[row + Math.max(0, Math.min(width - 1, addCoord))];
         sum -= src[row + Math.max(0, Math.min(width - 1, remCoord))];
@@ -603,7 +603,7 @@ function blurField(field, width, height, radiusPx) {
       for (let y = 1; y < height; y++) {
         const addY = y + r;
         const remY = y - r - 1;
-        const addCoord = addY >= height ? (2 * (height - 1) - addY) : addY;
+        const addCoord = addY >= height ? 2 * (height - 1) - addY : addY;
         const remCoord = remY < 0 ? -remY : remY;
         sum += src[Math.max(0, Math.min(height - 1, addCoord)) * width + x];
         sum -= src[Math.max(0, Math.min(height - 1, remCoord)) * width + x];
