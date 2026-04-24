@@ -1,7 +1,7 @@
 [project]
 name = "majoor-imageops"
 description = "Essential Nodes Pack for Images Processing for ComfyUI, with a live embedded preview inside the node (no queue) for supported chains."
-version = "0.1.4"
+version = "0.1.3"
 requires-python = ">=3.10, <3.15"
 license = {file = "LICENSE"} 
 authors = [
