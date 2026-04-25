@@ -61,6 +61,9 @@
 ## 🎛️ Node Details
 
 ### 🎨 ImageOps Color Correct
+
+![ImageOps Color Correct preview](docs/OpsColorCorect.gif)
+
 Professional color grading with reference-based correction.
 
 **Inputs:**
@@ -82,6 +85,9 @@ Professional color grading with reference-based correction.
 ---
 
 ### 🌫️ ImageOps Blur
+
+![ImageOps Blur preview](docs/OpsBlur.gif)
+
 Gaussian blur with optional mask support.
 
 **Inputs:**
@@ -99,6 +105,9 @@ Gaussian blur with optional mask support.
 ---
 
 ### 🔴 ImageOps Channels
+
+![ImageOps Channels preview](docs/OpsChannels.gif)
+
 Extract and isolate individual color channels.
 
 **Inputs:**
@@ -115,6 +124,9 @@ Extract and isolate individual color channels.
 ---
 
 ### 🎚️ ImageOps Mask Convert
+
+![ImageOps Mask Convert preview](docs/OpsMaskConvert.gif)
+
 Convert images to masks and masks to previewable images.
 
 **Inputs:**
@@ -132,6 +144,9 @@ Convert images to masks and masks to previewable images.
 ---
 
 ### ✂️ ImageOps Resize/Crop
+
+![ImageOps Resize/Crop preview](docs/OpsCrop.gif)
+
 Interactive crop and resize with aspect ratio control.
 
 **Inputs:**
@@ -155,6 +170,9 @@ Interactive crop and resize with aspect ratio control.
 ---
 
 ### 🌀 ImageOps Distort
+
+![ImageOps Distort preview](docs/OpsDistort.gif)
+
 Channel-driven displacement warp inspired by iDistort-style workflows.
 
 **Inputs:**
@@ -178,6 +196,9 @@ Channel-driven displacement warp inspired by iDistort-style workflows.
 ---
 
 ### 🔄 ImageOps Transform
+
+![ImageOps Transform preview](docs/OpsTransform.gif)
+
 Geometric transformations with quality filters.
 
 **Inputs:**
@@ -199,6 +220,9 @@ Geometric transformations with quality filters.
 ---
 
 ### 📐 ImageOps Corner Pin
+
+![ImageOps Corner Pin preview](docs/OpsCornerPin.gif)
+
 Perspective corner pinning for screen replacement, planar warps, and compositing.
 
 **Inputs:**
@@ -222,6 +246,9 @@ The warp uses batched PyTorch homographies with `grid_sample`; RGBA input is pre
 ---
 
 ### 🧱 ImageOps Pad Out
+
+![ImageOps Pad Out preview](docs/OpsPadOut.gif)
+
 Add borders around an image without scaling the source.
 
 **Inputs:**
@@ -264,6 +291,9 @@ Recommended flow: connect `PadOut.image` and `PadOut.mask` to the outpainting no
 ---
 
 ### 🎭 ImageOps Invert
+
+![ImageOps Invert preview](docs/OpsInvert.gif)
+
 Invert colors and/or the alpha channel independently.
 
 **Inputs:**
@@ -280,6 +310,9 @@ Invert colors and/or the alpha channel independently.
 ---
 
 ### 🔮 ImageOps Spherize
+
+![ImageOps Spherize preview](docs/OpsSpherize.gif)
+
 Spherical, fisheye, and equirectangular lens-projection distortions.
 
 **Inputs:**
@@ -303,6 +336,9 @@ The output mask is a unit-circle alpha (1 inside the sphere, 0 outside), multipl
 ---
 
 ### 📏 ImageOps Clamp
+
+![ImageOps Clamp preview](docs/OpsClamp.gif)
+
 Clamp pixel values to specified range.
 
 **Inputs:**
@@ -320,6 +356,9 @@ Clamp pixel values to specified range.
 ---
 
 ### 🔀 ImageOps Merge
+
+![ImageOps Merge preview](docs/OpsMerge.gif)
+
 Blend two images with linear-light or sRGB blend modes.
 
 **Inputs:**
@@ -340,6 +379,9 @@ Blend two images with linear-light or sRGB blend modes.
 ---
 
 ### 🌫️ ImageOps Noise
+
+![ImageOps Noise preview](docs/OpsNoise.gif)
+
 Procedural texture generator for masks and grayscale or color noise plates.
 
 **Parameters:**
@@ -362,6 +404,9 @@ Procedural texture generator for masks and grayscale or color noise plates.
 ---
 
 ### 🖌️ ImageOps Paint
+
+![ImageOps Paint preview](docs/OpsPaint.gif)
+
 Digital painting and drawing tool.
 
 **Inputs:**
@@ -392,6 +437,9 @@ The node still accepts older full-frame Base64 PNG `overlay_data` values. New pr
 ---
 
 ### 🎬 ImageOps Comp
+
+![ImageOps Comp preview](docs/OpsComp.gif)
+
 Multi-layer compositor with professional controls.
 
 **Inputs:**
