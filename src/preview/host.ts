@@ -473,6 +473,15 @@ export function registerImageOpsLivePreview(): void {
     }
   }
 
+  function refreshDependentsSoon(changedNode: ComfyNode): void {
+    refreshDependents(changedNode);
+    for (const delayMs of [50, 250]) {
+      setTimeout(() => {
+        try { refreshDependents(changedNode); } catch (e) { console.warn("[ImageOps] delayed refreshDependents threw", e); }
+      }, delayMs);
+    }
+  }
+
   function hookNode(node: ComfyNode): void {
     // Non-ImageOps nodes: only hook onExecuted to refresh downstream ImageOps nodes.
     // Avoid creating heavy state objects or wrapping widgets on every node in the graph.
@@ -483,9 +492,25 @@ export function registerImageOpsLivePreview(): void {
       node.onExecuted = function (this: any, message: any) {
         let r: any;
         try { r = origOnExecuted0?.apply(this, arguments as any); } catch (e) { console.warn("[ImageOps] upstream onExecuted threw", e); }
-        try { refreshDependents(node); } catch (e) { console.warn("[ImageOps] refreshDependents threw", e); }
+        try { refreshDependentsSoon(node); } catch (e) { console.warn("[ImageOps] refreshDependents threw", e); }
         return r;
       };
+      for (const w of (node.widgets ?? [])) {
+        if (typeof w.callback !== "function" && typeof w.callback !== "undefined") continue;
+        const orig = w.callback;
+        w.callback = function (this: any) {
+          const r = orig?.apply(this, arguments as any);
+          try { refreshDependentsSoon(node); } catch (e) { console.warn("[ImageOps] widget refreshDependents threw", e); }
+          return r;
+        };
+        const element = w.element as HTMLElement | null | undefined;
+        if (element && !(w as any).__imageops_dom_refresh_hooked) {
+          (w as any).__imageops_dom_refresh_hooked = true;
+          element.addEventListener?.("change", () => {
+            try { refreshDependentsSoon(node); } catch (e) { console.warn("[ImageOps] widget change refreshDependents threw", e); }
+          });
+        }
+      }
       return;
     }
 

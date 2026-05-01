@@ -41,6 +41,14 @@ class ImageOpsChannel:
             return build_node_preview_result(source, (source, output_mask), prefix="imageops_channel")
 
         extracted = _extract_channel_mask(source, channel)
-        result = _channel_mask_to_image(extracted, source)
+        if str(_scalar(channel, str)).strip().lower() == "alpha":
+            result = source.clone()
+            if result.shape[-1] < 4:
+                result = _channel_mask_to_image(extracted, source)
+            else:
+                result[..., :3] = 1.0
+                result[..., 3] = extracted.to(device=result.device, dtype=result.dtype)
+        else:
+            result = _channel_mask_to_image(extracted, source)
         progress.finish()
         return build_node_preview_result(result, (result, extracted), prefix="imageops_channel")

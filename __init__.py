@@ -70,6 +70,18 @@ def _field_factory(kind: str):
     return getattr(_node20_io, fallback_map.get(kind, "String"), None)
 
 
+def _custom_field_factory(type_name: str):
+    if _node20_io is None:
+        return None
+    custom = getattr(_node20_io, "Custom", None)
+    if callable(custom):
+        try:
+            return custom(type_name)
+        except Exception:
+            return None
+    return None
+
+
 def _make_schema_input(name: str, spec, optional: bool = False):
     if _node20_io is None:
         return None
@@ -104,7 +116,9 @@ def _make_schema_input(name: str, spec, optional: bool = False):
         return factory.Input(name, options=list(raw_type), **kwargs)
 
     type_name = str(raw_type or "STRING").upper()
-    if type_name == "COLOR" or ("COLOR" in name.lower() and type_name == "STRING"):
+    if "," in type_name or type_name == "VIDEO":
+        factory = _custom_field_factory(type_name) or _field_factory("Image")
+    elif type_name == "COLOR" or ("COLOR" in name.lower() and type_name == "STRING"):
         factory = _field_factory("Color")
     elif type_name in {"BOOLEAN", "BOOL"}:
         factory = _field_factory("Boolean")
@@ -144,7 +158,9 @@ def _make_schema_output(name: str, output_type: str):
     if _node20_io is None:
         return None
     kind = str(output_type or "STRING").upper()
-    if kind == "MASK":
+    if "," in kind or kind == "VIDEO":
+        factory = _custom_field_factory(kind) or _field_factory("Image")
+    elif kind == "MASK":
         factory = _field_factory("Mask")
     elif "IMAGE" in kind or "VIDEO" in kind:
         factory = _field_factory("Image")

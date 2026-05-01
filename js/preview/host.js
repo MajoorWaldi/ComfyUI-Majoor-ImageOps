@@ -417,6 +417,18 @@ function registerImageOpsLivePreview() {
       startLoopIfVideo(n);
     }
   }
+  function refreshDependentsSoon(changedNode) {
+    refreshDependents(changedNode);
+    for (const delayMs of [50, 250]) {
+      setTimeout(() => {
+        try {
+          refreshDependents(changedNode);
+        } catch (e) {
+          console.warn("[ImageOps] delayed refreshDependents threw", e);
+        }
+      }, delayMs);
+    }
+  }
   function hookNode(node) {
     if (!IMAGEOPS_CLASSES.has(node.comfyClass)) {
       if (node.__imageops_hooked_ext) return;
@@ -430,12 +442,36 @@ function registerImageOpsLivePreview() {
           console.warn("[ImageOps] upstream onExecuted threw", e);
         }
         try {
-          refreshDependents(node);
+          refreshDependentsSoon(node);
         } catch (e) {
           console.warn("[ImageOps] refreshDependents threw", e);
         }
         return r;
       };
+      for (const w of node.widgets ?? []) {
+        if (typeof w.callback !== "function" && typeof w.callback !== "undefined") continue;
+        const orig = w.callback;
+        w.callback = function() {
+          const r = orig?.apply(this, arguments);
+          try {
+            refreshDependentsSoon(node);
+          } catch (e) {
+            console.warn("[ImageOps] widget refreshDependents threw", e);
+          }
+          return r;
+        };
+        const element = w.element;
+        if (element && !w.__imageops_dom_refresh_hooked) {
+          w.__imageops_dom_refresh_hooked = true;
+          element.addEventListener?.("change", () => {
+            try {
+              refreshDependentsSoon(node);
+            } catch (e) {
+              console.warn("[ImageOps] widget change refreshDependents threw", e);
+            }
+          });
+        }
+      }
       return;
     }
     const st = ensureState(node);

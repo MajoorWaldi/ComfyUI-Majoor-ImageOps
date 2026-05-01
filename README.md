@@ -623,7 +623,7 @@ All nodes process batches natively:
 
 **Author**: Majoor  
 **Category**: `image/imageops`  
-**Version**: 0.1.2
+**Version**: 0.1.4
 
 ---
 
