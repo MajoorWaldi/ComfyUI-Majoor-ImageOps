@@ -1,7 +1,7 @@
 import { colorWheelPointToValues } from "../color.js";
 import { getCanvasPointer } from "../shared/geometry.js";
-import { findWidget, setWidgetValue } from "../shared/widgets.js";
-import { colorWidgetDefaultFor, colorWidgetNameForZone, isNode, syncColorCorrectWidgets } from "../nodes/color-correct.js";
+import { findWidget, resetNodeWidgetsToDefaults, setWidgetValue } from "../shared/widgets.js";
+import { colorWidgetNameForZone, isNode, syncColorCorrectWidgets } from "../nodes/color-correct.js";
 function markDirty(node, ctx) {
   const st = node.__imageops_state ?? null;
   if (!st) return;
@@ -11,6 +11,13 @@ function markDirty(node, ctx) {
     ctx.startLoopIfVideo(node);
     ctx.refreshDependents(node);
   }, 0);
+}
+function refreshDirty(node, ctx) {
+  const st = node.__imageops_state ?? null;
+  if (!st) return;
+  st.nativeDirty = true;
+  ctx.markCanvasDirty();
+  ctx.refreshNode(node);
 }
 function bindZoneRange(node, ctx, input, param, parser = (value) => Number(value)) {
   if (!input || input.dataset.bound === "1") return;
@@ -29,29 +36,39 @@ function bindZoneWheel(node, ctx, canvas) {
   if (!canvas || canvas.dataset.bound === "1") return;
   canvas.dataset.bound = "1";
   let activePointerId = null;
-  const commitWheelPoint = (event) => {
+  let moveRafPending = false;
+  const commitWheelPoint = (event, notify) => {
     const st = node.__imageops_state ?? null;
     const zone = st?.colorActiveZone ?? "global";
     const point = getCanvasPointer(canvas, event);
     const values = colorWheelPointToValues(point.x, point.y, canvas);
-    setWidgetValue(findWidget(node, colorWidgetNameForZone("hue", zone)), values.hueDeg);
-    setWidgetValue(findWidget(node, colorWidgetNameForZone("saturation", zone)), values.saturation);
+    setWidgetValue(findWidget(node, colorWidgetNameForZone("hue", zone)), values.hueDeg, { notify });
+    setWidgetValue(findWidget(node, colorWidgetNameForZone("saturation", zone)), values.saturation, { notify });
     syncColorCorrectWidgets(node);
-    markDirty(node, ctx);
+    if (notify) {
+      markDirty(node, ctx);
+    } else if (!moveRafPending) {
+      moveRafPending = true;
+      requestAnimationFrame(() => {
+        moveRafPending = false;
+        refreshDirty(node, ctx);
+      });
+    }
   };
   canvas.addEventListener("pointerdown", (event) => {
     activePointerId = event.pointerId;
     canvas.setPointerCapture?.(event.pointerId);
-    commitWheelPoint(event);
+    commitWheelPoint(event, false);
   });
   canvas.addEventListener("pointermove", (event) => {
     if (activePointerId !== event.pointerId) return;
-    commitWheelPoint(event);
+    commitWheelPoint(event, false);
   });
   const release = (event) => {
     if (activePointerId !== event.pointerId) return;
     activePointerId = null;
     canvas.releasePointerCapture?.(event.pointerId);
+    commitWheelPoint(event, true);
   };
   canvas.addEventListener("pointerup", release);
   canvas.addEventListener("pointercancel", release);
@@ -86,11 +103,8 @@ function attachInteractions(node, ctx) {
   bindZoneTab(node, ctx, st.colorZoneTabMidtones, "midtones");
   bindZoneTab(node, ctx, st.colorZoneTabHighlights, "highlights");
   const resetAll = () => {
-    for (const zone of ["global", "shadows", "midtones", "highlights"]) {
-      for (const param of ["temperature", "hue", "contrast", "saturation", "vibrance", "gamma", "brightness"]) {
-        setWidgetValue(findWidget(node, colorWidgetNameForZone(param, zone)), colorWidgetDefaultFor(param));
-      }
-    }
+    resetNodeWidgetsToDefaults(node);
+    st.colorActiveZone = "global";
     syncColorCorrectWidgets(node);
     markDirty(node, ctx);
   };

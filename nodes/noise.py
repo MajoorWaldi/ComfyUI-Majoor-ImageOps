@@ -355,7 +355,7 @@ class ImageOpsNoise:
                 "contrast": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 4.0, "step": 0.01, "round": 0.001}),
                 "invert": ("BOOLEAN", {"default": False}),
                 "low_color": ("COLOR", {"default": "#FFFFFF"}),
-                "high_color": ("COLOR", {"default": "#FFFFFF"}),
+                "high_color": ("COLOR", {"default": "#000000"}),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -380,7 +380,7 @@ class ImageOpsNoise:
         contrast=1.0,
         invert=False,
         low_color="#FFFFFF",
-        high_color="#FFFFFF",
+        high_color="#000000",
         # legacy / compat params (ignored if present in old workflows)
         batch_size=None,
         seed_step=None,

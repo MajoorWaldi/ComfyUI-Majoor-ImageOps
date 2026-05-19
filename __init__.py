@@ -164,6 +164,10 @@ def _make_schema_output(name: str, output_type: str):
         factory = _field_factory("Mask")
     elif "IMAGE" in kind or "VIDEO" in kind:
         factory = _field_factory("Image")
+    elif kind == "INT":
+        factory = _field_factory("Int")
+    elif kind == "FLOAT":
+        factory = _field_factory("Float")
     else:
         factory = _field_factory("String")
     return factory.Output(name, display_name=name) if factory else None
@@ -183,7 +187,7 @@ def _make_hidden_fields(hidden_spec: dict | None):
     return out
 
 
-def _build_legacy_schema(node_id: str, cls, display_name: str):
+def _build_legacy_schema(node_id: str, cls, display_name: str, search_aliases=None):
     if _node20_io is None:
         return None
 
@@ -240,13 +244,15 @@ def _build_legacy_schema(node_id: str, cls, display_name: str):
         "outputs": outputs,
         "accept_all_inputs": True,
     }
+    if search_aliases:
+        schema_kwargs["search_aliases"] = list(search_aliases)
     hidden_fields = _make_hidden_fields(hidden)
     if hidden_fields:
         schema_kwargs["hidden"] = hidden_fields
     return _node20_io.Schema(**schema_kwargs)
 
 
-def _wrap_legacy_node20(node_id: str, cls, display_name: str):
+def _wrap_legacy_node20(node_id: str, cls, display_name: str, search_aliases=None):
     if callable(getattr(cls, "define_schema", None)) and callable(getattr(cls, "execute", None)):
         return cls
     if _node20_io is None:
@@ -262,7 +268,7 @@ def _wrap_legacy_node20(node_id: str, cls, display_name: str):
 
         @classmethod
         def define_schema(inner_cls):
-            return _build_legacy_schema(node_id, cls, display_name)
+            return _build_legacy_schema(node_id, cls, display_name, search_aliases)
 
         @classmethod
         def INPUT_TYPES(inner_cls):
@@ -272,7 +278,7 @@ def _wrap_legacy_node20(node_id: str, cls, display_name: str):
             # INPUT_TYPES to the legacy classmethod (which returns list-based Combo
             # values), and parse_class_inputs then tries `list_value in dict` which
             # raises TypeError: unhashable type: 'list'.
-            schema = _build_legacy_schema(node_id, cls, display_name)
+            schema = _build_legacy_schema(node_id, cls, display_name, search_aliases)
             # Older Comfy builds expose Schema.finalize(); newer builds drop it
             # because the Schema is finalised lazily. Guard so both shapes work.
             finalize = getattr(schema, "finalize", None)
@@ -314,72 +320,126 @@ _nodes_dir = BASE_DIR / "nodes"
 _load_module(f"{_PKG}.server", BASE_DIR / "server.py")
 
 ImageOpsBlur = _load_module(f"{_PKG}.nodes.blur", _nodes_dir / "blur.py").ImageOpsBlur
+ImageOpsCameraShake = _load_module(f"{_PKG}.nodes.camera_shake", _nodes_dir / "camera_shake.py").ImageOpsCameraShake
 ImageOpsChannel = _load_module(f"{_PKG}.nodes.channel", _nodes_dir / "channel.py").ImageOpsChannel
 ImageOpsCornerPin = _load_module(f"{_PKG}.nodes.corner_pin", _nodes_dir / "corner_pin.py").ImageOpsCornerPin
 ImageOpsComp = _load_module(f"{_PKG}.nodes.comp", _nodes_dir / "comp.py").ImageOpsComp
+ImageOpsConstant = _load_module(f"{_PKG}.nodes.constant", _nodes_dir / "constant.py").ImageOpsConstant
 ImageOpsCrop = _load_module(f"{_PKG}.nodes.crop", _nodes_dir / "crop.py").ImageOpsCrop
 ImageOpsDistort = _load_module(f"{_PKG}.nodes.distort", _nodes_dir / "distort.py").ImageOpsDistort
 ImageOpsDraw = _load_module(f"{_PKG}.nodes.draw", _nodes_dir / "draw.py").ImageOpsDraw
+ImageOpsFrameRange = _load_module(f"{_PKG}.nodes.frame_range", _nodes_dir / "frame_range.py").ImageOpsFrameRange
+ImageOpsGrain = _load_module(f"{_PKG}.nodes.grain", _nodes_dir / "grain.py").ImageOpsGrain
 ImageOpsTransform = _load_module(f"{_PKG}.nodes.transform", _nodes_dir / "transform.py").ImageOpsTransform
 ImageOpsColorAjust = _load_module(f"{_PKG}.nodes.color_ajust", _nodes_dir / "color_ajust.py").ImageOpsColorAjust
 ImageOpsInvert = _load_module(f"{_PKG}.nodes.invert", _nodes_dir / "invert.py").ImageOpsInvert
+ImageOpsAppend = _load_module(f"{_PKG}.nodes.append", _nodes_dir / "append.py").ImageOpsAppend
+ImageOpsKeyer = _load_module(f"{_PKG}.nodes.keyer", _nodes_dir / "keyer.py").ImageOpsKeyer
 ImageOpsClamp = _load_module(f"{_PKG}.nodes.clamp", _nodes_dir / "clamp.py").ImageOpsClamp
 ImageOpsMerge = _load_module(f"{_PKG}.nodes.merge", _nodes_dir / "merge.py").ImageOpsMerge
 ImageOpsMaskConvert = _load_module(f"{_PKG}.nodes.mask_convert", _nodes_dir / "mask_convert.py").ImageOpsMaskConvert
 ImageOpsNoise = _load_module(f"{_PKG}.nodes.noise", _nodes_dir / "noise.py").ImageOpsNoise
 ImageOpsPadOut = _load_module(f"{_PKG}.nodes.padout", _nodes_dir / "padout.py").ImageOpsPadOut
 ImageOpsPreview = _load_module(f"{_PKG}.nodes.preview", _nodes_dir / "preview.py").ImageOpsPreview
+ImageOpsRamp = _load_module(f"{_PKG}.nodes.ramp", _nodes_dir / "ramp.py").ImageOpsRamp
 ImageOpsSpherize = _load_module(f"{_PKG}.nodes.spherize", _nodes_dir / "spherize.py").ImageOpsSpherize
+ImageOpsText = _load_module(f"{_PKG}.nodes.text", _nodes_dir / "text.py").ImageOpsText
 
 NODE_CLASS_MAPPINGS = {
     "ImageOpsBlur": ImageOpsBlur,
+    "ImageOpsCameraShake": ImageOpsCameraShake,
     "ImageOpsChannel": ImageOpsChannel,
     "ImageOpsCornerPin": ImageOpsCornerPin,
     "ImageOpsComp": ImageOpsComp,
+    "ImageOpsConstant": ImageOpsConstant,
     "ImageOpsCrop": ImageOpsCrop,
     "ImageOpsDistort": ImageOpsDistort,
     "ImageOpsDraw": ImageOpsDraw,
+    "ImageOpsFrameRange": ImageOpsFrameRange,
+    "ImageOpsGrain": ImageOpsGrain,
     "ImageOpsTransform": ImageOpsTransform,
     "ImageOpsColorAjust": ImageOpsColorAjust,
     "ImageOpsInvert": ImageOpsInvert,
+    "ImageOpsAppend": ImageOpsAppend,
+    "ImageOpsKeyer": ImageOpsKeyer,
     "ImageOpsClamp": ImageOpsClamp,
     "ImageOpsMerge": ImageOpsMerge,
     "ImageOpsMaskConvert": ImageOpsMaskConvert,
     "ImageOpsNoise": ImageOpsNoise,
     "ImageOpsPadOut": ImageOpsPadOut,
     "ImageOpsPreview": ImageOpsPreview,
+    "ImageOpsRamp": ImageOpsRamp,
     "ImageOpsSpherize": ImageOpsSpherize,
+    "ImageOpsText": ImageOpsText,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageOpsBlur": "〽️ ImageOps Blur",
+    "ImageOpsCameraShake": "〽️ ImageOps CameraShake",
     "ImageOpsChannel": "〽️ ImageOps Channels",
     "ImageOpsCornerPin": "〽️ ImageOps Corner Pin",
     "ImageOpsComp": "〽️ ImageOps Comp",
+    "ImageOpsConstant": "〽️ ImageOps Constant",
     "ImageOpsCrop": "〽️ ImageOps Resize/Crop",
     "ImageOpsDistort": "〽️ ImageOps Distort",
     "ImageOpsDraw": "〽️ ImageOps Paint",
+    "ImageOpsFrameRange": "〽️ ImageOps FrameRange",
+    "ImageOpsGrain": "〽️ ImageOps Grain",
     "ImageOpsTransform": "〽️ ImageOps Transform",
     # Keep the legacy class key for workflow compatibility, but expose the
     # corrected node name in the UI.
     "ImageOpsColorAjust": "〽️ ImageOps Color Correct",
     "ImageOpsInvert": "〽️ ImageOps Invert",
+    "ImageOpsAppend": "〽️ ImageOps Append",
+    "ImageOpsKeyer": "〽️ ImageOps Keyer",
     "ImageOpsClamp": "〽️ ImageOps Clamp",
     "ImageOpsMerge": "〽️ ImageOps Merge",
     "ImageOpsMaskConvert": "〽️ ImageOps Mask Convert",
     "ImageOpsNoise": "〽️ ImageOps Noise",
     "ImageOpsPadOut": "〽️ ImageOps PadOut",
     "ImageOpsPreview": "〽️ ImageOps Preview",
+    "ImageOpsRamp": "〽️ ImageOps Ramp",
     "ImageOpsSpherize": "〽️ ImageOps Spherize",
+    "ImageOpsText": "〽️ ImageOps Text",
+}
+
+NODE_SEARCH_ALIAS_MAPPINGS = {
+    "ImageOpsBlur": ["blur", "defocus"],
+    "ImageOpsCameraShake": ["camera shake", "shake", "jitter", "handheld", "camera"],
+    "ImageOpsChannel": ["channel", "channels", "rgb", "alpha", "red", "green", "blue"],
+    "ImageOpsCornerPin": ["corner pin", "cornerpin", "pin", "perspective", "quad", "screen replacement"],
+    "ImageOpsComp": ["comp", "combine", "merge", "blend", "compose"],
+    "ImageOpsConstant": ["constant", "color", "source", "checker"],
+    "ImageOpsCrop": ["crop", "resize", "reformat", "format", "recadrer", "taille"],
+    "ImageOpsDistort": ["distort", "displace", "displacement", "warp", "deform", "noise warp"],
+    "ImageOpsDraw": ["paint", "draw", "brush", "eraser", "sketch", "mask paint"],
+    "ImageOpsFrameRange": ["frame range", "frames", "trim", "hold", "freeze", "loop", "repeat", "timeline"],
+    "ImageOpsGrain": ["grain", "film grain", "noise grain", "texture"],
+    "ImageOpsTransform": ["transform", "move", "translate", "rotate", "scale", "position"],
+    "ImageOpsColorAjust": ["color correct", "color", "grade", "grading", "hue", "saturation", "brightness", "contrast", "gamma", "temperature"],
+    "ImageOpsInvert": ["invert", "negative", "alpha invert", "reverse"],
+    "ImageOpsAppend": ["append", "join", "concat", "concatenate", "clips", "sequence"],
+    "ImageOpsKeyer": ["keyer", "key", "chroma", "green screen", "luma key", "matte"],
+    "ImageOpsClamp": ["clamp", "clip", "limit", "range"],
+    "ImageOpsMerge": ["merge", "blend", "mix", "combine", "over", "composite"],
+    "ImageOpsMaskConvert": ["mask convert", "mask", "matte", "alpha", "luma matte", "image to mask", "mask to image"],
+    "ImageOpsNoise": ["noise", "perlin", "value noise", "procedural", "texture"],
+    "ImageOpsPadOut": ["pad", "pad out", "padding", "border", "expand canvas", "outpaint"],
+    "ImageOpsPreview": ["preview", "viewer", "view", "monitor", "scope", "histogram", "waveform"],
+    "ImageOpsRamp": ["ramp", "gradient", "linear gradient", "radial gradient"],
+    "ImageOpsSpherize": ["spherize", "sphere", "fisheye", "defisheye", "latlong", "lens"],
+    "ImageOpsText": ["text", "title", "caption", "label", "type", "font"],
 }
 
 for _node_id, _node_cls in list(NODE_CLASS_MAPPINGS.items()):
     _display = NODE_DISPLAY_NAME_MAPPINGS.get(_node_id, _humanize_node_id(_node_id))
-    NODE_CLASS_MAPPINGS[_node_id] = _wrap_legacy_node20(_node_id, _node_cls, _display)
+    _aliases = NODE_SEARCH_ALIAS_MAPPINGS.get(_node_id, ())
+    NODE_CLASS_MAPPINGS[_node_id] = _wrap_legacy_node20(_node_id, _node_cls, _display, _aliases)
 
 __all__ = [
     "NODE_CLASS_MAPPINGS",
     "NODE_DISPLAY_NAME_MAPPINGS",
+    "NODE_SEARCH_ALIAS_MAPPINGS",
     "WEB_DIRECTORY",
 ]
 

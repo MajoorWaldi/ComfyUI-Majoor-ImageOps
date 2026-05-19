@@ -5,6 +5,7 @@ import { blit } from "../shared/bounds.js";
 import { ensurePreviewWidget } from "../shared/preview-widget.js";
 import { getInputOriginSlot, getUpstreamNode } from "../graph.js";
 import { resolveNodeStreamPreview } from "../nodestream.js";
+import { resolveNodeIntrinsicMediaSize } from "../source.js";
 import {
   normalizeDrawColor, normalizeDrawEdge, normalizeDrawTool, normalizeDrawOverlayFormat,
   clampDrawDimension, clampDrawOpacity, clampDrawSize, clampDrawSoftness,
@@ -338,11 +339,13 @@ export async function renderDrawNode(node: ComfyNode, tick: number, session: Dra
   const renderCanvasSize = session.canvasSize;
   const upstream = getUpstreamNode(node, 0);
   let baseCanvas: HTMLCanvasElement | null = null;
+  let inputSize: { width: number; height: number } | null = null;
   if (upstream) {
     const rendered = await session.renderer.render(upstream, tick, getInputOriginSlot(node, 0), renderCanvasSize);
     baseCanvas = rendered.canvas;
+    inputSize = resolveNodeIntrinsicMediaSize(upstream, baseCanvas);
   }
-  const previewCanvas = await renderDrawPreview(node, baseCanvas);
+  const previewCanvas = await renderDrawPreview(node, baseCanvas, inputSize);
   st.drawBaseCanvas = baseCanvas;
   blit(node, st, previewCanvas, renderCanvasSize);
   const previewCtx = st.canvas?.getContext("2d");
@@ -375,8 +378,9 @@ export async function renderDrawMaskCanvas(node: ComfyNode, tick: number, sessio
   if (upstream) {
     const rendered = await session.renderer.render(upstream, tick, getInputOriginSlot(node, 0), getRenderCanvasSize(ensureState(node)));
     if (rendered.canvas) {
-      width = Math.max(1, rendered.canvas.width || width);
-      height = Math.max(1, rendered.canvas.height || height);
+      const sourceSize = resolveNodeIntrinsicMediaSize(upstream, rendered.canvas);
+      width = Math.max(1, sourceSize.width || rendered.canvas.width || width);
+      height = Math.max(1, sourceSize.height || rendered.canvas.height || height);
     }
   }
   const overlay = await resolveDrawOverlayCanvas(node, width, height);

@@ -10,7 +10,14 @@ import folder_paths
 import server
 
 
-web = server.web
+web = getattr(server, "web", None)
+if web is None:
+    try:
+        from aiohttp import web as _aiohttp_web
+
+        web = _aiohttp_web
+    except Exception:  # pragma: no cover - import-time fallback for headless tests
+        web = None
 
 
 def _ffmpeg_path() -> str | None:
@@ -75,7 +82,21 @@ def _force_size_filter(force_size: str) -> str | None:
     return f"scale={width_expr}:{height_expr}:flags=lanczos"
 
 
-@server.PromptServer.instance.routes.get("/imageops/viewmedia")
+def _route(path: str):
+    prompt_server = getattr(server, "PromptServer", None)
+    instance = getattr(prompt_server, "instance", None)
+    routes = getattr(instance, "routes", None)
+    route_get = getattr(routes, "get", None)
+    if callable(route_get):
+        return route_get(path)
+
+    def decorator(fn):
+        return fn
+
+    return decorator
+
+
+@_route("/imageops/viewmedia")
 async def imageops_viewmedia(request):
     path, filename = _resolve_preview_path(request.rel_url.query)
     ext = _ext(path)

@@ -3,6 +3,23 @@ import type { Adapter, AdapterApplyContext, ComfyNode } from "../../types.js";
 import { ops } from "../ops.js";
 import { getCompSlots } from "../comp.js";
 import { clampDrawDimension, makeSolidBackgroundCanvas } from "../draw.js";
+import { getFrameSelectorOutputCount, getFrameSelectorSourceFrame, getUpstreamFrameCount, syncFrameSelectorWidgets } from "../nodes/frame-range.js";
+import { getJoinConnectedInputFrameCounts, getJoinSlots } from "../nodes/append.js";
+import { getUpstreamNode } from "../graph.js";
+import { isImageOpsClass, resolveImageOpsClassName } from "../shared/classes.js";
+
+function getVhsVideoInfo(node: ComfyNode): { fps: number; frames: number } | null {
+  const query = (node as any)?.video_query as any;
+  const loaded = query?.loaded as any;
+  const source = query?.source as any;
+  const frames = Number(loaded?.frames ?? source?.frames ?? 0);
+  const fps = Number(loaded?.fps ?? source?.fps ?? 0);
+  if (!Number.isFinite(frames) || frames <= 0) return null;
+  return {
+    frames: Math.round(frames),
+    fps: Number.isFinite(fps) && fps > 0 ? fps : 0,
+  };
+}
 
 function getConnectedCompInputIndexes(node: ComfyNode): number[] {
   const indexes: number[] = [];
@@ -16,16 +33,59 @@ function getConnectedCompInputIndexes(node: ComfyNode): number[] {
   return indexes;
 }
 
+function normalizeFrameIndex(tick: number, frameCount: number): number {
+  const roundedTick = Math.max(0, Math.round(tick));
+  if (!Number.isFinite(frameCount) || frameCount <= 0) return roundedTick;
+  return ((roundedTick % frameCount) + frameCount) % frameCount;
+}
+
+async function seekFrozenVideoFrame(videoEl: HTMLVideoElement, targetTime: number, tolerance: number): Promise<void> {
+  try { videoEl.pause(); } catch {}
+  if (!Number.isFinite(targetTime)) return;
+  if (Math.abs(videoEl.currentTime - targetTime) <= tolerance) return;
+
+  await new Promise<void>((resolve) => {
+    let done = false;
+    let timer: number | null = null;
+
+    const finish = (): void => {
+      if (done) return;
+      done = true;
+      videoEl.removeEventListener("seeked", finish);
+      videoEl.removeEventListener("timeupdate", onTimeUpdate);
+      videoEl.removeEventListener("error", finish);
+      if (timer != null) window.clearTimeout(timer);
+      resolve();
+    };
+
+    const onTimeUpdate = (): void => {
+      if (Math.abs(videoEl.currentTime - targetTime) <= tolerance) finish();
+    };
+
+    videoEl.addEventListener("seeked", finish, { once: true });
+    videoEl.addEventListener("error", finish, { once: true });
+    videoEl.addEventListener("timeupdate", onTimeUpdate);
+    timer = window.setTimeout(finish, 40);
+
+    try {
+      videoEl.currentTime = targetTime;
+    } catch {
+      finish();
+    }
+  });
+}
+
 export function imageOpsAdapter(): Adapter {
   return {
     match(node: ComfyNode): boolean {
-      return String(node?.comfyClass ?? "").startsWith("ImageOps");
+      return isImageOpsClass(node?.comfyClass);
     },
     inputs: (node: ComfyNode): number => {
-      const cls = String(node?.comfyClass ?? "");
+      const cls = resolveImageOpsClassName(node?.comfyClass);
       const bypass = !!(node?.widgets ?? []).find(w => w?.name === "bypass")?.value;
       const maskConnected = (node.inputs ?? []).some((input, index) => String(input?.name ?? "").toLowerCase() === "mask" && (node.inputs?.[index]?.link ?? null) != null);
-      if (cls === "ImageOpsNoise") return 0;
+      if (cls === "ImageOpsNoise" || cls === "ImageOpsConstant" || cls === "ImageOpsRamp") return 0;
+      if (cls === "ImageOpsFrameRange") return 1;
       if (cls === "ImageOpsMaskConvert") {
         const reverse = !!(node?.widgets ?? []).find((widget) => widget?.name === "reverse")?.value;
         const imageConnected = (node.inputs?.[0]?.link ?? null) != null;
@@ -38,6 +98,7 @@ export function imageOpsAdapter(): Adapter {
         return 1 + Number(displacementConnected) + Number(effectMaskConnected);
       }
       if (cls === "ImageOpsMerge") return bypass ? 1 : (maskConnected ? 3 : 2);
+      if (cls === "ImageOpsAppend") return getJoinSlots(node).filter((slot) => (node.inputs ?? []).some((input) => input?.name === `image_${slot}` && (input.link ?? null) != null)).length;
       if (cls === "ImageOpsComp") return getConnectedCompInputIndexes(node).length;
       if (cls === "ImageOpsDraw") return (node.inputs?.[0]?.link ?? null) != null ? 1 : 0;
       if (cls === "ImageOpsPreview") {
@@ -48,7 +109,7 @@ export function imageOpsAdapter(): Adapter {
       return maskConnected ? 2 : 1;
     },
     inputIndexes: (node: ComfyNode): number[] => {
-      const cls = String(node?.comfyClass ?? "");
+      const cls = resolveImageOpsClassName(node?.comfyClass);
       if (cls === "ImageOpsMaskConvert") {
         const reverse = !!(node?.widgets ?? []).find((widget) => widget?.name === "reverse")?.value;
         if (reverse) return (node.inputs?.[0]?.link ?? null) != null ? [0] : [];
@@ -69,10 +130,15 @@ export function imageOpsAdapter(): Adapter {
         if ((node.inputs?.[1]?.link ?? null) != null) indexes.push(1);
         return indexes;
       }
+      if (cls === "ImageOpsAppend") {
+        return getJoinSlots(node)
+          .map((slot) => (node.inputs ?? []).findIndex((input) => input?.name === `image_${slot}` && (input.link ?? null) != null))
+          .filter((index) => index >= 0);
+      }
       return [];
     },
-    async apply({ node, ctx, canvasSize, inputs, outputSlot, tick }: AdapterApplyContext): Promise<HTMLCanvasElement | void> {
-      const cls = String(node?.comfyClass ?? "");
+    async apply({ node, ctx, canvasSize, inputs, inputInfos, outputSlot, tick, renderInputAt }: AdapterApplyContext): Promise<HTMLCanvasElement | void> {
+      const cls = resolveImageOpsClassName(node?.comfyClass);
       const bypass = !!(node?.widgets ?? []).find(w => w?.name === "bypass")?.value;
       if (cls === "ImageOpsMaskConvert") {
         return ops.imageOpsMask(ctx, canvasSize, node, cls, inputs, tick ?? 0) ?? inputs[0];
@@ -93,12 +159,14 @@ export function imageOpsAdapter(): Adapter {
         const bgColor = String((node?.widgets ?? []).find((widget) => widget?.name === "bg_color")?.value ?? "#000000");
         return inputs[0] ?? makeSolidBackgroundCanvas(width, height, bgColor);
       }
-      if (outputSlot === 1 && cls !== "ImageOpsPreview" && cls !== "ImageOpsDraw") {
+      if (outputSlot === 1 && cls !== "ImageOpsPreview" && cls !== "ImageOpsDraw" && cls !== "ImageOpsFrameRange") {
         return ops.imageOpsMask(ctx, canvasSize, node, cls, inputs, tick ?? 0) ?? inputs[0];
       }
-      if (bypass && cls !== "ImageOpsDraw") return;
+      if (bypass && cls !== "ImageOpsDraw" && cls !== "ImageOpsAppend") return;
       if (cls === "ImageOpsColorAjust") {
         return ops.colorAjust(ctx, canvasSize, node, inputs, tick ?? 0);
+      } else if (cls === "ImageOpsCameraShake") {
+        return ops.cameraShake(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsChannel") {
         return ops.channel(ctx, canvasSize, node, outputSlot, inputs, tick ?? 0);
       } else if (cls === "ImageOpsCrop") {
@@ -115,8 +183,45 @@ export function imageOpsAdapter(): Adapter {
         return ops.invert(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsClamp") {
         return ops.clamp(ctx, canvasSize, node, inputs, tick ?? 0);
+      } else if (cls === "ImageOpsGrain") {
+        return ops.grain(ctx, canvasSize, node, inputs, tick ?? 0);
+      } else if (cls === "ImageOpsText") {
+        return ops.text(ctx, canvasSize, node, inputs, tick ?? 0);
+      } else if (cls === "ImageOpsKeyer") {
+        return ops.keyer(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsMerge") {
         return ops.merge(ctx, canvasSize, node, inputs, undefined, tick ?? 0);
+      } else if (cls === "ImageOpsAppend") {
+        if (inputs.length === 0) return undefined;
+
+        const infos = inputInfos ?? inputs.map((canvas, index) => ({ canvas, inputIndex: index, originSlot: null, upstreamNode: null }));
+        const frameCounts = new Map(getJoinConnectedInputFrameCounts(node).map((entry) => [entry.inputIndex, Math.max(1, entry.frameCount)]));
+
+        if (bypass) {
+          const first = infos[0] ?? null;
+          if (!first) return inputs[0];
+          const firstCount = Math.max(1, frameCounts.get(first.inputIndex) ?? 1);
+          const localTick = normalizeFrameIndex(tick ?? 0, firstCount);
+          return (await renderInputAt?.(first, localTick)) ?? first.canvas;
+        }
+
+        const totalFrames = infos.reduce((sum, info) => sum + Math.max(1, frameCounts.get(info.inputIndex) ?? 1), 0);
+        let remaining = normalizeFrameIndex(tick ?? 0, totalFrames);
+        let selected = infos[0] ?? null;
+        let localTick = remaining;
+
+        for (const info of infos) {
+          const segmentFrames = Math.max(1, frameCounts.get(info.inputIndex) ?? 1);
+          if (remaining < segmentFrames) {
+            selected = info;
+            localTick = remaining;
+            break;
+          }
+          remaining -= segmentFrames;
+        }
+
+        if (!selected) return inputs[0];
+        return (await renderInputAt?.(selected, localTick)) ?? selected.canvas;
       } else if (cls === "ImageOpsComp") {
         return ops.comp(ctx, canvasSize, node, inputs);
       } else if (cls === "ImageOpsDistort") {
@@ -125,8 +230,77 @@ export function imageOpsAdapter(): Adapter {
         return ops.spherize(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsNoise") {
         return ops.noise(ctx, canvasSize, node, tick ?? 0);
+      } else if (cls === "ImageOpsConstant") {
+        return ops.constant(ctx, canvasSize, node);
+      } else if (cls === "ImageOpsRamp") {
+        return ops.ramp(ctx, canvasSize, node);
       } else if (cls === "ImageOpsDraw") {
         return await ops.draw(ctx, canvasSize, node, inputs);
+      } else if (cls === "ImageOpsFrameRange") {
+        // --- Update source count (drives ruler) ---
+        const st = node.__imageops_state as any;
+        if (st) {
+          const upstreamCount = getUpstreamFrameCount(node);
+          if (upstreamCount > 0 && upstreamCount !== st.frameSelectorSourceCount) {
+            st.frameSelectorSourceCount = upstreamCount;
+            syncFrameSelectorWidgets(node);
+          }
+        }
+
+        const sourceCount: number = (st?.frameSelectorSourceCount as number) ?? 0;
+        const upstreamNode = getUpstreamNode(node, 0);
+
+        // Compute which source frame to show at this tick
+        if (sourceCount > 0 && upstreamNode) {
+          const sourceFrame = getFrameSelectorSourceFrame(node, tick ?? 0, sourceCount);
+          const outputCount = getFrameSelectorOutputCount(node, sourceCount);
+          const frameHold = !!(node.widgets ?? []).find(w => w?.name === "frame_hold")?.value;
+          const repeat = !!(node.widgets ?? []).find(w => w?.name === "repeat")?.value;
+          const repeatMode = String((node.widgets ?? []).find(w => w?.name === "repeat_mode")?.value ?? "loop").trim().toLowerCase();
+          const freezePlayback = frameHold && (!repeat || repeatMode === "input_duration" || repeatMode === "custom_count");
+
+          // Update playhead position in the slider (yellow line = current frame)
+          const playhead = st?.frameSelectorPlayhead as HTMLDivElement | null;
+          if (playhead) {
+            const max = Math.max(1, sourceCount - 1);
+            playhead.style.left = `${(Math.max(0, Math.min(max, sourceFrame)) / max) * 100}%`;
+            playhead.style.opacity = outputCount > 1 ? "1" : "0.88";
+          }
+
+          // --- Case 1: upstream has imgs[] (image batch after queue run) ---
+          const upImgs = (upstreamNode as any).imgs as (HTMLImageElement | null)[] | undefined;
+          if (Array.isArray(upImgs) && upImgs.length > 0) {
+            const frameIdx = Math.max(0, Math.min(upImgs.length - 1, sourceFrame));
+            const img = upImgs[frameIdx];
+            if (img && img.complete && img.naturalWidth > 0) {
+              ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+              ctx.drawImage(img, 0, 0, ctx.canvas.width, ctx.canvas.height);
+              return ctx.canvas;
+            }
+          }
+
+          // --- Case 2: upstream has a live video element ---
+          const videoEl = (upstreamNode as any).__imageops_media?.videoEl as HTMLVideoElement | undefined;
+          if (videoEl && Number.isFinite(videoEl.duration) && videoEl.duration > 0) {
+            const videoInfo = getVhsVideoInfo(upstreamNode);
+            const forceRate = Number((upstreamNode.widgets ?? []).find(w => w?.name === "force_rate")?.value ?? 0);
+            const fps = forceRate > 0 ? forceRate : (videoInfo?.fps && videoInfo.fps > 0 ? videoInfo.fps : 24);
+            const targetTime = Math.max(0, Math.min(videoEl.duration - 1 / fps, sourceFrame / fps));
+            const tolerance = 0.5 / fps;
+            if (freezePlayback) {
+              await seekFrozenVideoFrame(videoEl, targetTime, tolerance);
+            } else if (Math.abs(videoEl.currentTime - targetTime) > tolerance) {
+              videoEl.currentTime = targetTime;
+            }
+            if (videoEl.readyState >= 2) {
+              ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+              ctx.drawImage(videoEl, 0, 0, ctx.canvas.width, ctx.canvas.height);
+              return ctx.canvas;
+            }
+          }
+        }
+
+        return inputs[0];
       } else if (cls === "ImageOpsPreview") {
         const previewTarget = String((node?.widgets ?? []).find((widget) => widget?.name === "preview_target")?.value ?? "auto").toLowerCase();
         if (outputSlot === 1) return inputs[1] ?? inputs[0];

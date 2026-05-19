@@ -87,8 +87,8 @@ def _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop
 
 class ImageOpsCrop:
     CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("image", "mask")
+    RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT")
+    RETURN_NAMES = ("image", "mask", "width", "height")
     FUNCTION = "apply"
 
     @classmethod
@@ -123,11 +123,15 @@ class ImageOpsCrop:
 
         if _scalar(bypass, bool):
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_crop")
+            final_height = int(source.shape[1])
+            final_width = int(source.shape[2])
+            return build_node_preview_result(source, (source, output_mask_source, final_width, final_height), prefix="imageops_crop")
         if _is_noop_crop(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale):
             progress.finish()
             metadata = _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
-            return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_crop", metadata=metadata)
+            final_height = int(source.shape[1])
+            final_width = int(source.shape[2])
+            return build_node_preview_result(source, (source, output_mask_source, final_width, final_height), prefix="imageops_crop", metadata=metadata)
 
         if input_mask is not None:
             result, output_mask = _apply_interactive_crop_resize_with_mask_pair(
@@ -163,4 +167,6 @@ class ImageOpsCrop:
             )[..., 0]
         progress.finish()
         metadata = _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
-        return build_node_preview_result(result, (result, output_mask), prefix="imageops_crop", metadata=metadata)
+        final_height = int(result.shape[1])
+        final_width = int(result.shape[2])
+        return build_node_preview_result(result, (result, output_mask, final_width, final_height), prefix="imageops_crop", metadata=metadata)

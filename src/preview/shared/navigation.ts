@@ -3,10 +3,11 @@ import { ensureState, markPreviewInteraction } from "./state.js";
 import { clampPreviewZoom } from "./geometry.js";
 import { blit } from "./bounds.js";
 import { isNode as isDrawNode } from "../nodes/draw.js";
+import { isNode as isTextNode } from "../nodes/text.js";
 
 function isInteractiveNode(node: ComfyNode): boolean {
-  // Only Draw uses the wheel event (brush size) — all other nodes can use zoom/pan.
-  return isDrawNode(node);
+  // Draw uses wheel for brush size; Text uses wheel for font size — skip zoom/pan for both.
+  return isDrawNode(node) || isTextNode(node);
 }
 
 export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): void {

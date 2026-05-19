@@ -1,5 +1,17 @@
 # 🎨 ComfyUI‑Majoor‑ImageOps
 
+[![GitHub Repo](https://img.shields.io/badge/GitHub-Repo-181717?logo=github)](https://github.com/MajoorWaldi/ComfyUI-Majoor-ImageOps)
+[![GitHub Stars](https://img.shields.io/github/stars/MajoorWaldi/ComfyUI-Majoor-ImageOps?style=flat)](https://github.com/MajoorWaldi/ComfyUI-Majoor-ImageOps/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/MajoorWaldi/ComfyUI-Majoor-ImageOps?style=flat)](https://github.com/MajoorWaldi/ComfyUI-Majoor-ImageOps/network/members)
+[![GitHub Issues](https://img.shields.io/github/issues/MajoorWaldi/ComfyUI-Majoor-ImageOps?style=flat)](https://github.com/MajoorWaldi/ComfyUI-Majoor-ImageOps/issues)
+[![License](https://img.shields.io/github/license/MajoorWaldi/ComfyUI-Majoor-ImageOps?style=flat)](LICENSE)
+[![Downloads](https://img.shields.io/github/downloads/MajoorWaldi/ComfyUI-Majoor-ImageOps/total?style=flat)](https://github.com/MajoorWaldi/ComfyUI-Majoor-ImageOps/releases)
+[![CI](https://github.com/MajoorWaldi/ComfyUI-Majoor-ImageOps/actions/workflows/python-tests.yml/badge.svg)](https://github.com/MajoorWaldi/ComfyUI-Majoor-ImageOps/actions/workflows/python-tests.yml)
+[![Python Version](https://img.shields.io/badge/Python-3.10--3.13-blue)](https://www.python.org/)
+[![ComfyUI](https://img.shields.io/badge/ComfyUI-%3E%3D0.13.0-brightgreen)](https://github.com/comfyanonymous/ComfyUI)
+[![Frontend Tests](https://img.shields.io/badge/Frontend%20Tests-Node%20Test-6e9f18)](https://nodejs.org/api/test.html)
+[![Buy Me a White Monster Drink](https://img.shields.io/badge/Ko--fi-Buy_Me_a_White_Monster_Drink-ff5e5b?logo=ko-fi)](https://ko-fi.com/majoorwaldi)
+
 **Advanced image processing nodes for ComfyUI** with a centralized live preview module (no queue required), batch-first behavior, and comprehensive interop adapters.
 
 ---
@@ -9,12 +21,11 @@
 - **📦 Batch-First Architecture**: `IMAGE` inputs/outputs are treated as batches (frames friendly) - perfect for video and animation workflows
 - **🛡️ Fail-Soft Interop**: Unsupported upstream nodes don't break the graph or preview - graceful degradation
 - **👁️ Live Preview Widget**: Real-time preview on ImageOps nodes without queuing (single frontend module)
-- **🎛️ Preview Pro UI** (only on `ImageOpsPreview`): 
-  - 📊 Histogram analysis
-  - 🌊 Waveform (luma/RGB)
-  - 🎯 Vectorscope
-  - 🦓 Zebra/False-color overlays
-  - ↔️ A/B freeze + wipe comparison
+- **� Compact Panel UX** (every node):
+  - Double-click any slider/field/swatch to reset to its default value
+  - Panels with more than 4 controls auto-collapse (state persisted per-class)
+  - Eyedropper (💧) buttons on color pickers (Text, Keyer)
+  - Randomize (🎲) button on any `seed` widget (e.g. Noise)
 - **🔀 Optional Bypass**: All processing nodes expose `bypass` (boolean) - when enabled, the node returns input unchanged and live preview skips applying the operation
 
 ---
@@ -41,12 +52,20 @@
 | **ImageOps Distort** | `ImageOpsDistort` | iDistort-style displacement warp driven by source channels, external maps, masks, or internal procedural noise |
 | **ImageOps Transform** | `ImageOpsTransform` | Translate, rotate, scale with filter options (nearest/bilinear/bicubic) |
 | **ImageOps Corner Pin** | `ImageOpsCornerPin` | Perspective corner pinning with batched homography warp, bicubic filtering, supersampling, and alpha-safe edges |
-| **ImageOps Pad Out** | `ImageOpsPadOut` | Add per-side borders with constant, edge-extended, reflected, or blurry fill and optional target aspect ratios |
+| **ImageOps Pad Out** | `ImageOpsPadOut` | Add per-side black padding with preview ratio helpers and optional size snapping |
 | **ImageOps Invert** | `ImageOpsInvert` | Invert colors and/or alpha channel (separate alpha control) |
 | **ImageOps Spherize** | `ImageOpsSpherize` | Spherical and fisheye lens projections with five modes, strength control, and circle-mask output |
 | **ImageOps Clamp** | `ImageOpsClamp` | Clamp pixel values to min/max range |
 | **ImageOps Merge** | `ImageOpsMerge` | Linear-light two-input compositing with production blend modes and foreground fit controls |
+| **ImageOps Constant** | `ImageOpsConstant` | Generate solid-color or checkerboard RGBA plates with alpha and batch controls |
+| **ImageOps Ramp** | `ImageOpsRamp` | Generate linear or radial color ramps with draggable start/end points |
 | **ImageOps Noise** | `ImageOpsNoise` | GPU-backed procedural noise source with Perlin, value, seamless tiling, 3D Z animation, seed stepping, frame length/FPS controls, and color ramp output |
+| **ImageOps Grain** | `ImageOpsGrain` | Add deterministic monochrome or RGB synthetic grain to image/video batches |
+| **ImageOps CameraShake** | `ImageOpsCameraShake` | Apply deterministic animated camera jitter with translation, rotation, zoom, and fill controls |
+| **ImageOps Keyer** | `ImageOpsKeyer` | Color or luma keyer with tolerance, softness, matte gain, blur, and color picking UI |
+| **ImageOps Text** | `ImageOpsText` | Composite editable multiline text overlays with font, stroke, alignment, and mask support |
+| **ImageOps FrameRange** | `ImageOpsFrameRange` | Trim, hold, loop, bounce, reverse, or repeat frame batches |
+| **ImageOps Append** | `ImageOpsAppend` | Concatenate multiple image/video batches with trim controls and fit modes |
 | **ImageOps Paint** | `ImageOpsDraw` | Digital painting with brush/eraser tools, cropped overlay payloads, layer JSON support, and pen dynamics |
 | **ImageOps Comp** | `ImageOpsComp` | Multi-layer compositor with blend modes, positioning, and opacity per layer |
 
@@ -241,6 +260,8 @@ Perspective corner pinning for screen replacement, planar warps, and compositing
 
 The warp uses batched PyTorch homographies with `grid_sample`; RGBA input is premultiplied before warping so transparent edges stay clean.
 
+**Interactive UI:** Drag any of the four corner handles directly on the preview. Handles snap to the source-frame edges (`0` / `1`) within a small tolerance; hold `Alt` while dragging to disable snapping.
+
 **Outputs:** `IMAGE`, `MASK`
 
 ---
@@ -256,14 +277,11 @@ Add borders around an image without scaling the source.
 
 **Parameters:**
 - `pad_left`, `pad_top`, `pad_right`, `pad_bottom`: Per-side padding in pixels
-- `target_format`: custom, 1:1, 16:9, 9:16, 4:3, or 3:4
-- `fill_mode`: constant, edge_extend, reflect, or blurry
-- `fill_color`: Solid color for constant padding
-- `blur_radius`: Background blur radius for blurry padding
+- `target_format`: Preview ratio preset: custom, 1:1, 16:9, 9:16, 4:3, or 3:4
 - `invert_mask`: Invert the padding mask
 - `bypass`: Skip processing
 
-The `target_format` option adds only the extra padding needed to reach the selected ratio, so manual side padding can still decenter the source.
+PadOut always renders the padded area as solid black; `target_format` is only a UI helper that materializes explicit pad values.
 
 **Outputs:** `IMAGE`, `MASK`, `IMAGEOPS_PADOUT_STITCHER`
 
@@ -378,7 +396,42 @@ Blend two images with linear-light or sRGB blend modes.
 
 ---
 
-### 🌫️ ImageOps Noise
+### ImageOps Constant
+
+Generate solid-color or checkerboard RGBA plates.
+
+**Parameters:**
+- `mode`: `constant` or `checkerboard`
+- `width` / `height`: Output resolution (1 to 8192)
+- `batch_size`: Number of frames/images to generate
+- `color`: Primary color
+- `color_b`: Secondary checkerboard color
+- `alpha`: Output opacity, also used as the returned mask
+- `tile_size`, `offset_x`, `offset_y`: Checkerboard pattern controls
+
+**Outputs:** `IMAGE`, `MASK`, `INT` width, `INT` height
+
+---
+
+### ImageOps Ramp
+
+Generate linear or radial color ramps.
+
+**Parameters:**
+- `width` / `height`: Output resolution (1 to 8192)
+- `batch_size`: Number of frames/images to generate
+- `color_a`, `color_b`: Start and end colors
+- `alpha`: Output opacity, also used as the returned mask
+- `start_x`, `start_y`, `end_x`, `end_y`: Normalized ramp control points
+- `ramp_shape`: `linear` or `radial`
+- `ramp_mode`: `linear`, `ease_in`, `ease_out`, or `smoothstep`
+- `invert`: Swap ramp direction
+
+**Outputs:** `IMAGE`, `MASK`, `INT` width, `INT` height
+
+---
+
+### ImageOps Noise
 
 ![ImageOps Noise preview](docs/OpsNoise.gif)
 
@@ -388,7 +441,7 @@ Procedural texture generator for masks and grayscale or color noise plates.
 - `width` / `height`: Output resolution (64 to 8192)
 - `frame_length`: Number of frames to generate (1 to 256)
 - `fps`: Preview playback speed
-- `seed`: Deterministic noise seed
+- `seed`: Deterministic noise seed (🎲 button randomizes within widget range)
 - `basis`: `perlin`, `value`, or `white`
 - `fractal_mode`: `none`, `fbm`, `turbulence`, or `ridged`
 - `scale`: Primary feature size
@@ -398,6 +451,109 @@ Procedural texture generator for masks and grayscale or color noise plates.
 - `seamless`: Tileable X/Y noise for repeating textures
 - `contrast`, `invert`: Output tonal shaping
 - `low_color`, `high_color`: Color ramp applied to the grayscale output
+
+**Outputs:** `IMAGE`, `MASK`
+
+---
+
+### ImageOps Grain
+
+Add deterministic synthetic grain to image or video batches.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO): Source media
+- `mask` (MASK, optional): Effect mask
+
+**Parameters:**
+- `amount`: Grain intensity
+- `blend_mode`: `add`, `overlay`, or `soft_light`
+- `monochrome`: Use shared luma grain instead of independent RGB grain
+- `animated`: Change grain per frame when generating longer batches
+- `frame_length`: Number of output frames when animating a still image
+- `fps`: Preview playback speed
+- `seed`: Deterministic grain seed (🎲 button randomizes)
+- `invert_mask`: Invert mask effect
+- `bypass`: Skip processing
+
+**Film stock presets:** `Clean`, `Subtle`, `Cinema`, `B&W`, `Heavy` — one-click buttons that set amount, blend mode, and monochrome together.
+
+**Outputs:** `IMAGE`, `MASK`
+
+---
+
+### ImageOps CameraShake
+
+Apply deterministic camera shake to images or video batches.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO): Source media
+- `mask` (MASK, optional): Effect mask
+
+**Parameters:**
+- `translate_px`: Maximum translation jitter in pixels
+- `rotate_deg`: Maximum rotation jitter in degrees
+- `zoom`: Maximum zoom jitter around 1.0
+- `smoothing`: Smooth random motion between shake targets
+- `shake_frequency`: How quickly shake targets change
+- `frame_length`: Number of output frames when shaking a still image
+- `fps`: Preview playback speed
+- `seed`: Deterministic shake seed
+- `filter`: `nearest`, `bilinear`, or `bicubic`
+- `fill_mode`: `transparent`, `mirror`, `stretch`, `expand`, or `color`
+- `fill_color`: Fill color when `fill_mode` is `color`
+- `invert_mask`: Invert mask effect
+- `bypass`: Skip processing
+
+**Outputs:** `IMAGE`, `MASK`
+
+---
+
+### ImageOps Keyer
+
+Create an alpha matte from color distance or luma.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO): Source media
+- `mask` (MASK, optional): Multiplied into the generated matte
+
+**Parameters:**
+- `mode`: `color` or `luma`
+- `key_color`: Primary key color
+- `key_colors`: UI-managed JSON list for multi-color picking
+- `tolerance`: Hard key threshold
+- `softness`: Soft edge width around the threshold
+- `gain`: Matte boost after keying
+- `blur`: Gaussian matte blur radius
+- `invert`: Invert the generated matte
+- `invert_mask`: Invert the optional input mask before multiplying it into the matte
+- `bypass`: Skip processing
+
+**Interactive UI:** Click `Pick` to enter eyedropper mode and sample colors from any visible preview canvas — the picker accumulates multiple samples into `key_colors` for tighter mattes.
+
+**Outputs:** `IMAGE`, `MASK`
+
+---
+
+### ImageOps Text
+
+Composite multiline text over image or video batches.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO): Source media
+- `mask` (MASK, optional): Effect mask
+- `font_path` (STRING, optional): Path to a `.ttf` font
+
+**Parameters:**
+- `text`: Multiline text content
+- `x`, `y`: Normalized text anchor position
+- `font_size`: Font size in pixels
+- `color`: Text fill color (💧 eyedropper button lets you pick from any visible preview)
+- `opacity`: Text opacity
+- `align`: `left`, `center`, or `right`
+- `line_spacing`: Spacing between text lines
+- `stroke_width`, `stroke_color`: Optional text outline (💧 eyedropper available)
+- `invert_mask`: Invert mask effect
+- `bypass`: Skip processing
 
 **Outputs:** `IMAGE`, `MASK`
 
@@ -436,6 +592,45 @@ The node still accepts older full-frame Base64 PNG `overlay_data` values. New pr
 
 ---
 
+### ImageOps FrameRange
+
+Trim, freeze, and repeat image/video frame batches.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO): Source batch or video frames
+
+**Parameters:**
+- `trim_start`: First frame to keep
+- `trim_end`: Last frame to keep; `-1` means the final input frame
+- `frame_hold`: Output one held frame instead of the full trimmed range
+- `hold_frame`: Frame index to hold, clamped inside the trimmed range
+- `repeat`: Repeat the selected range
+- `repeat_mode`: `loop`, `bounce`, `reverse`, `input_duration`, or `custom_count`
+- `custom_frame_count`: Output length used by `custom_count`
+- `bypass`: Skip processing
+
+**Outputs:** `IMAGE`, `INT` frame_count
+
+---
+
+### ImageOps Append
+
+Concatenate multiple image/video batches into one frame sequence.
+
+**Inputs:**
+- `image_1`, `image_2`, ... (IMAGE/VIDEO): Clip inputs, with dynamic slots managed by the preview UI
+
+**Parameters:**
+- `fit_mode`: `strict`, `resize_to_first`, or `pad_to_max`
+- `trims_json`: UI-managed clip trim data
+- `bypass`: Return the first trimmed clip only
+
+Strict mode requires matching dimensions. `resize_to_first` resizes later clips to the first clip; `pad_to_max` centers clips on a black canvas sized to the largest connected clip.
+
+**Outputs:** `IMAGE`, `INT` frame_count, `INT` width, `INT` height
+
+---
+
 ### 🎬 ImageOps Comp
 
 ![ImageOps Comp preview](docs/OpsComp.gif)
@@ -464,6 +659,10 @@ Multi-layer compositor with professional controls.
 - 🎚️ Opacity slider per layer
 - 🖱️ Drag-to-position layers on preview
 
+**Keyboard shortcuts** (when the preview canvas has focus / pointer is over it):
+- `Delete` / `Backspace` — remove the selected layer
+- `1` … `9` — select the layer at that index
+
 **Outputs:** `IMAGE`, `MASK`
 
 ---
@@ -482,6 +681,8 @@ Preview output node with advanced visualization modes.
   - `strip`: Horizontal strip for batch inspection
   - `animated_webp`: Animated WebP preview
   - `animated_gif`: Animated GIF preview
+
+> 📌 An optional `reference` (IMAGE) input for split A/B comparison is planned — see `memories/repo/ab-compare-design.md` in the workspace for the design.
 
 **Outputs:** `IMAGE`, `MASK`
 
@@ -502,18 +703,12 @@ All processing nodes expose a **`bypass`** parameter (boolean). When enabled:
 
 | File | Purpose |
 |------|---------|
-| `js/preview/host.js` | Widget injection, video loop, Preview Pro UI (scopes/overlays/A‑B) |
+| `js/preview/host.js` | Widget injection, video loop, panel orchestration |
 | `js/preview/renderer.js` | Recursive render with caching (recursion limit: 64) |
 | `js/preview/registry.js` | Adapter selection (core/WAS/VHS/generic/ImageOps) |
 | `js/preview/ops.js` | Preview ops implementation (single source for preview behavior) |
-
-### Preview Pro UI Features (ImageOpsPreview only)
-
-- 📊 **Histogram**: Luminance distribution
-- 🌊 **Waveform**: Luma or RGB waveform monitor
-- 🎯 **Vectorscope**: Color vector analysis
-- 🦓 **Zebra/False Color**: Exposure visualization
-- ↔️ **A/B Compare**: Freeze and wipe comparison
+| `js/preview/shared/preview-widget.js` | Compact panel builder (collapsible >4 controls, dblclick reset, 🎲 seed randomize) |
+| `js/preview/shared/eyedropper.js` | Cross-canvas color picker (used by Text, Keyer) |
 
 ### Interop Support
 
@@ -630,6 +825,14 @@ All nodes process batches natively:
 ## 📋 Changelog
 
 ### Recent changes
+- **Compact panel UX** — double-click any control resets it to its default; panels with more than 4 controls collapse into a `<details>` block and remember their open/closed state per node class via `localStorage` (`imageops.ui.<NodeClass>.compactPanelOpen`)
+- **Eyedropper buttons** — Text node (Fill / Stroke colors) and Keyer (`Pick`) sample colors from any visible preview canvas via a floating swatch overlay; ESC / right-click / clicking outside a canvas cancels
+- **🎲 Seed randomize** — every native panel exposing an INT widget named `seed` (Noise, Grain, CameraShake) gets a one-click randomize button next to the input
+- **Grain film presets** — `Clean`, `Subtle`, `Cinema`, `B&W`, `Heavy` one-click buttons configure amount + blend mode + monochrome together
+- **Corner Pin snap** — corner handles snap to the source-frame edges (`0` / `1`) within a small tolerance; hold `Alt` to disable
+- **Comp keyboard shortcuts** — `Delete` / `Backspace` removes the selected layer, digits `1`–`9` select a layer by index (only active when the preview canvas has focus or the pointer is over it)
+- **Removed unimplemented claims** — earlier README entries advertised Histogram / Waveform / Vectorscope / Zebra / A-B Compare on `ImageOpsPreview`; those features were never shipped and have been removed from the docs. A `reference` input for A/B compare is planned (design in `memories/repo/ab-compare-design.md`)
+- **New ImageOps nodes** — Append, CameraShake, Constant, FrameRange, Grain, Keyer, Ramp, and Text added to the node list and documented in Node Details
 - **ImageOps Spherize** — new node with five projection modes (spherize, fisheye, defisheye, latlong, unlatlong), bicubic/bilinear/nearest filter, edge modes, custom output size, and circle-mask output
 - **ImageOps Corner Pin** — bicubic interpolation option added
 - **ImageOps Color Correct** — enhanced color correction capabilities

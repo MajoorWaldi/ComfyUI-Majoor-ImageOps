@@ -2,8 +2,9 @@ import { ensureState, markPreviewInteraction } from "./state.js";
 import { clampPreviewZoom } from "./geometry.js";
 import { blit } from "./bounds.js";
 import { isNode as isDrawNode } from "../nodes/draw.js";
+import { isNode as isTextNode } from "../nodes/text.js";
 function isInteractiveNode(node) {
-  return isDrawNode(node);
+  return isDrawNode(node) || isTextNode(node);
 }
 function attachPreviewNavigation(node, canvasSize) {
   const st = ensureState(node);

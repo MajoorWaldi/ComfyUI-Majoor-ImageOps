@@ -1,4 +1,8 @@
 import type { ComfyNode, ComfyWidget } from "../../types.js";
+import { isNode as isAppendNode } from "../nodes/append.js";
+import { isNode as isFrameRangeNode } from "../nodes/frame-range.js";
+import { isImageOpsNativeUiClass } from "./classes.js";
+import { markCanvasDirty } from "./canvas.js";
 
 function syncWidgetElement(widget: ComfyWidget | null, value: string | number | boolean): void {
   const element = widget?.element as (HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null | undefined);
@@ -17,6 +21,18 @@ function syncWidgetElement(widget: ComfyWidget | null, value: string | number | 
   if ("value" in element) {
     element.value = String(value);
   }
+}
+
+type WidgetSetOptions = {
+  notify?: boolean;
+  dirty?: boolean;
+};
+
+function notifyWidgetChanged(widget: ComfyWidget | null, value: string | number | boolean): void {
+  if (!widget) return;
+  try {
+    widget.callback?.(value);
+  } catch {}
 }
 
 export function findWidget(node: ComfyNode, name: string) {
@@ -49,22 +65,23 @@ export function hideWidgetForGood(node: ComfyNode, widget: ComfyWidget | null, s
   (widget as any).origHidden ??= (widget as any).hidden;
   (widget as any).hidden = true;
   (widget as any).visible = false;
-  (widget as any).disabled = true;
   (widget as any).last_y = -4096;
   (widget as any).draw = () => {};
-  (widget as any).options = { ...((widget as any).options ?? {}), hidden: true };
+  try {
+    (widget as any).options = {
+      ...((widget as any).options ?? {}),
+      hidden: true,
+      canvasOnly: true,
+    };
+  } catch {}
   widget.computeSize = () => [0, -4];
-  widget.type = "hidden";
 
-  // Remove the corresponding widget-backed input slot (avoids phantom connection dots).
-  // Only remove if the slot has no active link so existing wired workflows are not broken.
-  const inputs = node.inputs ?? [];
-  for (let i = inputs.length - 1; i >= 0; i--) {
-    const inp = inputs[i] as any;
-    if (inp?.widget?.name === widget.name && (inp.link == null)) {
-      node.removeInput?.(i);
-      break;
-    }
+  // Keep the original widget type and any widget-backed input slots intact so
+  // ComfyUI can still expose/restore external driving for hidden numeric/text widgets.
+  const element = widget.element as HTMLElement | null | undefined;
+  if (element) {
+    element.hidden = true;
+    element.style.display = "none";
   }
 
   if (widget.linkedWidgets) {
@@ -74,20 +91,161 @@ export function hideWidgetForGood(node: ComfyNode, widget: ComfyWidget | null, s
   }
 }
 
-export function setWidgetValue(widget: ComfyWidget | null, value: number): void {
-  if (!widget) return;
-  widget.value = value;
-  syncWidgetElement(widget, value);
+/**
+ * Hide every widget whose name matches. Useful when ComfyUI's Vue frontend
+ * adds a duplicate widget with the same name but a different (uppercase) type
+ * (e.g. `color` + `COLOR`, `boolean` + `BOOLEAN`).
+ */
+export function hideWidgetsByName(node: ComfyNode, name: string): void {
+  if (!node?.widgets) return;
+  for (const widget of node.widgets) {
+    if (widget?.name === name) hideWidgetForGood(node, widget);
+  }
 }
 
-export function setWidgetStringValue(widget: ComfyWidget | null, value: string): void {
+export function setWidgetValue(widget: ComfyWidget | null, value: number, options: WidgetSetOptions = {}): void {
   if (!widget) return;
+  const notify = options.notify !== false;
+  const dirty = options.dirty !== false;
+  const changed = Number(widget.value) !== Number(value);
   widget.value = value;
   syncWidgetElement(widget, value);
+  if (changed) {
+    if (notify) notifyWidgetChanged(widget, value);
+    if (dirty) markCanvasDirty();
+  }
 }
 
-export function setWidgetBooleanValue(widget: ComfyWidget | null, value: boolean): void {
+export function setWidgetStringValue(widget: ComfyWidget | null, value: string, options: WidgetSetOptions = {}): void {
   if (!widget) return;
+  const notify = options.notify !== false;
+  const dirty = options.dirty !== false;
+  const changed = String(widget.value ?? "") !== String(value);
   widget.value = value;
   syncWidgetElement(widget, value);
+  if (changed) {
+    if (notify) notifyWidgetChanged(widget, value);
+    if (dirty) markCanvasDirty();
+  }
+}
+
+export function setWidgetBooleanValue(widget: ComfyWidget | null, value: boolean, options: WidgetSetOptions = {}): void {
+  if (!widget) return;
+  const notify = options.notify !== false;
+  const dirty = options.dirty !== false;
+  const current = typeof widget.value === "boolean"
+    ? widget.value
+    : String(widget.value ?? "false").toLowerCase() === "true";
+  const changed = current !== value;
+  widget.value = value;
+  syncWidgetElement(widget, value);
+  if (changed) {
+    if (notify) notifyWidgetChanged(widget, value);
+    if (dirty) markCanvasDirty();
+  }
+}
+
+export function setWidgetMixedValue(widget: ComfyWidget | null, value: string | number | boolean, options: WidgetSetOptions = {}): void {
+  if (!widget) return;
+  const notify = options.notify !== false;
+  const dirty = options.dirty !== false;
+  const changed = typeof value === "number"
+    ? Number(widget.value) !== Number(value)
+    : typeof value === "boolean"
+      ? (typeof widget.value === "boolean" ? widget.value : String(widget.value ?? "false").toLowerCase() === "true") !== value
+      : String(widget.value ?? "") !== String(value);
+  widget.value = value;
+  syncWidgetElement(widget, value);
+  if (changed) {
+    if (notify) notifyWidgetChanged(widget, value);
+    if (dirty) markCanvasDirty();
+  }
+}
+
+export function getWidgetInputSpec(node: ComfyNode, name: string): { typeSpec: unknown; options: Record<string, unknown> | null } | null {
+  const nodeData = (node as any)?.constructor?.nodeData;
+  const entry = nodeData?.input?.required?.[name] ?? nodeData?.input?.optional?.[name];
+  if (!Array.isArray(entry) || entry.length === 0) return null;
+  const options = entry[1];
+  return {
+    typeSpec: entry[0],
+    options: options && typeof options === "object" ? options as Record<string, unknown> : null,
+  };
+}
+
+function isWidgetHidden(widget: ComfyWidget | null): boolean {
+  if (!widget) return true;
+  if ((widget as any).hidden === true) return true;
+  return Boolean((widget as any).options?.hidden);
+}
+
+// Local check — avoids circular import (comp.ts imports from widgets.ts).
+function isCompNode(node: ComfyNode): boolean {
+  return String(node?.comfyClass ?? "") === "ImageOpsComp";
+}
+
+function shouldUseCompactIntWidget(node: ComfyNode): boolean {
+  return isFrameRangeNode(node) || isAppendNode(node) || isCompNode(node) || isImageOpsNativeUiClass(node.comfyClass);
+}
+
+function supportsCompactUi(node: ComfyNode, widget: ComfyWidget | null): boolean {
+  if (!widget?.name || widget.name === "preview" || isWidgetHidden(widget)) return false;
+  const spec = getWidgetInputSpec(node, widget.name);
+  if (!spec) return false;
+  if (Array.isArray(spec.typeSpec)) return true;
+  const kind = String(spec.typeSpec ?? "").trim().toUpperCase();
+  if (kind === "INT" && !shouldUseCompactIntWidget(node)) return false;
+  return kind === "BOOLEAN" || kind === "INT" || kind === "FLOAT" || kind === "STRING" || kind === "COLOR" || kind === "COMBO";
+}
+
+export function listCompactUiWidgets(node: ComfyNode): ComfyWidget[] {
+  return (node?.widgets ?? []).filter((widget) => supportsCompactUi(node, widget));
+}
+
+export function hideCompactUiWidgets(node: ComfyNode): void {
+  for (const widget of listCompactUiWidgets(node)) {
+    hideWidgetForGood(node, widget);
+  }
+}
+
+function cloneDefaultValue<T>(value: T): T {
+  if (value == null || typeof value !== "object") return value;
+  try {
+    return structuredClone(value);
+  } catch {
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
+}
+
+export function getWidgetDefaultValue(node: ComfyNode, name: string): unknown {
+  const nodeData = (node as any)?.constructor?.nodeData;
+  const entry = nodeData?.input?.required?.[name] ?? nodeData?.input?.optional?.[name];
+  if (!Array.isArray(entry)) return undefined;
+  const options = entry[1];
+  return options && typeof options === "object" ? cloneDefaultValue(options.default) : undefined;
+}
+
+export function resetNodeWidgetsToDefaults(node: ComfyNode): string[] {
+  const resetNames: string[] = [];
+
+  for (const widget of node?.widgets ?? []) {
+    const name = widget?.name;
+    if (!name) continue;
+
+    const defaultValue = getWidgetDefaultValue(node, name);
+    if (defaultValue === undefined) continue;
+
+    if (typeof defaultValue === "boolean") {
+      setWidgetBooleanValue(widget, defaultValue);
+    } else if (typeof defaultValue === "number") {
+      setWidgetValue(widget, defaultValue);
+    } else if (typeof defaultValue === "string") {
+      setWidgetStringValue(widget, defaultValue);
+    } else {
+      (widget as any).value = cloneDefaultValue(defaultValue);
+    }
+    resetNames.push(name);
+  }
+
+  return resetNames;
 }

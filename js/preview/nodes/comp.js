@@ -1,15 +1,125 @@
-import { getCompSlots, serializeCompLayers, syncCompLayers, clampCompCenter } from "../comp.js";
+import { COMP_BLEND_MODES, getCompSlots, serializeCompLayers, syncCompLayers, clampCompCenter } from "../comp.js";
 import { getFitPlacement } from "../shared/geometry.js";
-import { findWidget, hideWidgetForGood, setWidgetStringValue } from "../shared/widgets.js";
+import { findWidget, hideWidgetForGood, setWidgetStringValue, widgetBoolean, widgetString } from "../shared/widgets.js";
 import { ensureState } from "../shared/state.js";
-import { setControlDisabled, styleSoftButton } from "../shared/dom-styles.js";
+import {
+  createContextMenuSelect,
+  setControlDisabled,
+  styleSoftButton,
+  styleSoftField,
+  styleSoftRange
+} from "../shared/dom-styles.js";
 import { syncDarkColorInputUI as syncDarkColorInputUI2, setDarkColorInputState as setDarkColorInputState2 } from "../shared/dom-styles.js";
 const NODE_CLASS = "ImageOpsComp";
 function isNode(node) {
   return String(node?.comfyClass ?? "") === NODE_CLASS;
 }
+function createCompControlsUi() {
+  const controls = document.createElement("div");
+  controls.style.marginTop = "8px";
+  controls.style.display = "grid";
+  controls.style.gridTemplateColumns = "auto auto auto auto auto minmax(0, 1fr) auto";
+  controls.style.gap = "6px";
+  controls.style.alignItems = "center";
+  controls.style.minWidth = "0";
+  controls.style.width = "100%";
+  controls.style.boxSizing = "border-box";
+  const addButton = document.createElement("button");
+  addButton.type = "button";
+  addButton.textContent = "+";
+  addButton.title = "Add layer";
+  styleSoftButton(addButton, false);
+  const resetButton = document.createElement("button");
+  resetButton.type = "button";
+  resetButton.textContent = "Reset";
+  styleSoftButton(resetButton, false);
+  const removeButton = document.createElement("button");
+  removeButton.type = "button";
+  removeButton.textContent = "\u2212";
+  removeButton.title = "Remove layer";
+  styleSoftButton(removeButton, false);
+  const resizeButton = document.createElement("button");
+  resizeButton.type = "button";
+  resizeButton.textContent = "Scale";
+  styleSoftButton(resizeButton, true);
+  const cornerPinButton = document.createElement("button");
+  cornerPinButton.type = "button";
+  cornerPinButton.textContent = "Pin";
+  styleSoftButton(cornerPinButton, false);
+  const aspectRatioSelect = document.createElement("select");
+  aspectRatioSelect.title = "Custom Format aspect ratio";
+  aspectRatioSelect.style.width = "100%";
+  aspectRatioSelect.style.minWidth = "0";
+  styleSoftField(aspectRatioSelect);
+  for (const [value, label] of [["free", "Free"], ["1/1", "1/1"], ["4/3", "4/3"], ["16/9", "16/9"], ["9/16", "9/16"]]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    aspectRatioSelect.appendChild(option);
+  }
+  const layerLabel = document.createElement("div");
+  layerLabel.style.fontSize = "11px";
+  layerLabel.style.opacity = "0.85";
+  layerLabel.style.justifySelf = "end";
+  layerLabel.style.whiteSpace = "nowrap";
+  layerLabel.textContent = "L1";
+  const bottomRow = document.createElement("div");
+  bottomRow.style.gridColumn = "1 / -1";
+  bottomRow.style.display = "grid";
+  bottomRow.style.gridTemplateColumns = "minmax(0,1fr) auto minmax(0,1.2fr)";
+  bottomRow.style.gap = "6px";
+  bottomRow.style.alignItems = "center";
+  bottomRow.style.minWidth = "0";
+  const modeSelect = document.createElement("select");
+  modeSelect.style.width = "100%";
+  styleSoftField(modeSelect);
+  for (const mode of COMP_BLEND_MODES) {
+    const option = document.createElement("option");
+    option.value = mode;
+    option.textContent = mode.replace("_", " ");
+    modeSelect.appendChild(option);
+  }
+  const opacityLabel = document.createElement("div");
+  opacityLabel.textContent = "100%";
+  opacityLabel.style.fontSize = "11px";
+  opacityLabel.style.opacity = "0.82";
+  opacityLabel.style.justifySelf = "end";
+  const opacityInput = document.createElement("input");
+  opacityInput.type = "range";
+  opacityInput.min = "0";
+  opacityInput.max = "100";
+  opacityInput.step = "1";
+  opacityInput.value = "100";
+  opacityInput.title = "Layer opacity";
+  styleSoftRange(opacityInput);
+  controls.appendChild(addButton);
+  controls.appendChild(removeButton);
+  controls.appendChild(resetButton);
+  controls.appendChild(resizeButton);
+  controls.appendChild(cornerPinButton);
+  controls.appendChild(createContextMenuSelect(aspectRatioSelect));
+  controls.appendChild(layerLabel);
+  bottomRow.appendChild(createContextMenuSelect(modeSelect));
+  bottomRow.appendChild(opacityLabel);
+  bottomRow.appendChild(opacityInput);
+  controls.appendChild(bottomRow);
+  return {
+    controls,
+    addButton,
+    removeButton,
+    resetButton,
+    resizeButton,
+    cornerPinButton,
+    aspectRatioSelect,
+    modeSelect,
+    opacityInput,
+    opacityLabel,
+    layerLabel
+  };
+}
 function hideCompWidgets(node) {
   hideWidgetForGood(node, findWidget(node, "layers_json"));
+  hideWidgetForGood(node, findWidget(node, "aspect_ratio"));
 }
 function ensureCompInputs(node, minLayers = 1) {
   if (!isNode(node) || !node.addInput) return;
@@ -28,14 +138,51 @@ function ensureCompInputs(node, minLayers = 1) {
     node.addInput?.(`mask_${layerNumber}`, "MASK");
   }
 }
+function removeCompInputAt(node, inputIndex) {
+  if (inputIndex < 0) return;
+  if (typeof node.removeInput === "function") {
+    node.removeInput(inputIndex);
+    return;
+  }
+  if (Array.isArray(node.inputs)) {
+    node.inputs.splice(inputIndex, 1);
+  }
+}
+function isCompSlotLinked(node, slot) {
+  const imageLinked = slot.inputIndex >= 0 && (node.inputs?.[slot.inputIndex]?.link ?? null) != null;
+  const maskLinked = slot.maskInputIndex != null && (node.inputs?.[slot.maskInputIndex]?.link ?? null) != null;
+  return imageLinked || maskLinked;
+}
+function removeSelectedCompLayer(node) {
+  if (!isNode(node) || !Array.isArray(node.inputs)) return false;
+  const st = ensureState(node);
+  const slots = getCompSlots(node);
+  if (slots.length <= 1) return false;
+  const selectedSlot = st.compSelectedSlot ?? slots[slots.length - 1]?.slot ?? null;
+  const selected = slots.find((slot) => slot.slot === selectedSlot) ?? slots[slots.length - 1] ?? null;
+  if (!selected) return false;
+  if (isCompSlotLinked(node, selected)) return false;
+  const indexes = [selected.inputIndex, selected.maskInputIndex ?? -1].filter((index) => index >= 0).sort((a, b) => b - a);
+  for (const index of indexes) {
+    removeCompInputAt(node, index);
+  }
+  const layers = readCompLayers(node).filter((layer) => layer.slot !== selected.slot);
+  writeCompLayers(node, layers);
+  st.compSelectedSlot = layers[layers.length - 1]?.slot ?? null;
+  return true;
+}
 function readCompLayers(node) {
   return syncCompLayers(findWidget(node, "layers_json")?.value ?? "", getCompSlots(node));
 }
-function writeCompLayers(node, layers) {
-  setWidgetStringValue(findWidget(node, "layers_json"), serializeCompLayers(layers));
+function writeCompLayers(node, layers, notify = true) {
+  setWidgetStringValue(findWidget(node, "layers_json"), serializeCompLayers(layers), { notify });
 }
 function getCompInfoText(_node, connectedLayers, totalLayers, width, height) {
   return `Comp preview (${connectedLayers}/${totalLayers} layers, ${width}x${height})`;
+}
+function normalizeCompAspectRatioValue(value) {
+  const normalized = String(value || "free").trim().toLowerCase().replace(":", "/");
+  return ["1/1", "4/3", "16/9", "9/16"].includes(normalized) ? normalized : "free";
 }
 function getCompCursor(mode) {
   switch (mode) {
@@ -95,10 +242,10 @@ function pointInCompPolygon(point, corners) {
   }
   return true;
 }
-function ensureCompState(node) {
+function ensureCompState(node, notify = true) {
   ensureCompInputs(node, 1);
   const layers = readCompLayers(node);
-  writeCompLayers(node, layers);
+  writeCompLayers(node, layers, notify);
   const st = ensureState(node);
   if (!st.compSelectedSlot || !layers.some((layer) => layer.slot === st.compSelectedSlot)) {
     st.compSelectedSlot = layers[layers.length - 1]?.slot ?? null;
@@ -109,12 +256,19 @@ function updateCompControls(node) {
   const st = ensureState(node);
   const layers = ensureCompState(node);
   const selected = layers.find((layer) => layer.slot === st.compSelectedSlot) ?? layers[layers.length - 1] ?? null;
+  const customFormat = !widgetBoolean(node, "use_first_layer_size", true) && !widgetBoolean(node, "auto_layering", false);
+  if (st.compAspectRatioSelect) {
+    st.compAspectRatioSelect.value = normalizeCompAspectRatioValue(widgetString(node, "aspect_ratio", "free"));
+    setControlDisabled(st.compAspectRatioSelect, !customFormat);
+    st.compAspectRatioSelect.title = customFormat ? "Custom Format aspect ratio" : "Aspect ratio is only used when Custom Format is active";
+  }
   const isPin = st.compEditMode === "cornerpin";
   if (st.compResizeButton) styleSoftButton(st.compResizeButton, !isPin);
   if (st.compCornerPinButton) styleSoftButton(st.compCornerPinButton, isPin);
   if (!selected) {
-    if (st.compLayerLabel) st.compLayerLabel.textContent = "No layer";
+    if (st.compLayerLabel) st.compLayerLabel.textContent = "\u2014";
     setControlDisabled(st.compResetButton, true);
+    setControlDisabled(st.compRemoveButton, true);
     setControlDisabled(st.compModeSelect, true);
     setControlDisabled(st.compOpacityInput, true);
     if (st.compOpacityLabel) st.compOpacityLabel.textContent = "0%";
@@ -122,9 +276,11 @@ function updateCompControls(node) {
   }
   st.compSelectedSlot = selected.slot;
   setControlDisabled(st.compResetButton, false);
+  const selectedSlotInfo = getCompSlots(node).find((slot) => slot.slot === selected.slot) ?? null;
+  setControlDisabled(st.compRemoveButton, layers.length <= 1 || (selectedSlotInfo ? isCompSlotLinked(node, selectedSlotInfo) : true));
   if (st.compLayerLabel) {
     const match = /_(\d+)$/.exec(selected.slot);
-    st.compLayerLabel.textContent = `Layer ${match?.[1] ?? "?"}`;
+    st.compLayerLabel.textContent = `L${match?.[1] ?? "?"}`;
   }
   if (st.compModeSelect) {
     setControlDisabled(st.compModeSelect, false);
@@ -138,13 +294,13 @@ function updateCompControls(node) {
     if (st.compOpacityLabel) st.compOpacityLabel.textContent = `${opacity}%`;
   }
 }
-function updateSelectedCompLayer(node, updater) {
+function updateSelectedCompLayer(node, updater, notify = true) {
   const st = ensureState(node);
-  const layers = ensureCompState(node);
+  const layers = ensureCompState(node, notify);
   const index = layers.findIndex((layer) => layer.slot === st.compSelectedSlot);
   if (index < 0) return;
   updater(layers[index]);
-  writeCompLayers(node, layers);
+  writeCompLayers(node, layers, notify);
   updateCompControls(node);
 }
 function compCanvasToOutputPoint(node, canvasWidth, canvasHeight, x, y) {
@@ -241,6 +397,7 @@ export {
   cloneCompCorners,
   compCanvasToOutputPoint,
   compDragHandleToCorner,
+  createCompControlsUi,
   ensureCompInputs,
   ensureCompState,
   getCompCanvasMetrics,
@@ -250,6 +407,7 @@ export {
   hideCompWidgets,
   isNode,
   readCompLayers,
+  removeSelectedCompLayer,
   setDarkColorInputState2 as setDarkColorInputState,
   syncDarkColorInputUI2 as syncDarkColorInputUI,
   updateCompControls,

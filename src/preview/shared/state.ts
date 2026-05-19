@@ -6,6 +6,9 @@ import { isStressed } from "./fps-monitor.js";
 export function ensureState(node: ComfyNode): NodeState {
   node.__imageops_state ??= {
     hooked: false,
+    previewRoot: null,
+    previewMetaRow: null,
+    previewControls: null,
     canvas: null,
     info: null,
     progressWrap: null,
@@ -31,11 +34,15 @@ export function ensureState(node: ComfyNode): NodeState {
     previewLastSource: null,
     previewSourceWidth: 0,
     previewSourceHeight: 0,
+    previewFrameIndex: null,
     cropAspectRatio: null,
     cropGeometry: null,
     cropDrag: null,
     cropResetButton: null,
     cropInteractiveHooked: false,
+    rampGeometry: null,
+    rampDrag: null,
+    rampInteractiveHooked: false,
     drawAspectRatio: null,
     drawGeometry: null,
     drawHover: null,
@@ -103,9 +110,11 @@ export function ensureState(node: ComfyNode): NodeState {
     compSelectedSlot: null,
     compDrag: null,
     compAddButton: null,
+    compRemoveButton: null,
     compResetButton: null,
     compResizeButton: null,
     compCornerPinButton: null,
+    compAspectRatioSelect: null,
     compModeSelect: null,
     compOpacityInput: null,
     compOpacityLabel: null,
@@ -125,12 +134,48 @@ export function ensureState(node: ComfyNode): NodeState {
     padOutBackendSourceH: 0,
     padOutBackendPadL: 0,
     padOutBackendPadT: 0,
+    frameSelectorControls: null,
+    frameSelectorLabel: null,
+    frameSelectorTrimStart: null,
+    frameSelectorTrimEnd: null,
+    frameSelectorHoldFrame: null,
+    frameSelectorRuler: null,
+    frameSelectorSliderBox: null,
+    frameSelectorFill: null,
+    frameSelectorStartHandle: null,
+    frameSelectorEndHandle: null,
+    frameSelectorPlayhead: null,
+    frameSelectorHoldToggle: null,
+    frameSelectorRepeatToggle: null,
+    frameSelectorRepeatModeSelect: null,
+    frameSelectorRepeatCountInput: null,
+    frameSelectorSourceCount: 0,
+    frameSelectorHooked: false,
+    keyerControls: null,
+    keyerModeButtons: [],
+    keyerInvertButton: null,
+    keyerInvertMaskButton: null,
+    keyerBypassButton: null,
+    keyerPickButton: null,
+    keyerColorInput: null,
+    keyerToleranceInput: null,
+    keyerSoftnessInput: null,
+    keyerGainInput: null,
+    keyerBlurInput: null,
+    keyerPicking: false,
+    keyerHooked: false,
   };
   return node.__imageops_state!;
 }
 
 export function setInfo(st: NodeState, text: string): void {
-  if (st.info) st.info.textContent = text;
+  if (!st.info) return;
+  const width = Math.max(0, Math.round(Number(st.previewSourceWidth) || 0));
+  const height = Math.max(0, Math.round(Number(st.previewSourceHeight) || 0));
+  const hasSize = /\b\d+\s*x\s*\d+\b/i.test(text) || /\b\d+\s*×\s*\d+\b/i.test(text);
+  st.info.textContent = !hasSize && width > 0 && height > 0
+    ? `${text} (${width}x${height})`
+    : text;
 }
 
 export function schedule(node: ComfyNode, fn: () => void, delayMs: number = 120): void {

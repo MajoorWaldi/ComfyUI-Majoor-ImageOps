@@ -1,5 +1,6 @@
 import { getInputOriginSlot, getUpstreamNode, detectSource } from "./graph.js";
 import { makeViewUrl, ensureBitmap, ensureImageElement, ensureVideoFrameCanvas, fitWithinMaxSize, renderImageSourceToCanvas } from "./source.js";
+import { isImageOpsClass } from "./shared/classes.js";
 function buildRenderer({ api, registry, canvasSize }) {
   const MAX_RECURSION = 64;
   function hashString(value) {
@@ -17,7 +18,7 @@ function buildRenderer({ api, registry, canvasSize }) {
     return imgs[Math.max(0, Math.min(imgs.length - 1, index))] ?? imgs[imgs.length - 1] ?? null;
   }
   async function renderFromNativePreview(node) {
-    if (String(node?.comfyClass ?? "").startsWith("ImageOps")) return null;
+    if (isImageOpsClass(node?.comfyClass)) return null;
     const media = getNativePreviewElement(node);
     if (!media) return null;
     if (media instanceof HTMLVideoElement) {
@@ -153,6 +154,17 @@ function buildRenderer({ api, registry, canvasSize }) {
       ctx.visited.delete(node.id);
       return primary2;
     }
+    const renderInputAt = async (inputInfo, tickOverride) => {
+      if (!inputInfo.upstreamNode) return inputInfo.canvas ?? null;
+      const localCtx = {
+        api,
+        canvasSize: ctx.canvasSize,
+        tick: tickOverride,
+        cache: /* @__PURE__ */ new Map(),
+        visited: /* @__PURE__ */ new Set([node.id])
+      };
+      return await renderNode(inputInfo.upstreamNode, localCtx, inputInfo.originSlot ?? null);
+    };
     if (resolvedIndexes.length === 0) {
       const out2 = document.createElement("canvas");
       out2.width = 1;
@@ -164,7 +176,7 @@ function buildRenderer({ api, registry, canvasSize }) {
       }
       let adapted2 = out2;
       try {
-        adapted2 = await adapter.apply({ node, ctx: octx2, canvasSize: ctx.canvasSize, inputs: [], tick: ctx.tick });
+        adapted2 = await adapter.apply({ node, ctx: octx2, canvasSize: ctx.canvasSize, inputs: [], tick: ctx.tick, renderInputAt });
       } catch (err) {
         console.warn(`[ImageOps] adapter '${adapter?.name ?? node.comfyClass}' threw \u2014 falling back to placeholder.`, err);
         adapted2 = out2;
@@ -232,7 +244,7 @@ function buildRenderer({ api, registry, canvasSize }) {
     octx.drawImage(inputs[0], 0, 0);
     let adapted = out;
     try {
-      adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs, inputInfos, outputSlot, tick: ctx.tick });
+      adapted = await adapter.apply({ node, ctx: octx, canvasSize: ctx.canvasSize, inputs, inputInfos, outputSlot, tick: ctx.tick, renderInputAt });
     } catch (err) {
       console.warn(`[ImageOps] adapter '${adapter?.name ?? node.comfyClass}' threw \u2014 passthrough first input.`, err);
       adapted = inputs[0] ?? out;
@@ -251,7 +263,20 @@ function buildRenderer({ api, registry, canvasSize }) {
   function signature(node, tick, outputSlot) {
     const parts = [node.id, String(node.comfyClass ?? ""), tick, outputSlot ?? -1];
     for (const input of node.inputs ?? []) {
-      parts.push(`in:${input?.name ?? ""}:${input?.link ?? "null"}`);
+      const inp = input;
+      const linkId = inp?.link ?? null;
+      parts.push(`in:${inp?.name ?? ""}:${linkId ?? "null"}`);
+      if (inp?.type === "STRING" && linkId != null) {
+        const linkData = node?.graph?.links?.[linkId];
+        if (linkData) {
+          const upNode = node?.graph?.getNodeById?.(linkData.origin_id);
+          const upWidget = (upNode?.widgets ?? []).find((w) => typeof w?.value === "string");
+          if (upWidget) {
+            const v = String(upWidget.value);
+            parts.push(v.length > 120 ? `cstr:${v.length}:${hashString(v)}` : `cstr:${v}`);
+          }
+        }
+      }
     }
     for (const w of node.widgets ?? []) {
       const v = w?.value;

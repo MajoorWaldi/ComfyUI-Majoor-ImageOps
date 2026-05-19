@@ -1,7 +1,7 @@
 import type { ComfyNode, NodeInteractionContext } from "../../types.js";
 import { colorWheelPointToValues } from "../color.js";
 import { getCanvasPointer } from "../shared/geometry.js";
-import { findWidget, setWidgetValue } from "../shared/widgets.js";
+import { findWidget, resetNodeWidgetsToDefaults, setWidgetValue } from "../shared/widgets.js";
 import { colorWidgetDefaultFor, colorWidgetNameForZone, isNode, syncColorCorrectWidgets } from "../nodes/color-correct.js";
 
 function markDirty(node: ComfyNode, ctx: NodeInteractionContext): void {
@@ -13,6 +13,14 @@ function markDirty(node: ComfyNode, ctx: NodeInteractionContext): void {
     ctx.startLoopIfVideo(node);
     ctx.refreshDependents(node);
   }, 0);
+}
+
+function refreshDirty(node: ComfyNode, ctx: NodeInteractionContext): void {
+  const st = node.__imageops_state ?? null;
+  if (!st) return;
+  st.nativeDirty = true;
+  ctx.markCanvasDirty();
+  ctx.refreshNode(node);
 }
 
 // Bind a slider input to a primary param. The widget name is resolved on every
@@ -50,33 +58,43 @@ function bindZoneWheel(
   canvas.dataset.bound = "1";
 
   let activePointerId: number | null = null;
+  let moveRafPending = false;
 
-  const commitWheelPoint = (event: PointerEvent): void => {
+  const commitWheelPoint = (event: PointerEvent, notify: boolean): void => {
     const st = node.__imageops_state ?? null;
     const zone = st?.colorActiveZone ?? "global";
     const point = getCanvasPointer(canvas, event);
     const values = colorWheelPointToValues(point.x, point.y, canvas);
-    setWidgetValue(findWidget(node, colorWidgetNameForZone("hue", zone)), values.hueDeg);
-    setWidgetValue(findWidget(node, colorWidgetNameForZone("saturation", zone)), values.saturation);
+    setWidgetValue(findWidget(node, colorWidgetNameForZone("hue", zone)), values.hueDeg, { notify });
+    setWidgetValue(findWidget(node, colorWidgetNameForZone("saturation", zone)), values.saturation, { notify });
     syncColorCorrectWidgets(node);
-    markDirty(node, ctx);
+    if (notify) {
+      markDirty(node, ctx);
+    } else if (!moveRafPending) {
+      moveRafPending = true;
+      requestAnimationFrame(() => {
+        moveRafPending = false;
+        refreshDirty(node, ctx);
+      });
+    }
   };
 
   canvas.addEventListener("pointerdown", (event: PointerEvent) => {
     activePointerId = event.pointerId;
     canvas.setPointerCapture?.(event.pointerId);
-    commitWheelPoint(event);
+    commitWheelPoint(event, false);
   });
 
   canvas.addEventListener("pointermove", (event: PointerEvent) => {
     if (activePointerId !== event.pointerId) return;
-    commitWheelPoint(event);
+    commitWheelPoint(event, false);
   });
 
   const release = (event: PointerEvent): void => {
     if (activePointerId !== event.pointerId) return;
     activePointerId = null;
     canvas.releasePointerCapture?.(event.pointerId);
+    commitWheelPoint(event, true);
   };
 
   canvas.addEventListener("pointerup", release);
@@ -126,14 +144,8 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
   bindZoneTab(node, ctx, st.colorZoneTabHighlights, "highlights");
 
   const resetAll = (): void => {
-    // Reset every primary across every zone (global + 3 zones). The wheel
-    // amount lives at `<zone>_amount` for the per-zone tabs and `saturation`
-    // for the global one — both already covered by `colorWidgetNameForZone`.
-    for (const zone of ["global", "shadows", "midtones", "highlights"]) {
-      for (const param of ["temperature", "hue", "contrast", "saturation", "vibrance", "gamma", "brightness"]) {
-        setWidgetValue(findWidget(node, colorWidgetNameForZone(param, zone)), colorWidgetDefaultFor(param));
-      }
-    }
+    resetNodeWidgetsToDefaults(node);
+    st.colorActiveZone = "global";
     syncColorCorrectWidgets(node);
     markDirty(node, ctx);
   };

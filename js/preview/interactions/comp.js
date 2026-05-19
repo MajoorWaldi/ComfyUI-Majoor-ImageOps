@@ -1,10 +1,11 @@
 import { clampCompScale, clampCompRotation, getCompSlots, getCompLayerOutputCorners } from "../comp.js";
+import { findWidget, resetNodeWidgetsToDefaults, setWidgetStringValue, setWidgetValue, widgetBoolean, widgetNumber } from "../shared/widgets.js";
 import {
-  clearCompLayerCorners,
   cloneCompCorners,
   compDragHandleToCorner,
   ensureCompInputs,
-  getCompCursor
+  getCompCursor,
+  removeSelectedCompLayer
 } from "../nodes/comp.js";
 import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
 function safeSetPointerCapture(el, pointerId) {
@@ -24,6 +25,31 @@ function rotatePoint(x, y, angleRad) {
   const sin = Math.sin(angleRad);
   return { x: x * cos - y * sin, y: x * sin + y * cos };
 }
+function aspectRatioValue(value) {
+  switch (String(value || "free").trim().toLowerCase()) {
+    case "1/1":
+    case "1:1":
+      return 1;
+    case "4/3":
+    case "4:3":
+      return 4 / 3;
+    case "16/9":
+    case "16:9":
+      return 16 / 9;
+    case "9/16":
+    case "9:16":
+      return 9 / 16;
+    default:
+      return null;
+  }
+}
+function applyCompAspectRatio(node, ratioName) {
+  const ratio = aspectRatioValue(ratioName);
+  if (!ratio) return;
+  if (widgetBoolean(node, "use_first_layer_size", true) || widgetBoolean(node, "auto_layering", false)) return;
+  const width = Math.max(1, Math.round(widgetNumber(node, "width", 1024)));
+  setWidgetValue(findWidget(node, "height"), Math.max(1, Math.round(width / ratio)));
+}
 function attachInteractions(node, ctx) {
   const st = node.__imageops_state;
   if (!st?.canvas || st.compInteractiveHooked) return;
@@ -34,30 +60,41 @@ function attachInteractions(node, ctx) {
     const raw = getCanvasPointer(canvas, event);
     return screenToWorld(raw.x, raw.y, st.previewZoom ?? 1, st.previewPanX ?? 0, st.previewPanY ?? 0, canvas.width);
   };
-  st.compAddButton?.addEventListener("click", (event) => {
-    event.preventDefault();
-    ensureCompInputs(node, Math.max(1, getCompSlots(node).length + 1));
-    const layers = ctx.ensureCompState(node);
-    st.compSelectedSlot = layers[layers.length - 1]?.slot ?? st.compSelectedSlot;
-    ctx.updateCompControls(node);
-    ctx.markPreviewInteraction(node);
-    ctx.markCanvasDirty();
-    ctx.schedule(node, () => {
-      ctx.startLoopIfVideo(node);
-      ctx.refreshDependents(node);
-    }, 0);
-  });
+  if (st.compAddButton && !st.compAddButton.dataset.compAddHooked) {
+    st.compAddButton.dataset.compAddHooked = "1";
+    st.compAddButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      ensureCompInputs(node, Math.max(1, getCompSlots(node).length + 1));
+      const layers = ctx.ensureCompState(node);
+      st.compSelectedSlot = layers[layers.length - 1]?.slot ?? st.compSelectedSlot;
+      ctx.updateCompControls(node);
+      ctx.markPreviewInteraction(node);
+      ctx.markCanvasDirty();
+      ctx.schedule(node, () => {
+        ctx.startLoopIfVideo(node);
+        ctx.refreshDependents(node);
+      }, 0);
+    });
+  }
+  if (st.compRemoveButton && !st.compRemoveButton.dataset.compRemoveHooked) {
+    st.compRemoveButton.dataset.compRemoveHooked = "1";
+    st.compRemoveButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      if (!removeSelectedCompLayer(node)) return;
+      ctx.updateCompControls(node);
+      ctx.markPreviewInteraction(node);
+      ctx.markCanvasDirty();
+      ctx.schedule(node, () => {
+        ctx.startLoopIfVideo(node);
+        ctx.refreshDependents(node);
+      }, 0);
+    });
+  }
   st.compResetButton?.addEventListener("click", (event) => {
     event.preventDefault();
-    ctx.updateSelectedCompLayer(node, (layer) => {
-      layer.centerX = 0.5;
-      layer.centerY = 0.5;
-      layer.scale = 1;
-      layer.rotationDeg = 0;
-      layer.opacity = 1;
-      layer.mode = "over";
-      clearCompLayerCorners(layer);
-    });
+    resetNodeWidgetsToDefaults(node);
+    st.compSelectedSlot = null;
+    ctx.updateCompControls(node);
     ctx.markPreviewInteraction(node);
     ctx.markCanvasDirty();
     ctx.schedule(node, () => {
@@ -79,10 +116,25 @@ function attachInteractions(node, ctx) {
     ctx.markPreviewInteraction(node);
     ctx.markCanvasDirty();
   });
+  if (st.compAspectRatioSelect && !st.compAspectRatioSelect.dataset.compAspectHooked) {
+    st.compAspectRatioSelect.dataset.compAspectHooked = "1";
+    st.compAspectRatioSelect.addEventListener("change", () => {
+      const value = st.compAspectRatioSelect?.value ?? "free";
+      setWidgetStringValue(findWidget(node, "aspect_ratio"), value);
+      applyCompAspectRatio(node, value);
+      ctx.updateCompControls(node);
+      ctx.markPreviewInteraction(node);
+      ctx.markCanvasDirty();
+      ctx.schedule(node, () => {
+        ctx.startLoopIfVideo(node);
+        ctx.refreshDependents(node);
+      }, 0);
+    });
+  }
   st.compModeSelect?.addEventListener("change", () => {
     ctx.updateSelectedCompLayer(node, (layer) => {
       layer.mode = st.compModeSelect?.value ?? "over";
-    });
+    }, false);
     ctx.markPreviewInteraction(node);
     ctx.markCanvasDirty();
     ctx.schedule(node, () => {
@@ -233,6 +285,8 @@ function attachInteractions(node, ctx) {
     safeReleasePointerCapture(canvas, event.pointerId);
     const point = worldPt(event);
     canvas.style.cursor = getCompCursor(ctx.getCompHit(node, canvas.width, canvas.height, point.x, point.y)?.mode ?? null);
+    ctx.updateSelectedCompLayer(node, (_layer) => {
+    }, true);
     ctx.markPreviewInteraction(node);
     ctx.markCanvasDirty();
     ctx.schedule(node, () => {
@@ -245,6 +299,51 @@ function attachInteractions(node, ctx) {
   canvas.addEventListener("pointerleave", () => {
     if (!st.compDrag) canvas.style.cursor = "default";
   });
+  if (!st.compKeyboardHooked) {
+    st.compKeyboardHooked = true;
+    let pointerOverCanvas = false;
+    canvas.addEventListener("pointerenter", () => {
+      pointerOverCanvas = true;
+    });
+    canvas.addEventListener("pointerleave", () => {
+      pointerOverCanvas = false;
+    });
+    const isEditableTarget = (target) => {
+      const el = target;
+      if (!el) return false;
+      const tag = (el.tagName || "").toUpperCase();
+      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable === true;
+    };
+    window.addEventListener("keydown", (event) => {
+      if (!pointerOverCanvas && document.activeElement !== canvas) return;
+      if (isEditableTarget(event.target)) return;
+      if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        if (!removeSelectedCompLayer(node)) return;
+        ctx.updateCompControls(node);
+        ctx.markPreviewInteraction(node);
+        ctx.markCanvasDirty();
+        ctx.schedule(node, () => {
+          ctx.startLoopIfVideo(node);
+          ctx.refreshDependents(node);
+        }, 0);
+        return;
+      }
+      const digit = event.key.charCodeAt(0);
+      if (digit >= 49 && digit <= 57 && event.key.length === 1) {
+        const idx = digit - 49;
+        const layers = ctx.ensureCompState(node);
+        const target = layers[idx];
+        if (target) {
+          event.preventDefault();
+          st.compSelectedSlot = target.slot;
+          ctx.updateCompControls(node);
+          ctx.markPreviewInteraction(node);
+          ctx.markCanvasDirty();
+        }
+      }
+    });
+  }
 }
 export {
   attachInteractions

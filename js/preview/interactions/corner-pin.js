@@ -41,6 +41,13 @@ function attachInteractions(node, ctx) {
     st.cornerPinDrag = { pointerId: event.pointerId, handle: hit };
     canvas.style.cursor = "grabbing";
   });
+  const SNAP_THRESHOLD = 0.015;
+  const maybeSnap = (n, altKey) => {
+    if (altKey) return n;
+    if (Math.abs(n - 0) < SNAP_THRESHOLD) return 0;
+    if (Math.abs(n - 1) < SNAP_THRESHOLD) return 1;
+    return n;
+  };
   canvas.addEventListener("pointermove", (event) => {
     const point = worldPt(event);
     const drag = st.cornerPinDrag;
@@ -51,7 +58,9 @@ function attachInteractions(node, ctx) {
     }
     event.preventDefault();
     const mapped = cornerPinCanvasToNormalized(geometry, point.x, point.y);
-    setCornerPinHandle(node, drag.handle, mapped.xNorm, mapped.yNorm);
+    const xN = maybeSnap(mapped.xNorm, event.altKey);
+    const yN = maybeSnap(mapped.yNorm, event.altKey);
+    setCornerPinHandle(node, drag.handle, xN, yN, false);
     canvas.style.cursor = "grabbing";
     if (!moveRafPending) {
       moveRafPending = true;
@@ -63,10 +72,17 @@ function attachInteractions(node, ctx) {
   });
   const releaseDrag = (event) => {
     if (!st.cornerPinDrag || st.cornerPinDrag.pointerId !== event.pointerId) return;
+    const drag = st.cornerPinDrag;
     st.cornerPinDrag = null;
     safeReleasePointerCapture(canvas, event.pointerId);
     const point = worldPt(event);
     canvas.style.cursor = getCornerPinHit(node, st.cornerPinGeometry, point.x, point.y) ? "grab" : "default";
+    if (st.cornerPinGeometry) {
+      const mapped = cornerPinCanvasToNormalized(st.cornerPinGeometry, point.x, point.y);
+      const xN = maybeSnap(mapped.xNorm, event.altKey);
+      const yN = maybeSnap(mapped.yNorm, event.altKey);
+      setCornerPinHandle(node, drag.handle, xN, yN, true);
+    }
     ctx.refreshNode(node);
   };
   canvas.addEventListener("pointerup", releaseDrag);

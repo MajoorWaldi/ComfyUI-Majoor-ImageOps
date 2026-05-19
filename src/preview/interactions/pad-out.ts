@@ -1,7 +1,6 @@
 import type { ComfyNode, NodeInteractionContext } from "../../types.js";
 import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
-import { findWidget, setWidgetValue } from "../shared/widgets.js";
-import { isNode, getPadOutInteractionMode, getPadOutCursor } from "../nodes/pad-out.js";
+import { isNode, dragLockedPadOutFrame, getPadOutCursor, getPadOutFrame, getPadOutInteractionMode, getPadOutSnap, getPadOutTargetRatio, setPadOutOutputRect, setPadOutPadding, syncPadOutControls } from "../nodes/pad-out.js";
 
 export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext): void {
   if (!isNode(node)) return;
@@ -51,6 +50,14 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     const deltaCanvasY = point.y - drag.startCanvasY;
     const deltaX = deltaCanvasX * geometry.outputWidth / Math.max(1, geometry.fitDrawWidth);
     const deltaY = deltaCanvasY * geometry.outputHeight / Math.max(1, geometry.fitDrawHeight);
+    const snap = getPadOutSnap(node);
+    const targetRatio = getPadOutTargetRatio(node);
+    const sourceWidth = geometry.sourceWidth;
+    const sourceHeight = geometry.sourceHeight;
+    const startOutWidth = sourceWidth + drag.startPadLeft + drag.startPadRight;
+    const startOutHeight = sourceHeight + drag.startPadTop + drag.startPadBottom;
+    const startX1 = -drag.startPadLeft;
+    const startY1 = -drag.startPadTop;
 
     let left = drag.startPadLeft;
     let top = drag.startPadTop;
@@ -58,19 +65,10 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     let bottom = drag.startPadBottom;
 
     if (drag.mode === "move") {
-      // Move source image within fixed output size: redistribute padding.
-      const totalX = drag.startPadLeft + drag.startPadRight;
-      const totalY = drag.startPadTop + drag.startPadBottom;
-      left = Math.max(0, Math.min(totalX, Math.round(drag.startPadLeft + deltaX)));
-      right = totalX - left;
-      top = Math.max(0, Math.min(totalY, Math.round(drag.startPadTop + deltaY)));
-      bottom = totalY - top;
+      setPadOutOutputRect(node, sourceWidth, sourceHeight, startX1 - deltaX, startY1 - deltaY, startOutWidth, startOutHeight, false);
+    } else if (targetRatio != null) {
+      dragLockedPadOutFrame(node, geometry, drag.mode, deltaX, deltaY, drag.startPadLeft, drag.startPadTop, drag.startPadRight, drag.startPadBottom, false);
     } else {
-      // Outer frame resize: pulling an edge OUTWARD adds padding on that side.
-      // Drag outer-top UP (negative deltaY)  → pad_top increases.  startPadTop - deltaY
-      // Drag outer-bottom DOWN (positive)    → pad_bottom increases. startPadBottom + deltaY
-      // Drag outer-left LEFT (negative deltaX) → pad_left increases. startPadLeft - deltaX
-      // Drag outer-right RIGHT (positive)    → pad_right increases.  startPadRight + deltaX
       if (drag.mode === "n" || drag.mode === "nw" || drag.mode === "ne") {
         top = Math.max(0, Math.round(drag.startPadTop - deltaY));
       }
@@ -83,12 +81,11 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
       if (drag.mode === "e" || drag.mode === "ne" || drag.mode === "se") {
         right = Math.max(0, Math.round(drag.startPadRight + deltaX));
       }
+      setPadOutPadding(node, left, top, right, bottom, false);
     }
 
-    setWidgetValue(findWidget(node, "pad_left"), left);
-    setWidgetValue(findWidget(node, "pad_top"), top);
-    setWidgetValue(findWidget(node, "pad_right"), right);
-    setWidgetValue(findWidget(node, "pad_bottom"), bottom);
+    void snap;
+    syncPadOutControls(node);
     ctx.refreshNode(node);
     canvas.style.cursor = getPadOutCursor(drag.mode);
   });
@@ -99,6 +96,8 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     canvas.releasePointerCapture?.(event.pointerId);
     const point = worldPt(event);
     canvas.style.cursor = getPadOutCursor(getPadOutInteractionMode(st.padOutGeometry, point.x, point.y));
+    const frame = getPadOutFrame(node, st.padOutGeometry);
+    setPadOutPadding(node, frame.padLeft, frame.padTop, frame.padRight, frame.padBottom, true);
     ctx.refreshNode(node);
   };
 
@@ -108,5 +107,23 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     if (!st.padOutDrag) {
       canvas.style.cursor = "default";
     }
+  });
+
+  canvas.addEventListener("keydown", (event: KeyboardEvent) => {
+    if (["INPUT", "SELECT", "TEXTAREA"].includes((event.target as HTMLElement | null)?.tagName ?? "")) return;
+    if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const frame = getPadOutFrame(node, st.padOutGeometry);
+    const step = getPadOutSnap(node) * (event.shiftKey ? 4 : 1);
+    let x1 = frame.x1;
+    let y1 = frame.y1;
+    if (event.key === "ArrowUp") y1 -= step;
+    if (event.key === "ArrowDown") y1 += step;
+    if (event.key === "ArrowLeft") x1 -= step;
+    if (event.key === "ArrowRight") x1 += step;
+    setPadOutOutputRect(node, frame.sourceWidth, frame.sourceHeight, x1, y1, frame.outWidth, frame.outHeight);
+    syncPadOutControls(node);
+    ctx.refreshNode(node);
   });
 }
