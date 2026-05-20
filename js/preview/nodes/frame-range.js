@@ -441,6 +441,11 @@ function syncFrameSelectorWidgets(node) {
     st.frameSelectorFill.style.left = `${startPct}%`;
     st.frameSelectorFill.style.width = `${Math.max(0, endPct - startPct)}%`;
   }
+  const isFreezeOutput = repeat && repeatMode === "freeze" || frameHold && (!repeat || repeatMode === "input_duration" || repeatMode === "custom_count");
+  if (isFreezeOutput && st.frameSelectorPlayhead && max > 0) {
+    const playheadPct = Math.max(0, Math.min(max, holdFrame)) / max * 100;
+    st.frameSelectorPlayhead.style.left = `${playheadPct}%`;
+  }
   if (st.frameSelectorRuler) {
     const fps = getUpstreamFps(node);
     const hasFps = fps > 0;
@@ -607,9 +612,15 @@ function attachFrameSelectorControls(node, ctx) {
     const start = Math.max(0, Math.round(widgetNumber(node, "trim_start", 0)));
     const endRaw = Math.round(widgetNumber(node, "trim_end", -1));
     const end = endRaw < 0 ? max : Math.max(start, endRaw);
+    const repeat = widgetBoolean(node, "repeat", false);
+    const repeatMode = normalizeFrameSelectorRepeatStyle(widgetString(node, "repeat_mode", "loop"));
+    const pickHoldFrame = widgetBoolean(node, "frame_hold", false) || repeat && repeatMode === "freeze";
     const rect = st.frameSelectorSliderBox.getBoundingClientRect();
     const tolerance = Math.max(1, Math.round(10 / Math.max(1, rect.width) * max));
-    if (val > start + tolerance && val < end - tolerance) {
+    if (pickHoldFrame) {
+      dragging = "hold";
+      writeInt(node, "hold_frame", Math.max(start, Math.min(end, val)));
+    } else if (val > start + tolerance && val < end - tolerance) {
       dragging = "center";
       dragOffset = val - start;
       dragSelectionWidth = end - start;
@@ -631,7 +642,9 @@ function attachFrameSelectorControls(node, ctx) {
     const start = Math.max(0, Math.round(widgetNumber(node, "trim_start", 0)));
     const endRaw = Math.round(widgetNumber(node, "trim_end", -1));
     const end = endRaw < 0 ? max : Math.max(start, endRaw);
-    if (dragging === "start") {
+    if (dragging === "hold") {
+      writeInt(node, "hold_frame", Math.max(start, Math.min(end, val)));
+    } else if (dragging === "start") {
       writeInt(node, "trim_start", Math.min(val, end));
     } else if (dragging === "end") {
       writeInt(node, "trim_end", Math.max(val, start));

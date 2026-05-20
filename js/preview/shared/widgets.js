@@ -104,6 +104,11 @@ function setWidgetStringValue(widget, value, options = {}) {
     if (dirty) markCanvasDirty();
   }
 }
+function setWidgetStringValuesByName(node, name, value, options = {}) {
+  for (const widget of node.widgets ?? []) {
+    if (widget?.name === name) setWidgetStringValue(widget, value, options);
+  }
+}
 function setWidgetBooleanValue(widget, value, options = {}) {
   if (!widget) return;
   const notify = options.notify !== false;
@@ -214,6 +219,7 @@ export {
   setWidgetBooleanValue,
   setWidgetMixedValue,
   setWidgetStringValue,
+  setWidgetStringValuesByName,
   setWidgetValue,
   widgetBoolean,
   widgetNumber,

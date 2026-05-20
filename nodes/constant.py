@@ -41,8 +41,8 @@ def _checkerboard_image(
 
 class ImageOpsConstant:
     CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT")
-    RETURN_NAMES = ("image", "mask", "width", "height")
+    RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT", "INT")
+    RETURN_NAMES = ("image", "mask", "width", "height", "frame_count")
     FUNCTION = "generate"
 
     @classmethod
@@ -52,7 +52,7 @@ class ImageOpsConstant:
                 "mode": (_MODES, {"default": "constant"}),
                 "width": ("INT", {"default": 1024, "min": 1, "max": 8192, "step": 1}),
                 "height": ("INT", {"default": 1024, "min": 1, "max": 8192, "step": 1}),
-                "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096, "step": 1}),
+                "frame_count": ("INT", {"default": 1, "min": 1, "max": 4096, "step": 1}),
                 "color": ("COLOR", {"default": "#ffffff"}),
                 "color_b": ("COLOR", {"default": "#000000"}),
                 "alpha": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
@@ -70,7 +70,9 @@ class ImageOpsConstant:
         mode="constant",
         width=1024,
         height=1024,
-        batch_size=1,
+        frame_count=None,
+        frame_length=None,
+        batch_size=None,
         color="#ffffff",
         color_b="#000000",
         alpha=1.0,
@@ -82,7 +84,8 @@ class ImageOpsConstant:
         progress = start_progress(unique_id=unique_id)
         out_w = max(1, _scalar(width, int))
         out_h = max(1, _scalar(height, int))
-        batch = max(1, _scalar(batch_size, int))
+        frame_count_source = frame_count if frame_count is not None else (frame_length if frame_length is not None else (batch_size if batch_size is not None else 1))
+        batch = max(1, _scalar(frame_count_source, int))
         opacity = max(0.0, min(1.0, _scalar(alpha)))
         normalized_mode = str(mode or "constant").strip().lower().replace("-", "_").replace(" ", "_")
 
@@ -103,4 +106,4 @@ class ImageOpsConstant:
 
         mask = image[..., 3].clamp(0.0, 1.0)
         progress.finish()
-        return build_node_preview_result(image, (image, mask, out_w, out_h), prefix="imageops_constant")
+        return build_node_preview_result(image, (image, mask, out_w, out_h, batch), prefix="imageops_constant")

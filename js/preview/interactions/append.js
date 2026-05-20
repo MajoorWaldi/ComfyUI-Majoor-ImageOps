@@ -200,6 +200,7 @@ function buildJoinTrimRow(node, ctx, st, slot, index) {
     removeButton,
     maxFrame: 0,
     frameCount: 1,
+    endIsAuto: true,
     dragging: null,
     dragOffset: 0,
     dragSelectionWidth: 0,
@@ -220,11 +221,17 @@ function buildJoinTrimRow(node, ctx, st, slot, index) {
         existing = { slot: rowState.slot, start: 0, end: -1 };
         next.push(existing);
       }
-      existing.start = Math.max(0, Math.min(rowState.maxFrame, Math.round(Number(rowState.startNumber.value || 0))));
-      existing.end = Math.max(0, Math.min(rowState.maxFrame, Math.round(Number(rowState.endNumber.value || rowState.maxFrame))));
-      if (existing.end < existing.start) existing.end = existing.start;
-      rowState.startNumber.value = String(existing.start);
-      rowState.endNumber.value = String(existing.end);
+      let startVal = Math.max(0, Math.min(rowState.maxFrame, Math.round(Number(rowState.startNumber.value || 0))));
+      let endVal = Math.max(0, Math.min(rowState.maxFrame, Math.round(Number(rowState.endNumber.value || rowState.maxFrame))));
+      if (endVal < startVal) {
+        const tmp = startVal;
+        startVal = endVal;
+        endVal = tmp;
+      }
+      existing.start = startVal;
+      existing.end = rowState.endIsAuto && endVal >= rowState.maxFrame ? -1 : endVal;
+      rowState.startNumber.value = String(startVal);
+      rowState.endNumber.value = String(endVal);
       rowState.meta.textContent = rowState.frameCount > 0 ? `${selectionCount(existing.start, existing.end, rowState.frameCount)}/${rowState.frameCount}f` : `${selectionCount(existing.start, existing.end, rowState.maxFrame + 1)}f`;
       rowState.syncTimeline();
       writeJoinTrims(node, next);
@@ -249,12 +256,14 @@ function buildJoinTrimRow(node, ctx, st, slot, index) {
       rowState.dragging = "center";
       rowState.dragOffset = val - start;
       rowState.dragSelectionWidth = end - start;
+      rowState.endIsAuto = false;
     } else if (Math.abs(val - start) <= Math.abs(val - end)) {
       rowState.dragging = "start";
       rowState.startNumber.value = String(Math.min(val, end));
     } else {
       rowState.dragging = "end";
       rowState.endNumber.value = String(Math.max(val, start));
+      rowState.endIsAuto = false;
     }
     rowState.commit("none");
     rowState.sliderBox.setPointerCapture?.(event.pointerId);
@@ -295,7 +304,10 @@ function buildJoinTrimRow(node, ctx, st, slot, index) {
   rowState.sliderBox.addEventListener("pointerup", release);
   rowState.sliderBox.addEventListener("pointercancel", release);
   rowState.startNumber.addEventListener("change", () => rowState.commit("now"));
-  rowState.endNumber.addEventListener("change", () => rowState.commit("now"));
+  rowState.endNumber.addEventListener("change", () => {
+    rowState.endIsAuto = false;
+    rowState.commit("now");
+  });
   rowState.removeButton.addEventListener("click", (event) => {
     event.preventDefault();
     if (!removeJoinInput(node, rowState.index)) return;
@@ -304,12 +316,13 @@ function buildJoinTrimRow(node, ctx, st, slot, index) {
   });
   return rowState;
 }
-function syncJoinTrimRow(row, index, frameCount, startValue, endValue, maxFrame, canRemove) {
+function syncJoinTrimRow(row, index, frameCount, startValue, endValue, maxFrame, canRemove, endIsAuto) {
   row.index = index;
   row.title.textContent = `Clip ${index}`;
-  row.meta.textContent = frameCount > 0 ? `${selectionCount(startValue, endValue, frameCount)}/${frameCount}f` : `${selectionCount(startValue, endValue, maxFrame + 1)}f`;
+  row.meta.textContent = frameCount > 0 ? `${selectionCount(startValue, endValue, frameCount)}/${frameCount}f` : "\u2014";
   row.frameCount = Math.max(1, frameCount || maxFrame + 1);
   row.maxFrame = maxFrame;
+  row.endIsAuto = endIsAuto;
   row.startNumber.max = String(maxFrame);
   row.endNumber.max = String(maxFrame);
   row.startNumber.value = String(startValue);
@@ -351,7 +364,7 @@ function renderJoinTrimControls(node, ctx) {
       row = buildJoinTrimRow(node, ctx, st, slot, index);
       rows.set(slot, row);
     }
-    syncJoinTrimRow(row, index, frameCount, startValue, endValue, maxFrame, slots.length > 2);
+    syncJoinTrimRow(row, index, frameCount, startValue, endValue, maxFrame, slots.length > 2, trim.end < 0);
     list.appendChild(row.wrap);
   }
   for (const [slot, row] of Array.from(rows.entries())) {

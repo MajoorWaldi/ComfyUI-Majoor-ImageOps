@@ -234,7 +234,7 @@ function imageOpsAdapter() {
           const frameHold = !!(node.widgets ?? []).find((w) => w?.name === "frame_hold")?.value;
           const repeat = !!(node.widgets ?? []).find((w) => w?.name === "repeat")?.value;
           const repeatMode = String((node.widgets ?? []).find((w) => w?.name === "repeat_mode")?.value ?? "loop").trim().toLowerCase();
-          const freezePlayback = frameHold && (!repeat || repeatMode === "input_duration" || repeatMode === "custom_count");
+          const freezePlayback = repeat && repeatMode === "freeze" || frameHold && (!repeat || repeatMode === "input_duration" || repeatMode === "custom_count");
           const playhead = st?.frameSelectorPlayhead;
           if (playhead) {
             const max = Math.max(1, sourceCount - 1);

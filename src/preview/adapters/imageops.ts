@@ -257,7 +257,10 @@ export function imageOpsAdapter(): Adapter {
           const frameHold = !!(node.widgets ?? []).find(w => w?.name === "frame_hold")?.value;
           const repeat = !!(node.widgets ?? []).find(w => w?.name === "repeat")?.value;
           const repeatMode = String((node.widgets ?? []).find(w => w?.name === "repeat_mode")?.value ?? "loop").trim().toLowerCase();
-          const freezePlayback = frameHold && (!repeat || repeatMode === "input_duration" || repeatMode === "custom_count");
+          // Freeze = one fixed source frame: either frame_hold toggle (modulo non-shuffling repeat modes),
+          // or the explicit "Freeze × N" repeat mode which locks to hold_frame regardless of frame_hold.
+          const freezePlayback = (repeat && repeatMode === "freeze")
+            || (frameHold && (!repeat || repeatMode === "input_duration" || repeatMode === "custom_count"));
 
           // Update playhead position in the slider (yellow line = current frame)
           const playhead = st?.frameSelectorPlayhead as HTMLDivElement | null;

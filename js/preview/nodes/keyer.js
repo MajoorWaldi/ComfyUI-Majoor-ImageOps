@@ -1,6 +1,6 @@
 import { createColorSwatch, styleSoftButton, styleSoftRange, syncDarkColorInputUI } from "../shared/dom-styles.js";
 import { getCanvasPointer } from "../shared/geometry.js";
-import { findWidget, hideWidgetForGood, hideWidgetsByName, setWidgetBooleanValue, setWidgetStringValue, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
+import { findWidget, hideWidgetForGood, hideWidgetsByName, setWidgetBooleanValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
 const NODE_CLASS = "ImageOpsKeyer";
 function isNode(node) {
   return String(node?.comfyClass ?? "") === NODE_CLASS;
@@ -160,7 +160,7 @@ function writeKeyColorSelection(node, colors) {
   const next = colors.map((value) => String(value || "").trim().toLowerCase()).filter((value, index, arr) => /^#[0-9a-f]{6}$/i.test(value) && arr.indexOf(value) === index);
   setWidgetStringValue(ensureKeyColorsWidget(node), JSON.stringify(next));
   if (next.length > 0) {
-    setWidgetStringValue(findWidget(node, "key_color"), next[next.length - 1]);
+    setWidgetStringValuesByName(node, "key_color", next[next.length - 1]);
   }
 }
 function findClosestSelectionIndex(colors, color) {
@@ -200,6 +200,7 @@ function setRange(input, value) {
 function syncKeyerWidgets(node) {
   if (!isNode(node)) return;
   ensureKeyColorsWidget(node);
+  hideKeyerWidgets(node);
   const st = node.__imageops_state;
   if (!st?.keyerControls) return;
   const mode = widgetString(node, "mode", "color").toLowerCase();
@@ -209,6 +210,7 @@ function syncKeyerWidgets(node) {
   const bypass = widgetBoolean(node, "bypass", false);
   const picking = st.keyerPicking === true;
   const selectionCount = Math.max(1, parseKeyColorSelection(node).length || (keyColor ? 1 : 0));
+  setWidgetStringValuesByName(node, "key_color", keyColor, { notify: false, dirty: false });
   for (const button of st.keyerModeButtons ?? []) {
     styleSoftButton(button, button.dataset.keyerMode === mode);
   }
@@ -292,7 +294,7 @@ function attachKeyerControls(node, ctx) {
     });
   }
   st.keyerColorInput?.addEventListener("input", () => {
-    setWidgetStringValue(findWidget(node, "key_color"), st.keyerColorInput.value);
+    setWidgetStringValuesByName(node, "key_color", st.keyerColorInput.value);
     writeKeyColorSelection(node, [st.keyerColorInput.value]);
     refresh();
   });

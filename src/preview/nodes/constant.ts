@@ -1,7 +1,7 @@
 import type { ComfyNode } from "../../types.js";
 import { ensureState } from "../shared/state.js";
 import { resolveImageOpsClassName } from "../shared/classes.js";
-import { findWidget, hideWidgetForGood, hideWidgetsByName, widgetNumber, widgetString } from "../shared/widgets.js";
+import { findWidget, hideWidgetForGood, hideWidgetsByName, setWidgetStringValuesByName, widgetNumber, widgetString } from "../shared/widgets.js";
 import {
   createColorSwatch,
   createContextMenuSelect,
@@ -140,7 +140,7 @@ export function createConstantControlsUi(): ConstantControlsUi {
 export function hideConstantWidgets(node: ComfyNode): void {
   // hideWidgetsByName covers ComfyUI's auto-added duplicates (e.g. an uppercase
   // COLOR widget paired with each `color` widget).
-  for (const name of ["mode", "color", "color_b", "alpha"]) {
+  for (const name of ["mode", "color", "color_b", "alpha", "frame_length", "batch_size"]) {
     hideWidgetsByName(node, name);
   }
 }
@@ -149,12 +149,19 @@ export function getConstantInfoText(node: ComfyNode): string {
   const mode = widgetString(node, "mode", "constant").toLowerCase() === "checkerboard" ? "Checker" : "Solid";
   const width = Math.max(1, Math.round(widgetNumber(node, "width", 1024)));
   const height = Math.max(1, Math.round(widgetNumber(node, "height", 1024)));
-  const batch = Math.max(1, Math.round(widgetNumber(node, "batch_size", 1)));
-  return `${mode} preview (${width}x${height}, batch ${batch})`;
+  const frameCount = Math.max(1, Math.round(widgetNumber(node, "frame_count", widgetNumber(node, "frame_length", widgetNumber(node, "batch_size", 1)))));
+  return `${mode} preview (${width}x${height}, frames ${frameCount})`;
 }
 
 export function syncConstantWidgets(node: ComfyNode): void {
   if (!isNode(node)) return;
+
+  hideConstantWidgets(node);
+
+  const colorA = widgetString(node, "color", "#ffffff");
+  const colorB = widgetString(node, "color_b", "#000000");
+  setWidgetStringValuesByName(node, "color", colorA, { notify: false, dirty: false });
+  setWidgetStringValuesByName(node, "color_b", colorB, { notify: false, dirty: false });
 
   const st = ensureState(node);
   const root = st.previewRoot;
@@ -164,8 +171,6 @@ export function syncConstantWidgets(node: ComfyNode): void {
   const width = Math.max(1, Math.round(widgetNumber(node, "width", 1024)));
   const height = Math.max(1, Math.round(widgetNumber(node, "height", 1024)));
   const alpha = Math.max(0, Math.min(1, widgetNumber(node, "alpha", 1)));
-  const colorA = widgetString(node, "color", "#ffffff");
-  const colorB = widgetString(node, "color_b", "#000000");
 
   const ratioSelect = root.querySelector<HTMLSelectElement>('select[data-constant-ratio="1"]');
   if (ratioSelect) ratioSelect.value = resolveConstantRatioPreset(width, height);

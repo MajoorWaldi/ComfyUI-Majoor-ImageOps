@@ -2,7 +2,7 @@ import type { ComfyNode, NodeInteractionContext } from "../../types.js";
 import { syncDarkColorInputUI } from "../shared/dom-styles.js";
 import { getRampHit, isNode as isRampNode, rampCanvasToNormalized, setRampHandle, syncRampWidgets } from "../nodes/ramp.js";
 import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
-import { findWidget, setWidgetBooleanValue, setWidgetStringValue, setWidgetValue } from "../shared/widgets.js";
+import { findWidget, setWidgetBooleanValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetValue } from "../shared/widgets.js";
 
 const RAMP_RATIO_PRESETS: Record<string, number> = {
   "1:1": 1,
@@ -137,8 +137,8 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
       if (field === "width" || field === "height") {
         setWidgetValue(findWidget(node, field), clampInt(numeric, 1024, 1, 8192));
         applyRatioPreset(field);
-      } else if (field === "batch_size") {
-        setWidgetValue(findWidget(node, field), clampInt(numeric, 1, 1, 4096));
+      } else if (field === "frame_count" || field === "frame_length" || field === "batch_size") {
+        setWidgetValue(findWidget(node, "frame_count") ?? findWidget(node, "frame_length") ?? findWidget(node, "batch_size"), clampInt(numeric, 1, 1, 4096));
       } else if (field === "start_x" || field === "start_y" || field === "end_x" || field === "end_y") {
         setWidgetValue(findWidget(node, field), clampFloat(numeric, field.endsWith("y") ? 0.5 : (field.startsWith("end") ? 1 : 0), -2, 3));
       }
@@ -150,8 +150,8 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     input.addEventListener("input", () => {
       const channel = String(input.dataset.rampColor ?? "a");
       const widgetName = channel === "b" ? "color_b" : "color_a";
-      const normalized = String(input.value || (channel === "b" ? "#ffffff" : "#000000"));
-      setWidgetStringValue(findWidget(node, widgetName), normalized);
+      const normalized = String(input.value || (channel === "b" ? "#000000" : "#ffffff"));
+      setWidgetStringValuesByName(node, widgetName, normalized);
       syncDarkColorInputUI(input, normalized);
       refresh();
     });

@@ -1,7 +1,7 @@
 import type { ComfyNode, NodeInteractionContext } from "../../types.js";
 import { syncDarkColorInputUI } from "../shared/dom-styles.js";
 import { isNode as isTextNode, syncTextWidgets } from "../nodes/text.js";
-import { findWidget, setWidgetBooleanValue, setWidgetStringValue, setWidgetValue, widgetNumber } from "../shared/widgets.js";
+import { findWidget, setWidgetBooleanValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetValue, widgetNumber } from "../shared/widgets.js";
 
 function clampInt(value: number, fallback: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return fallback;
@@ -65,7 +65,7 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
       const widgetName = channel === "stroke" ? "stroke_color" : "color";
       const fallback = channel === "stroke" ? "#000000" : "#ffffff";
       const normalized = String(input.value || fallback);
-      setWidgetStringValue(findWidget(node, widgetName), normalized);
+      setWidgetStringValuesByName(node, widgetName, normalized);
       syncDarkColorInputUI(input, normalized);
       refresh();
     });

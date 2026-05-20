@@ -10,7 +10,7 @@ import {
 } from "../shared/dom-styles.js";
 import { resolveImageOpsClassName } from "../shared/classes.js";
 import { ensureState } from "../shared/state.js";
-import { findWidget, hideWidgetForGood, hideWidgetsByName, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
+import { findWidget, hideWidgetForGood, hideWidgetsByName, setWidgetStringValuesByName, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
 
 const RAMP_RATIO_PRESETS: Record<string, number> = {
   "1:1": 1,
@@ -190,6 +190,8 @@ export function hideRampWidgets(node: ComfyNode): void {
     "color_a",
     "color_b",
     "alpha",
+    "frame_length",
+    "batch_size",
     "start_x",
     "start_y",
     "end_x",
@@ -205,9 +207,9 @@ export function hideRampWidgets(node: ComfyNode): void {
 export function getRampInfoText(node: ComfyNode): string {
   const width = Math.max(1, Math.round(widgetNumber(node, "width", 1024)));
   const height = Math.max(1, Math.round(widgetNumber(node, "height", 1024)));
-  const batch = Math.max(1, Math.round(widgetNumber(node, "batch_size", 1)));
+  const frameCount = Math.max(1, Math.round(widgetNumber(node, "frame_count", widgetNumber(node, "frame_length", widgetNumber(node, "batch_size", 1)))));
   const shape = widgetString(node, "ramp_shape", "linear");
-  return `Ramp preview (${shape}, ${width}x${height}, batch ${batch})`;
+  return `Ramp preview (${shape}, ${width}x${height}, frames ${frameCount})`;
 }
 
 export function rampCanvasPoint(geometry: RampPreviewGeometry, xNorm: number, yNorm: number): { x: number; y: number } {
@@ -257,20 +259,25 @@ export function setRampHandle(node: ComfyNode, handle: RampHandle, xNorm: number
 export function syncRampWidgets(node: ComfyNode): void {
   if (!isNode(node)) return;
 
+  hideRampWidgets(node);
+
+  const colorA = widgetString(node, "color_a", "#ffffff");
+  const colorB = widgetString(node, "color_b", "#000000");
+  setWidgetStringValuesByName(node, "color_a", colorA, { notify: false, dirty: false });
+  setWidgetStringValuesByName(node, "color_b", colorB, { notify: false, dirty: false });
+
   const st = ensureState(node);
   const root = st.previewRoot;
   if (!root) return;
 
   const width = Math.max(1, Math.round(widgetNumber(node, "width", 1024)));
   const height = Math.max(1, Math.round(widgetNumber(node, "height", 1024)));
-  const batchSize = Math.max(1, Math.round(widgetNumber(node, "batch_size", 1)));
+  const frameCount = Math.max(1, Math.round(widgetNumber(node, "frame_count", widgetNumber(node, "frame_length", widgetNumber(node, "batch_size", 1)))));
   const alpha = Math.max(0, Math.min(1, widgetNumber(node, "alpha", 1)));
   const startX = widgetNumber(node, "start_x", 0);
   const startY = widgetNumber(node, "start_y", 0.5);
   const endX = widgetNumber(node, "end_x", 1);
   const endY = widgetNumber(node, "end_y", 0.5);
-  const colorA = widgetString(node, "color_a", "#ffffff");
-  const colorB = widgetString(node, "color_b", "#000000");
   const shape = widgetString(node, "ramp_shape", "linear");
   const mode = widgetString(node, "ramp_mode", "linear");
   const invert = widgetBoolean(node, "invert", false);
@@ -282,7 +289,9 @@ export function syncRampWidgets(node: ComfyNode): void {
 
   setNumberField("width", width);
   setNumberField("height", height);
-  setNumberField("batch_size", batchSize);
+  setNumberField("frame_count", frameCount);
+  setNumberField("frame_length", frameCount);
+  setNumberField("batch_size", frameCount);
   setNumberField("start_x", startX);
   setNumberField("start_y", startY);
   setNumberField("end_x", endX);

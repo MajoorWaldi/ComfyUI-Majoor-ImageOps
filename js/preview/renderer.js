@@ -194,6 +194,26 @@ function buildRenderer({ api, registry, canvasSize }) {
     }
     const primaryInputIndex = resolvedIndexes[0] ?? 0;
     const primary = await renderNode(getUpstreamNode(node, primaryInputIndex), ctx, getInputOriginSlot(node, primaryInputIndex));
+    if (resolvedIndexes.length > 1) {
+      const primaryUp = getUpstreamNode(node, primaryInputIndex);
+      const primaryVid = primaryUp?.__imageops_media?.videoEl;
+      if (primaryVid && primaryVid.readyState >= 2 && Number.isFinite(primaryVid.currentTime)) {
+        const refTime = primaryVid.currentTime;
+        for (let si = 1; si < resolvedIndexes.length; si++) {
+          const secUp = getUpstreamNode(node, resolvedIndexes[si]);
+          const secVid = secUp?.__imageops_media?.videoEl;
+          if (secVid && secVid !== primaryVid && secVid.readyState >= 2 && Number.isFinite(secVid.duration) && secVid.duration > 0) {
+            const target = refTime % secVid.duration;
+            if (Math.abs(secVid.currentTime - target) > 0.05) {
+              try {
+                secVid.currentTime = target;
+              } catch {
+              }
+            }
+          }
+        }
+      }
+    }
     if (!primary) {
       ctx.visited.delete(node.id);
       return null;

@@ -10,7 +10,7 @@ import {
 } from "../draw.js";
 import { isNode as isDrawNode, canvasToDrawSourcePoint } from "../nodes/draw.js";
 import { getCanvasPointer, screenToWorld, clampPreviewZoom } from "../shared/geometry.js";
-import { findWidget, widgetNumber, widgetBoolean, setWidgetValue, setWidgetStringValue, setWidgetBooleanValue } from "../shared/widgets.js";
+import { findWidget, widgetNumber, widgetBoolean, setWidgetValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetBooleanValue } from "../shared/widgets.js";
 
 export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext): void {
   const st = (node as any).__imageops_state as any;
@@ -78,7 +78,7 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
 
   st.drawColorInput?.addEventListener("input", () => {
     const color = normalizeDrawColor(st.drawColorInput?.value ?? "#FFFFFF", "#FFFFFF");
-    setWidgetStringValue(findWidget(node, "brush_color"), color);
+    setWidgetStringValuesByName(node, "brush_color", color);
     if (st.drawColorInput) {
       st.drawColorInput.value = color;
       ctx.syncDarkColorInputUI(st.drawColorInput, color);
@@ -144,7 +144,7 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
   st.drawBgColorInput?.addEventListener("input", () => {
     if ((node.inputs?.[0]?.link ?? null) != null) return;
     const color = normalizeDrawColor(st.drawBgColorInput?.value ?? "#000000", "#000000");
-    setWidgetStringValue(findWidget(node, "bg_color"), color);
+    setWidgetStringValuesByName(node, "bg_color", color);
     if (st.drawBgColorInput) {
       st.drawBgColorInput.value = color;
       ctx.syncDarkColorInputUI(st.drawBgColorInput, color);

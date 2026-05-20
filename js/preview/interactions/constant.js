@@ -1,6 +1,6 @@
 import { syncDarkColorInputUI } from "../shared/dom-styles.js";
 import { isNode as isConstantNode, syncConstantWidgets } from "../nodes/constant.js";
-import { findWidget, setWidgetStringValue, setWidgetValue } from "../shared/widgets.js";
+import { findWidget, setWidgetStringValue, setWidgetStringValuesByName, setWidgetValue } from "../shared/widgets.js";
 const CONSTANT_RATIO_PRESETS = {
   "1:1": 1,
   "3:4": 3 / 4,
@@ -60,7 +60,7 @@ function attachInteractions(node, ctx) {
       const channel = String(input.dataset.constantColor ?? "a");
       const widgetName = channel === "b" ? "color_b" : "color";
       const normalized = String(input.value || (channel === "b" ? "#000000" : "#ffffff"));
-      setWidgetStringValue(findWidget(node, widgetName), normalized);
+      setWidgetStringValuesByName(node, widgetName, normalized);
       syncDarkColorInputUI(input, normalized);
       refresh();
     });

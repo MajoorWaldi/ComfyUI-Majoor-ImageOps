@@ -22,6 +22,7 @@ type JoinTrimRowState = {
   removeButton: HTMLButtonElement;
   maxFrame: number;
   frameCount: number;
+  endIsAuto: boolean;
   dragging: "start" | "end" | "center" | null;
   dragOffset: number;
   dragSelectionWidth: number;
@@ -258,6 +259,7 @@ function buildJoinTrimRow(node: ComfyNode, ctx: NodeInteractionContext, st: any,
     removeButton,
     maxFrame: 0,
     frameCount: 1,
+    endIsAuto: true,
     dragging: null,
     dragOffset: 0,
     dragSelectionWidth: 0,
@@ -278,11 +280,19 @@ function buildJoinTrimRow(node: ComfyNode, ctx: NodeInteractionContext, st: any,
         existing = { slot: rowState.slot, start: 0, end: -1 };
         next.push(existing);
       }
-      existing.start = Math.max(0, Math.min(rowState.maxFrame, Math.round(Number(rowState.startNumber.value || 0))));
-      existing.end = Math.max(0, Math.min(rowState.maxFrame, Math.round(Number(rowState.endNumber.value || rowState.maxFrame))));
-      if (existing.end < existing.start) existing.end = existing.start;
-      rowState.startNumber.value = String(existing.start);
-      rowState.endNumber.value = String(existing.end);
+      let startVal = Math.max(0, Math.min(rowState.maxFrame, Math.round(Number(rowState.startNumber.value || 0))));
+      let endVal = Math.max(0, Math.min(rowState.maxFrame, Math.round(Number(rowState.endNumber.value || rowState.maxFrame))));
+      // Match Python _trim_clip: swap if reversed so the rendered range is [min, max].
+      if (endVal < startVal) {
+        const tmp = startVal;
+        startVal = endVal;
+        endVal = tmp;
+      }
+      existing.start = startVal;
+      // Preserve the "to end" sentinel (-1) so the trim auto-extends if upstream grows.
+      existing.end = rowState.endIsAuto && endVal >= rowState.maxFrame ? -1 : endVal;
+      rowState.startNumber.value = String(startVal);
+      rowState.endNumber.value = String(endVal);
       rowState.meta.textContent = rowState.frameCount > 0
         ? `${selectionCount(existing.start, existing.end, rowState.frameCount)}/${rowState.frameCount}f`
         : `${selectionCount(existing.start, existing.end, rowState.maxFrame + 1)}f`;
@@ -312,12 +322,14 @@ function buildJoinTrimRow(node: ComfyNode, ctx: NodeInteractionContext, st: any,
       rowState.dragging = "center";
       rowState.dragOffset = val - start;
       rowState.dragSelectionWidth = end - start;
+      rowState.endIsAuto = false;
     } else if (Math.abs(val - start) <= Math.abs(val - end)) {
       rowState.dragging = "start";
       rowState.startNumber.value = String(Math.min(val, end));
     } else {
       rowState.dragging = "end";
       rowState.endNumber.value = String(Math.max(val, start));
+      rowState.endIsAuto = false;
     }
 
     rowState.commit("none");
@@ -364,7 +376,10 @@ function buildJoinTrimRow(node: ComfyNode, ctx: NodeInteractionContext, st: any,
   rowState.sliderBox.addEventListener("pointercancel", release);
 
   rowState.startNumber.addEventListener("change", () => rowState.commit("now"));
-  rowState.endNumber.addEventListener("change", () => rowState.commit("now"));
+  rowState.endNumber.addEventListener("change", () => {
+    rowState.endIsAuto = false;
+    rowState.commit("now");
+  });
   rowState.removeButton.addEventListener("click", (event: MouseEvent) => {
     event.preventDefault();
     if (!removeJoinInput(node, rowState.index)) return;
@@ -375,14 +390,15 @@ function buildJoinTrimRow(node: ComfyNode, ctx: NodeInteractionContext, st: any,
   return rowState;
 }
 
-function syncJoinTrimRow(row: JoinTrimRowState, index: number, frameCount: number, startValue: number, endValue: number, maxFrame: number, canRemove: boolean): void {
+function syncJoinTrimRow(row: JoinTrimRowState, index: number, frameCount: number, startValue: number, endValue: number, maxFrame: number, canRemove: boolean, endIsAuto: boolean): void {
   row.index = index;
   row.title.textContent = `Clip ${index}`;
   row.meta.textContent = frameCount > 0
     ? `${selectionCount(startValue, endValue, frameCount)}/${frameCount}f`
-    : `${selectionCount(startValue, endValue, maxFrame + 1)}f`;
+    : "\u2014";
   row.frameCount = Math.max(1, frameCount || (maxFrame + 1));
   row.maxFrame = maxFrame;
+  row.endIsAuto = endIsAuto;
   row.startNumber.max = String(maxFrame);
   row.endNumber.max = String(maxFrame);
   row.startNumber.value = String(startValue);
@@ -428,7 +444,7 @@ function renderJoinTrimControls(node: ComfyNode, ctx: NodeInteractionContext): v
       row = buildJoinTrimRow(node, ctx, st, slot, index);
       rows.set(slot, row);
     }
-    syncJoinTrimRow(row, index, frameCount, startValue, endValue, maxFrame, slots.length > 2);
+    syncJoinTrimRow(row, index, frameCount, startValue, endValue, maxFrame, slots.length > 2, trim.end < 0);
     list.appendChild(row.wrap);
   }
 

@@ -129,6 +129,12 @@ export function setWidgetStringValue(widget: ComfyWidget | null, value: string, 
   }
 }
 
+export function setWidgetStringValuesByName(node: ComfyNode, name: string, value: string, options: WidgetSetOptions = {}): void {
+  for (const widget of node.widgets ?? []) {
+    if (widget?.name === name) setWidgetStringValue(widget, value, options);
+  }
+}
+
 export function setWidgetBooleanValue(widget: ComfyWidget | null, value: boolean, options: WidgetSetOptions = {}): void {
   if (!widget) return;
   const notify = options.notify !== false;

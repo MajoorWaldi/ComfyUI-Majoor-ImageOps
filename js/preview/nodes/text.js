@@ -8,7 +8,7 @@ import {
   syncDarkColorInputUI
 } from "../shared/dom-styles.js";
 import { ensureState } from "../shared/state.js";
-import { hideWidgetsByName, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
+import { hideWidgetsByName, setWidgetStringValuesByName, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
 import { startEyedropper } from "../shared/eyedropper.js";
 const NODE_CLASS = "ImageOpsText";
 function isNode(node) {
@@ -203,6 +203,11 @@ function getTextInfoText(node) {
 }
 function syncTextWidgets(node) {
   if (!isNode(node)) return;
+  hideTextWidgets(node);
+  const color = widgetString(node, "color", "#ffffff");
+  const strokeColor = widgetString(node, "stroke_color", "#000000");
+  setWidgetStringValuesByName(node, "color", color, { notify: false, dirty: false });
+  setWidgetStringValuesByName(node, "stroke_color", strokeColor, { notify: false, dirty: false });
   const st = ensureState(node);
   const root = st.previewRoot;
   if (!root) return;
@@ -215,8 +220,6 @@ function syncTextWidgets(node) {
   const align = TEXT_ALIGN_OPTIONS.has(alignRaw) ? alignRaw : "center";
   const lineSpacing = Math.max(0, Math.round(widgetNumber(node, "line_spacing", 4)));
   const strokeWidth = Math.max(0, Math.round(widgetNumber(node, "stroke_width", 0)));
-  const color = widgetString(node, "color", "#ffffff");
-  const strokeColor = widgetString(node, "stroke_color", "#000000");
   const invertMask = widgetBoolean(node, "invert_mask", false);
   const bypass = widgetBoolean(node, "bypass", false);
   const fontPath = widgetString(node, "font_path", "");

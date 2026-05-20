@@ -216,6 +216,34 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
     const primaryInputIndex = resolvedIndexes[0] ?? 0;
     const primary = await renderNode(getUpstreamNode(node, primaryInputIndex), ctx, getInputOriginSlot(node, primaryInputIndex));
 
+    // Sync secondary video sources to the primary video's currentTime so that
+    // multi-input nodes (Merge, Comp, etc.) display temporally aligned frames.
+    // Videos play independently in the browser; without this, their clocks drift.
+    if (resolvedIndexes.length > 1) {
+      const primaryUp = getUpstreamNode(node, primaryInputIndex);
+      const primaryVid = (primaryUp as any)?.__imageops_media?.videoEl as HTMLVideoElement | undefined;
+      if (primaryVid && primaryVid.readyState >= 2 && Number.isFinite(primaryVid.currentTime)) {
+        const refTime = primaryVid.currentTime;
+        for (let si = 1; si < resolvedIndexes.length; si++) {
+          const secUp = getUpstreamNode(node, resolvedIndexes[si]);
+          const secVid = (secUp as any)?.__imageops_media?.videoEl as HTMLVideoElement | undefined;
+          if (
+            secVid &&
+            secVid !== primaryVid &&
+            secVid.readyState >= 2 &&
+            Number.isFinite(secVid.duration) &&
+            secVid.duration > 0
+          ) {
+            // Wrap refTime within the secondary video's duration so seeking stays valid.
+            const target = refTime % secVid.duration;
+            if (Math.abs(secVid.currentTime - target) > 0.05) {
+              try { secVid.currentTime = target; } catch {}
+            }
+          }
+        }
+      }
+    }
+
     // gather inputs
     if (!primary) { ctx.visited.delete(node.id); return null; }
 

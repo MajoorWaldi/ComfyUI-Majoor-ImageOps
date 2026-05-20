@@ -1,4 +1,4 @@
-import { findWidget, widgetNumber, widgetString, widgetBoolean, hideWidgetsByName, setWidgetValue, setWidgetStringValue, setWidgetBooleanValue } from "../shared/widgets.js";
+import { findWidget, widgetNumber, widgetString, widgetBoolean, hideWidgetsByName, setWidgetValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetBooleanValue } from "../shared/widgets.js";
 import { ensureState } from "../shared/state.js";
 import {
   createColorSwatch,
@@ -261,6 +261,7 @@ ${value}`;
 }
 function syncDrawWidgets(node, changedName) {
   if (!isNode(node)) return;
+  hideDrawWidgets(node);
   const st = ensureState(node);
   const widthWidget = findWidget(node, "width");
   const heightWidget = findWidget(node, "height");
@@ -307,11 +308,13 @@ function syncDrawWidgets(node, changedName) {
   }
   if (st.drawBgColorInput) {
     const bgColor = normalizeDrawColor(widgetString(node, "bg_color", "#000000"), "#000000");
+    setWidgetStringValuesByName(node, "bg_color", bgColor, { notify: false, dirty: false });
     syncDarkColorInputUI(st.drawBgColorInput, bgColor);
     setDarkColorInputState(st.drawBgColorInput, inputConnected);
   }
   if (st.drawColorInput) {
     const brushColor = normalizeDrawColor(widgetString(node, "brush_color", "#FFFFFF"), "#FFFFFF");
+    setWidgetStringValuesByName(node, "brush_color", brushColor, { notify: false, dirty: false });
     syncDarkColorInputUI(st.drawColorInput, brushColor);
   }
   if (st.drawEdgeSelect) {

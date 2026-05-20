@@ -906,6 +906,23 @@ function registerImageOpsLivePreview() {
     if (isPadOutNode(node)) {
       hidePadOutWidgets(node);
     }
+    const syncLateWidgetMirrors = () => {
+      try {
+        if (isConstantNode(node)) syncConstantWidgets(node);
+        if (isTextNode(node)) syncTextWidgets(node);
+        if (isRampNode(node)) syncRampWidgets(node);
+        if (isDrawNode(node)) syncDrawWidgets(node);
+        if (isKeyerNode(node)) syncKeyerWidgets(node);
+        if (isImageOpsNativeUiClass(node.comfyClass) || isCompNode(node)) {
+          hideCompactUiWidgets(node);
+          syncCompactNativeWidgetControls(node);
+        }
+      } catch (e) {
+        console.warn("[ImageOps] late widget sync failed for", node?.comfyClass, e);
+      }
+    };
+    setTimeout(syncLateWidgetMirrors, 0);
+    setTimeout(syncLateWidgetMirrors, 100);
     if (isImageOpsClass(node.comfyClass)) {
       node.previewMediaType = "image";
       ensurePreviewWidget(node, progress, canvasSize, () => nodeCtx.refreshNode(node));
