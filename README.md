@@ -283,28 +283,7 @@ Add borders around an image without scaling the source.
 
 PadOut always renders the padded area as solid black; `target_format` is only a UI helper that materializes explicit pad values.
 
-**Outputs:** `IMAGE`, `MASK`, `IMAGEOPS_PADOUT_STITCHER`
-
----
-
-### ImageOps PadOut Stitch
-Restore the original image into the protected PadOut region after an outpainting or image-edit node.
-
-Recommended flow: connect `PadOut.image` and `PadOut.mask` to the outpainting node, then connect `PadOut.stitcher` and the outpainting result to PadOut Stitch.
-
-**Inputs:**
-- `outpainted` (IMAGE/VIDEO): Result returned by the image edit / outpainting node
-- `stitcher` (IMAGEOPS_PADOUT_STITCHER, optional): Stitcher output from ImageOps PadOut
-- `original` (IMAGE/VIDEO, optional): Fallback source media before PadOut
-- `padout_mask` (MASK, optional): Fallback mask output from ImageOps PadOut
-
-**Parameters:**
-- `original_region`: Fallback mode when no stitcher is connected; `black_is_original` for PadOut's default mask, or `white_is_original` if PadOut's mask was inverted
-- `feather_radius`: Optional softened edge where the original is restored
-- `invert_mask`: Invert the returned outpaint-area mask
-- `bypass`: Return the outpainted image unchanged
-
-**Outputs:** `IMAGE`, `MASK`
+**Outputs:** `IMAGE`, `MASK`, `INT` width, `INT` height
 
 ---
 

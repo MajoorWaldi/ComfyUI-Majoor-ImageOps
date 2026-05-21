@@ -2,7 +2,7 @@ import { ops } from "../ops.js";
 import { getCompSlots } from "../comp.js";
 import { clampDrawDimension, makeSolidBackgroundCanvas } from "../draw.js";
 import { getFrameSelectorOutputCount, getFrameSelectorSourceFrame, getUpstreamFrameCount, syncFrameSelectorWidgets } from "../nodes/frame-range.js";
-import { getJoinConnectedInputFrameCounts, getJoinSlots } from "../nodes/append.js";
+import { getJoinConnectedInputFrameCounts, getJoinSlots, readJoinTrims } from "../nodes/append.js";
 import { getUpstreamNode } from "../graph.js";
 import { isImageOpsClass, resolveImageOpsClassName } from "../shared/classes.js";
 function getVhsVideoInfo(node) {
@@ -32,6 +32,35 @@ function normalizeFrameIndex(tick, frameCount) {
   const roundedTick = Math.max(0, Math.round(tick));
   if (!Number.isFinite(frameCount) || frameCount <= 0) return roundedTick;
   return (roundedTick % frameCount + frameCount) % frameCount;
+}
+function getWidgetNumber(node, name, fallback) {
+  const value = (node?.widgets ?? []).find((widget) => widget?.name === name)?.value;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+function collectBranchVideos(node, seen = /* @__PURE__ */ new Set()) {
+  if (!node || seen.has(node.id)) return [];
+  seen.add(node.id);
+  const videos = [];
+  const videoEl = node.__imageops_media?.videoEl;
+  if (videoEl) videos.push({ node, videoEl });
+  for (let inputIndex = 0; inputIndex < (node.inputs ?? []).length; inputIndex++) {
+    if ((node.inputs?.[inputIndex]?.link ?? null) == null) continue;
+    videos.push(...collectBranchVideos(getUpstreamNode(node, inputIndex), seen));
+  }
+  return videos;
+}
+async function seekAppendBranchFrame(node, sourceFrame, fallbackFrameCount) {
+  const videos = collectBranchVideos(node);
+  for (const { node: videoNode, videoEl } of videos) {
+    if (!Number.isFinite(videoEl.duration) || videoEl.duration <= 0) continue;
+    const info = getVhsVideoInfo(videoNode);
+    const forceRate = getWidgetNumber(videoNode, "force_rate", 0);
+    const durationRate = fallbackFrameCount > 0 ? fallbackFrameCount / videoEl.duration : 0;
+    const fps = forceRate > 0 ? forceRate : info?.fps && info.fps > 0 ? info.fps : durationRate > 0 ? durationRate : 24;
+    const targetTime = Math.max(0, Math.min(videoEl.duration - 1 / fps, Math.max(0, sourceFrame) / fps));
+    await seekFrozenVideoFrame(videoEl, targetTime, 0.5 / fps);
+  }
 }
 async function seekFrozenVideoFrame(videoEl, targetTime, tolerance) {
   try {
@@ -181,12 +210,19 @@ function imageOpsAdapter() {
         if (inputs.length === 0) return void 0;
         const infos = inputInfos ?? inputs.map((canvas, index) => ({ canvas, inputIndex: index, originSlot: null, upstreamNode: null }));
         const frameCounts = new Map(getJoinConnectedInputFrameCounts(node).map((entry) => [entry.inputIndex, Math.max(1, entry.frameCount)]));
+        const trimStarts = new Map(readJoinTrims(node).map((trim) => [trim.slot, Math.max(0, Math.round(trim.start))]));
+        const getSourceFrame = (info, localTick2) => {
+          const slot = String(node.inputs?.[info.inputIndex]?.name ?? "");
+          return Math.max(0, Math.round((trimStarts.get(slot) ?? 0) + localTick2));
+        };
         if (bypass) {
           const first = infos[0] ?? null;
           if (!first) return inputs[0];
           const firstCount = Math.max(1, frameCounts.get(first.inputIndex) ?? 1);
           const localTick2 = normalizeFrameIndex(tick ?? 0, firstCount);
-          return await renderInputAt?.(first, localTick2) ?? first.canvas;
+          const sourceFrame2 = getSourceFrame(first, localTick2);
+          await seekAppendBranchFrame(first.upstreamNode, sourceFrame2, firstCount);
+          return await renderInputAt?.(first, sourceFrame2) ?? first.canvas;
         }
         const totalFrames = infos.reduce((sum, info) => sum + Math.max(1, frameCounts.get(info.inputIndex) ?? 1), 0);
         let remaining = normalizeFrameIndex(tick ?? 0, totalFrames);
@@ -202,7 +238,10 @@ function imageOpsAdapter() {
           remaining -= segmentFrames;
         }
         if (!selected) return inputs[0];
-        return await renderInputAt?.(selected, localTick) ?? selected.canvas;
+        const selectedCount = Math.max(1, frameCounts.get(selected.inputIndex) ?? 1);
+        const sourceFrame = getSourceFrame(selected, localTick);
+        await seekAppendBranchFrame(selected.upstreamNode, sourceFrame, selectedCount);
+        return await renderInputAt?.(selected, sourceFrame) ?? selected.canvas;
       } else if (cls === "ImageOpsComp") {
         return ops.comp(ctx, canvasSize, node, inputs);
       } else if (cls === "ImageOpsDistort") {
