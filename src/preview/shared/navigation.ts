@@ -103,7 +103,8 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
     markPreviewInteraction(node);
     reblitNow();
   };
-  document.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+  const signal = st?._abortController?.signal;
+  document.addEventListener("wheel", handleWheel, { capture: true, passive: false, signal } as any);
   // Store cleanup ref so onRemoved can deregister the document-level listener.
   (st as any)._navWheelCleanup = () => document.removeEventListener("wheel", handleWheel, { capture: true } as EventListenerOptions);
 

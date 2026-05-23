@@ -42,7 +42,7 @@ function getColorWheelSwatchCss(hueDeg, saturationPercent) {
   return `rgb(${Math.round(red * 255)}, ${Math.round(green * 255)}, ${Math.round(blue * 255)})`;
 }
 function drawColorWheel(canvas, hueDeg, saturationPercent) {
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return;
   const width = Math.max(1, canvas.width || 1);
   const height = Math.max(1, canvas.height || 1);

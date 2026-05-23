@@ -261,49 +261,103 @@ def _wrap_legacy_node20(node_id: str, cls, display_name: str, search_aliases=Non
     comfy_node_base = getattr(_node20_io, "ComfyNode", object)
     bases = (cls,) if not isinstance(comfy_node_base, type) or issubclass(cls, comfy_node_base) else (cls, comfy_node_base)
 
-    class Node20Compat(*bases):
-        # v3 execution path uses FUNCTION to locate the callable; must point to
-        # a classmethod so that getattr(cls, FUNCTION).__func__ works correctly.
-        FUNCTION = "execute"
+    import inspect
+    fn_name = getattr(cls, "FUNCTION", None)
+    is_async = False
+    if fn_name:
+        try:
+            is_async = inspect.iscoroutinefunction(getattr(cls(), fn_name))
+        except Exception:
+            pass
 
-        @classmethod
-        def define_schema(inner_cls):
-            return _build_legacy_schema(node_id, cls, display_name, search_aliases)
+    if is_async:
+        class Node20Compat(*bases):
+            # v3 execution path uses FUNCTION to locate the callable; must point to
+            # a classmethod so that getattr(cls, FUNCTION).__func__ works correctly.
+            FUNCTION = "execute"
 
-        @classmethod
-        def INPUT_TYPES(inner_cls):
-            # Explicitly override the legacy INPUT_TYPES() so that ComfyUI's v3
-            # validation path receives a schema-derived dict with "COMBO" io_type
-            # strings instead of raw lists.  Without this, Python's MRO resolves
-            # INPUT_TYPES to the legacy classmethod (which returns list-based Combo
-            # values), and parse_class_inputs then tries `list_value in dict` which
-            # raises TypeError: unhashable type: 'list'.
-            schema = _build_legacy_schema(node_id, cls, display_name, search_aliases)
-            # Older Comfy builds expose Schema.finalize(); newer builds drop it
-            # because the Schema is finalised lazily. Guard so both shapes work.
-            finalize = getattr(schema, "finalize", None)
-            if callable(finalize):
+            @classmethod
+            def define_schema(inner_cls):
+                return _build_legacy_schema(node_id, cls, display_name, search_aliases)
+
+            @classmethod
+            def INPUT_TYPES(inner_cls):
+                # Explicitly override the legacy INPUT_TYPES() so that ComfyUI's v3
+                # validation path receives a schema-derived dict with "COMBO" io_type
+                # strings instead of raw lists.  Without this, Python's MRO resolves
+                # INPUT_TYPES to the legacy classmethod (which returns list-based Combo
+                # values), and parse_class_inputs then tries `list_value in dict` which
+                # raises TypeError: unhashable type: 'list'.
+                schema = _build_legacy_schema(node_id, cls, display_name, search_aliases)
+                # Older Comfy builds expose Schema.finalize(); newer builds drop it
+                # because the Schema is finalised lazily. Guard so both shapes work.
+                finalize = getattr(schema, "finalize", None)
+                if callable(finalize):
+                    try:
+                        finalize()
+                    except Exception:
+                        pass
                 try:
-                    finalize()
-                except Exception:
-                    pass
-            try:
-                return schema.get_v1_info(inner_cls).input
-            except AttributeError:
-                # Fall back to the legacy INPUT_TYPES from the original class so
-                # the v1 validation path still has data even if the v3 schema
-                # cannot be downgraded by this Comfy version.
-                legacy = getattr(cls, "INPUT_TYPES", None)
-                return legacy() if callable(legacy) else {"required": {}}
+                    return schema.get_v1_info(inner_cls).input
+                except AttributeError:
+                    # Fall back to the legacy INPUT_TYPES from the original class so
+                    # the v1 validation path still has data even if the v3 schema
+                    # cannot be downgraded by this Comfy version.
+                    legacy = getattr(cls, "INPUT_TYPES", None)
+                    return legacy() if callable(legacy) else {"required": {}}
 
-        @classmethod
-        def execute(inner_cls, **kwargs):
-            fn_name = getattr(cls, "FUNCTION", None)
-            if not fn_name:
-                raise AttributeError(f"{node_id} is missing FUNCTION for Node 2.0 compatibility")
-            instance = cls()
-            fn = getattr(instance, fn_name)
-            return fn(**kwargs)
+            @classmethod
+            async def execute(inner_cls, **kwargs):
+                fn_name_inner = getattr(cls, "FUNCTION", None)
+                if not fn_name_inner:
+                    raise AttributeError(f"{node_id} is missing FUNCTION for Node 2.0 compatibility")
+                instance = cls()
+                fn = getattr(instance, fn_name_inner)
+                return await fn(**kwargs)
+    else:
+        class Node20Compat(*bases):
+            # v3 execution path uses FUNCTION to locate the callable; must point to
+            # a classmethod so that getattr(cls, FUNCTION).__func__ works correctly.
+            FUNCTION = "execute"
+
+            @classmethod
+            def define_schema(inner_cls):
+                return _build_legacy_schema(node_id, cls, display_name, search_aliases)
+
+            @classmethod
+            def INPUT_TYPES(inner_cls):
+                # Explicitly override the legacy INPUT_TYPES() so that ComfyUI's v3
+                # validation path receives a schema-derived dict with "COMBO" io_type
+                # strings instead of raw lists.  Without this, Python's MRO resolves
+                # INPUT_TYPES to the legacy classmethod (which returns list-based Combo
+                # values), and parse_class_inputs then tries `list_value in dict` which
+                # raises TypeError: unhashable type: 'list'.
+                schema = _build_legacy_schema(node_id, cls, display_name, search_aliases)
+                # Older Comfy builds expose Schema.finalize(); newer builds drop it
+                # because the Schema is finalised lazily. Guard so both shapes work.
+                finalize = getattr(schema, "finalize", None)
+                if callable(finalize):
+                    try:
+                        finalize()
+                    except Exception:
+                        pass
+                try:
+                    return schema.get_v1_info(inner_cls).input
+                except AttributeError:
+                    # Fall back to the legacy INPUT_TYPES from the original class so
+                    # the v1 validation path still has data even if the v3 schema
+                    # cannot be downgraded by this Comfy version.
+                    legacy = getattr(cls, "INPUT_TYPES", None)
+                    return legacy() if callable(legacy) else {"required": {}}
+
+            @classmethod
+            def execute(inner_cls, **kwargs):
+                fn_name_inner = getattr(cls, "FUNCTION", None)
+                if not fn_name_inner:
+                    raise AttributeError(f"{node_id} is missing FUNCTION for Node 2.0 compatibility")
+                instance = cls()
+                fn = getattr(instance, fn_name_inner)
+                return fn(**kwargs)
 
     Node20Compat.__name__ = cls.__name__
     Node20Compat.__qualname__ = cls.__qualname__

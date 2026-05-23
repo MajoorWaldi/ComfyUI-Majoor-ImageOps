@@ -43,7 +43,7 @@ function attachInteractions(node, ctx) {
   st.drawClearButton?.addEventListener("click", (event) => {
     event.preventDefault();
     ctx.ensureDrawCanvasSize(node, st.drawCanvas?.width ?? widgetNumber(node, "width", 1024), st.drawCanvas?.height ?? widgetNumber(node, "height", 1024), false);
-    const drawCtx = st.drawCanvas?.getContext("2d");
+    const drawCtx = st.drawCanvas?.getContext("2d", { willReadFrequently: true });
     drawCtx?.clearRect(0, 0, st.drawCanvas?.width ?? 0, st.drawCanvas?.height ?? 0);
     st.drawUndoStack = [];
     ctx.updateDrawOverlayWidget(node);
@@ -173,7 +173,8 @@ function attachInteractions(node, ctx) {
     ctx.setDrawBrushSize(node, current + direction);
     void ctx.renderDrawNode(node, 0);
   };
-  document.addEventListener("wheel", handleDrawWheel, { capture: true, passive: false });
+  const signal = st?._abortController?.signal;
+  document.addEventListener("wheel", handleDrawWheel, { capture: true, passive: false, signal });
   let _drawWheelRemoved = false;
   st._drawWheelCleanup = () => {
     if (_drawWheelRemoved) return;

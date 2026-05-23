@@ -317,8 +317,9 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
   if (!st.compKeyboardHooked) {
     st.compKeyboardHooked = true;
     let pointerOverCanvas = false;
-    canvas.addEventListener("pointerenter", () => { pointerOverCanvas = true; });
-    canvas.addEventListener("pointerleave", () => { pointerOverCanvas = false; });
+    const signal = st?._abortController?.signal;
+    canvas.addEventListener("pointerenter", () => { pointerOverCanvas = true; }, signal ? { signal } : undefined);
+    canvas.addEventListener("pointerleave", () => { pointerOverCanvas = false; }, signal ? { signal } : undefined);
     const isEditableTarget = (target: EventTarget | null): boolean => {
       const el = target as HTMLElement | null;
       if (!el) return false;
@@ -354,6 +355,6 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
           ctx.markCanvasDirty();
         }
       }
-    });
+    }, signal ? { signal } as any : undefined);
   }
 }

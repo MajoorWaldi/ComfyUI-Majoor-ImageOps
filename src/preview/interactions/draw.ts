@@ -69,7 +69,7 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
   st.drawClearButton?.addEventListener("click", (event: MouseEvent) => {
     event.preventDefault();
     ctx.ensureDrawCanvasSize(node, st.drawCanvas?.width ?? widgetNumber(node, "width", 1024), st.drawCanvas?.height ?? widgetNumber(node, "height", 1024), false);
-    const drawCtx = st.drawCanvas?.getContext("2d");
+    const drawCtx = st.drawCanvas?.getContext("2d", { willReadFrequently: true });
     drawCtx?.clearRect(0, 0, st.drawCanvas?.width ?? 0, st.drawCanvas?.height ?? 0);
     st.drawUndoStack = [];
     ctx.updateDrawOverlayWidget(node);
@@ -218,7 +218,8 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     ctx.setDrawBrushSize(node, current + direction);
     void ctx.renderDrawNode(node, 0);
   };
-  document.addEventListener("wheel", handleDrawWheel, { capture: true, passive: false });
+  const signal = st?._abortController?.signal;
+  document.addEventListener("wheel", handleDrawWheel, { capture: true, passive: false, signal } as any);
   // Store cleanup ref so onRemoved can deregister the document-level listener.
   // Use idempotent removal so multiple onRemoved calls (or replays during reconfigure)
   // never leak duplicate listeners on the document.

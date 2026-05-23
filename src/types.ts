@@ -145,6 +145,7 @@ export interface RenderInputInfo {
 
 export interface NodeState {
   hooked: boolean;
+  _abortController?: AbortController | null;
   previewRoot: HTMLDivElement | null;
   previewMetaRow: HTMLDivElement | null;
   previewControls: HTMLElement | null;

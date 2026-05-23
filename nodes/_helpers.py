@@ -12,6 +12,37 @@ from PIL import Image
 
 from ._ops_constants import EPSILON, GAMMA_MAX, GAMMA_SAFE_MIN, LUMA_WEIGHTS
 
+try:
+    from comfy.model_management import soft_empty_cache
+except ImportError:
+    def soft_empty_cache():
+        pass
+
+def optional_compile(func):
+    """Wraps a function with torch.compile if available, with runtime fallback."""
+    if hasattr(torch, "compile"):
+        try:
+            # We use backend="aot_eager" or just try compiling. But actually, let's wrap it in a runtime catch.
+            compiled_func = torch.compile(func, mode="reduce-overhead")
+            compile_failed = False
+            
+            import functools
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                nonlocal compile_failed
+                if compile_failed:
+                    return func(*args, **kwargs)
+                try:
+                    return compiled_func(*args, **kwargs)
+                except Exception as e:
+                    compile_failed = True
+                    logger.warning(f"ImageOps: torch.compile failed for {func.__name__}, falling back to eager execution.")
+                    return func(*args, **kwargs)
+            return wrapper
+        except Exception:
+            pass
+    return func
+
 # Type alias for parameters that can be a scalar or a per-frame list/tuple.
 ScalarOrList = Union[float, int, bool, list, tuple]
 
@@ -127,28 +158,30 @@ def _tensor_to_pil(image: torch.Tensor) -> Image.Image:
     return Image.fromarray(arr[..., :3], mode="RGB")
 
 
+@optional_compile
 def _apply_color_correct(image, brightness, contrast, gamma, saturation):
     x = image.float()
     B = x.shape[0]
     d, dt = x.device, x.dtype
     br = _param_tensor(brightness, B, d, dt)
     ct = _param_tensor(contrast, B, d, dt)
-    gm = _param_tensor(gamma, B, d, dt).clamp(GAMMA_SAFE_MIN, GAMMA_MAX)
+    gm = _param_tensor(gamma, B, d, dt).clamp_(GAMMA_SAFE_MIN, GAMMA_MAX)
     st = _param_tensor(saturation, B, d, dt)
-    x = x + br
-    x = (x - 0.5) * ct + 0.5
-    x = torch.clamp(x, 0, 1) ** (1.0 / gm)
+    
+    x.add_(br)
+    x.sub_(0.5).mul_(ct).add_(0.5)
+    x.clamp_(0.0, 1.0).pow_(1.0 / gm)
 
     rgb = x[..., :3]
     lr, lg, lb = LUMA_WEIGHTS
     luma = (lr * rgb[..., 0] + lg * rgb[..., 1] + lb * rgb[..., 2]).unsqueeze(-1)
-    rgb = luma + (rgb - luma) * st
+    rgb = rgb.sub(luma).mul_(st).add_(luma)
     if x.shape[-1] == 4:
         x = torch.cat([rgb, x[..., 3:4]], dim=-1)
     else:
         x = rgb
 
-    return x.clamp(0.0, 1.0)
+    return x.clamp_(0.0, 1.0)
 
 
 def _srgb_to_linear(rgb: torch.Tensor) -> torch.Tensor:
@@ -213,6 +246,7 @@ def _apply_vibrance_linear(rgb: torch.Tensor, vibrance: torch.Tensor) -> torch.T
     return (luma + (rgb - luma) * boost).clamp(0.0, 1.0)
 
 
+@optional_compile
 def _wheel_tint_rgb(
     rgb: torch.Tensor,
     hue_deg: ScalarOrList,
@@ -221,20 +255,21 @@ def _wheel_tint_rgb(
 ) -> torch.Tensor:
     B = rgb.shape[0]
     d = rgb.device
-    hue = _param_tensor(hue_deg, B, d, torch.float32) / 360.0
-    sat = (_param_tensor(amount, B, d, torch.float32).abs() / 100.0).clamp(0.0, 1.0)
+    hue = _param_tensor(hue_deg, B, d, torch.float32).div_(360.0)
+    sat = (_param_tensor(amount, B, d, torch.float32).abs_().div_(100.0)).clamp_(0.0, 1.0)
     hsv = torch.cat([
         torch.remainder(hue, 1.0),
         sat,
         torch.ones_like(sat),
     ], dim=-1)
-    tint_rgb = _hsv_to_rgb(hsv).clamp(0.0, 1.0)
-    tint_linear = _srgb_to_linear(tint_rgb).clamp(0.0, 1.0)
+    tint_rgb = _hsv_to_rgb(hsv).clamp_(0.0, 1.0)
+    tint_linear = _srgb_to_linear(tint_rgb).clamp_(0.0, 1.0)
     influence = sat * mask
-    scale = 1.0 + (tint_linear - 0.5) * influence * 0.85
-    return (rgb * scale).clamp(0.0, 1.0)
+    scale = tint_linear.sub_(0.5).mul_(influence).mul_(0.85).add_(1.0)
+    return rgb.mul(scale).clamp_(0.0, 1.0)
 
 
+@optional_compile
 def _apply_three_way_color_grade(
     rgb: torch.Tensor,
     shadows_hue: ScalarOrList,
@@ -245,17 +280,17 @@ def _apply_three_way_color_grade(
     highlights_amount: ScalarOrList,
 ) -> torch.Tensor:
     luma = _linear_luma(rgb)
-    shadow_mask = ((0.5 - luma) / 0.5).clamp(0.0, 1.0)
-    shadow_mask = shadow_mask * shadow_mask
-    highlight_mask = ((luma - 0.5) / 0.5).clamp(0.0, 1.0)
-    highlight_mask = highlight_mask * highlight_mask
-    mid_mask = (1.0 - shadow_mask - highlight_mask).clamp(0.0, 1.0)
+    shadow_mask = luma.neg().add_(0.5).div_(0.5).clamp_(0.0, 1.0)
+    shadow_mask.mul_(shadow_mask)
+    highlight_mask = luma.sub(0.5).div_(0.5).clamp_(0.0, 1.0)
+    highlight_mask.mul_(highlight_mask)
+    mid_mask = torch.ones_like(shadow_mask).sub_(shadow_mask).sub_(highlight_mask).clamp_(0.0, 1.0)
 
     out = rgb
     out = _wheel_tint_rgb(out, shadows_hue, shadows_amount, shadow_mask)
     out = _wheel_tint_rgb(out, midtones_hue, midtones_amount, mid_mask)
     out = _wheel_tint_rgb(out, highlights_hue, highlights_amount, highlight_mask)
-    return out.clamp(0.0, 1.0)
+    return out.clamp_(0.0, 1.0)
 
 
 def _param_all_close(v: ScalarOrList, target: float, tolerance: float = 1e-6) -> bool:
@@ -264,6 +299,7 @@ def _param_all_close(v: ScalarOrList, target: float, tolerance: float = 1e-6) ->
     return abs(float(v) - target) <= tolerance
 
 
+@optional_compile
 def _apply_color_adjust(
     image: torch.Tensor,
     temperature: ScalarOrList,
@@ -390,23 +426,23 @@ def _apply_color_adjust(
     rgb = rgb_src_linear
     extra = x[..., 3:] if C > 3 else None
 
-    rgb = (rgb * brightness_t).clamp(0.0, 1.0)
+    rgb = rgb.mul(brightness_t).clamp_(0.0, 1.0)
     if has_temperature:
-        rgb = _apply_temperature_linear(rgb, temperature_t).clamp(0.0, 1.0)
+        rgb = _apply_temperature_linear(rgb, temperature_t).clamp_(0.0, 1.0)
     if has_tint:
-        rgb = _apply_tint_linear(rgb, tint_t).clamp(0.0, 1.0)
+        rgb = _apply_tint_linear(rgb, tint_t).clamp_(0.0, 1.0)
 
     if has_contrast:
         mean_luma = _linear_luma(rgb).mean(dim=(1, 2), keepdim=True)
-        rgb = (mean_luma + (rgb - mean_luma) * contrast_t).clamp(0.0, 1.0)
+        rgb = rgb.sub(mean_luma).mul_(contrast_t).add_(mean_luma).clamp_(0.0, 1.0)
 
     if has_saturation:
         luma = _linear_luma(rgb)
-        rgb = (luma + (rgb - luma) * saturation_t).clamp(0.0, 1.0)
+        rgb = rgb.sub(luma).mul_(saturation_t).add_(luma).clamp_(0.0, 1.0)
     if has_vibrance:
-        rgb = _apply_vibrance_linear(rgb, vibrance_t).clamp(0.0, 1.0)
+        rgb = _apply_vibrance_linear(rgb, vibrance_t).clamp_(0.0, 1.0)
     if has_hue:
-        rgb = _apply_hue_shift_rgb(rgb, hue_shift_t).clamp(0.0, 1.0)
+        rgb = _apply_hue_shift_rgb(rgb, hue_shift_t).clamp_(0.0, 1.0)
     if has_three_way:
         rgb = _apply_three_way_color_grade(
             rgb,
@@ -418,7 +454,7 @@ def _apply_color_adjust(
             highlights_amount,
         )
     if has_gamma:
-        rgb = rgb.pow(1.0 / gamma_t).clamp(0.0, 1.0)
+        rgb = rgb.pow_(1.0 / gamma_t).clamp_(0.0, 1.0)
     rgb = _linear_to_srgb(rgb)
 
     if extra is not None:
@@ -708,11 +744,77 @@ def _apply_surface_blur(image: torch.Tensor, radius: int, sigma_color: float) ->
     return result.permute(0, 2, 3, 1).clamp(0.0, 1.0)
 
 
+def _apply_blur_tiled(
+    image: torch.Tensor,
+    radius,
+    sigma,
+    blur_type: str = "gaussian",
+    tile_size: int = 2048,
+) -> torch.Tensor:
+    """
+    Apply blur to very large images by chunking into overlapping spatial tiles.
+    This eliminates out-of-memory issues for large images/batch frames.
+    """
+    B, H, W, C = image.shape
+
+    # Determine overlap based on effective radius
+    if blur_type == "gaussian":
+        effective_radius = _gaussian_effective_radius(radius, sigma)
+    elif blur_type == "surface":
+        effective_radius = int(max(1, min(radius, _SURFACE_BLUR_MAX_RADIUS)))
+    else:
+        effective_radius = int(max(0, _scalar(radius, int)))
+
+    if effective_radius <= 0:
+        return image
+
+    overlap = int(effective_radius)
+    # Ensure tile size is reasonable relative to the overlap
+    tile_size = max(tile_size, 4 * overlap)
+
+    out = torch.empty_like(image)
+
+    h_steps = []
+    h = 0
+    while h < H:
+        h_start = h
+        h_end = min(h + tile_size, H)
+        h_start_padded = max(0, h_start - overlap)
+        h_end_padded = min(H, h_end + overlap)
+        crop_start_h = h_start - h_start_padded
+        crop_end_h = crop_start_h + (h_end - h_start)
+        h_steps.append((h_start, h_end, h_start_padded, h_end_padded, crop_start_h, crop_end_h))
+        h += tile_size
+
+    w_steps = []
+    w = 0
+    while w < W:
+        w_start = w
+        w_end = min(w + tile_size, W)
+        w_start_padded = max(0, w_start - overlap)
+        w_end_padded = min(W, w_end + overlap)
+        crop_start_w = w_start - w_start_padded
+        crop_end_w = crop_start_w + (w_end - w_start)
+        w_steps.append((w_start, w_end, w_start_padded, w_end_padded, crop_start_w, crop_end_w))
+        w += tile_size
+
+    for h_start, h_end, h_start_padded, h_end_padded, crop_start_h, crop_end_h in h_steps:
+        for w_start, w_end, w_start_padded, w_end_padded, crop_start_w, crop_end_w in w_steps:
+            tile_in = image[:, h_start_padded:h_end_padded, w_start_padded:w_end_padded]
+            # Recursively call _dispatch_blur with tiling_enabled=False to avoid infinite recursion
+            tile_out = _dispatch_blur(tile_in, radius, sigma, blur_type, tiling_enabled=False)
+            out[:, h_start:h_end, w_start:w_end] = tile_out[:, crop_start_h:crop_end_h, crop_start_w:crop_end_w]
+            soft_empty_cache()
+
+    return out
+
+
 def _dispatch_blur(
     image: torch.Tensor,
     radius,
     sigma,
     blur_type: str = "gaussian",
+    tiling_enabled: bool = True,
 ) -> torch.Tensor:
     """
     Route to the right blur implementation based on blur_type.
@@ -721,11 +823,7 @@ def _dispatch_blur(
     if image.shape[1] == 0 or image.shape[2] == 0:
         return image
 
-    if blur_type == "gaussian":
-        # _apply_blur already handles list params.
-        return _apply_blur(image, radius, sigma)
-
-    # For non-Gaussian types, handle per-frame param lists.
+    # Handle per-frame parameter lists first
     if _has_list_param(radius, sigma):
         B = image.shape[0]
         params = [(_scalar(radius, int, index=i), float(_scalar(sigma, index=i))) for i in range(B)]
@@ -735,8 +833,17 @@ def _dispatch_blur(
         out = torch.empty_like(image)
         for (r, s), idxs in group_map.items():
             idx_t = torch.tensor(idxs, device=image.device)
-            out[idx_t] = _dispatch_blur(image[idx_t], r, s, blur_type)
+            out[idx_t] = _dispatch_blur(image[idx_t], r, s, blur_type, tiling_enabled=tiling_enabled)
         return out
+
+    # Tiling for very large images
+    if tiling_enabled and (image.shape[1] > 2048 or image.shape[2] > 2048):
+        return _apply_blur_tiled(image, radius, sigma, blur_type)
+
+    if blur_type == "gaussian":
+        res = _apply_blur(image, radius, sigma)
+        soft_empty_cache()
+        return res
 
     r = int(max(0, _scalar(radius, int)))
     s = float(_scalar(sigma))
@@ -744,13 +851,17 @@ def _dispatch_blur(
         return image
 
     if blur_type == "box":
-        return _apply_box_blur_direct(image, r)
-    if blur_type == "defocus":
-        return _apply_defocus_blur(image, r)
-    if blur_type == "surface":
-        return _apply_surface_blur(image, r, s)
-    # Fallback.
-    return _apply_blur(image, r, s)
+        res = _apply_box_blur_direct(image, r)
+    elif blur_type == "defocus":
+        res = _apply_defocus_blur(image, r)
+    elif blur_type == "surface":
+        res = _apply_surface_blur(image, r, s)
+    else:
+        # Fallback.
+        res = _apply_blur(image, r, s)
+        
+    soft_empty_cache()
+    return res
 
 
 def _coerce_media_to_tensor(media, input_name="media"):
@@ -1548,10 +1659,46 @@ def _rotate_premultiplied_rgba(image: torch.Tensor, rotate_deg) -> torch.Tensor:
     device = image.device
     dtype = image.dtype
     premult = _premultiply_rgba(image)
-    frames = []
-    for pil in _tensor_batch_to_pil_list(premult.float().clamp(0.0, 1.0)):
-        frames.append(_pil_to_tensor(pil.rotate(-angle, resample=Image.BICUBIC, expand=True)))
-    return _unpremultiply_rgba(torch.cat(frames, dim=0).to(device=device, dtype=dtype).clamp(0.0, 1.0))
+
+    # 1. Fast-path: check if angle is a multiple of 90 degrees
+    # e.g., 90, 180, 270, -90, -180, -270
+    if abs(angle % 90.0) <= EPSILON:
+        k = -int(round(angle / 90.0)) % 4
+        if k != 0:
+            rotated = torch.rot90(premult, k=k, dims=(1, 2))
+            return _unpremultiply_rgba(rotated.clamp(0.0, 1.0))
+        else:
+            return image
+
+    # 2. General angle rotation via pure PyTorch grid_sample (runs entirely on GPU/CPU)
+    angle_rad = angle * math.pi / 180.0
+    H, W = premult.shape[1], premult.shape[2]
+    cos_a = abs(math.cos(angle_rad))
+    sin_a = abs(math.sin(angle_rad))
+    W_new = int(math.ceil(round(W * cos_a + H * sin_a, 4)))
+    H_new = int(math.ceil(round(W * sin_a + H * cos_a, 4)))
+
+    B = premult.shape[0]
+
+    # Create theta tensor on the same device and dtype
+    theta = torch.zeros(B, 2, 3, device=device, dtype=dtype)
+    theta[:, 0, 0] = (W_new / W) * math.cos(angle_rad)
+    theta[:, 0, 1] = (H_new / W) * math.sin(angle_rad)
+    theta[:, 1, 0] = -(W_new / H) * math.sin(angle_rad)
+    theta[:, 1, 1] = (H_new / H) * math.cos(angle_rad)
+
+    # Permute from (B, H, W, C) to (B, C, H, W)
+    x = premult.permute(0, 3, 1, 2)
+
+    # Generate grid and perform bicubic sampling
+    grid = torch.nn.functional.affine_grid(theta, size=(B, 4, H_new, W_new), align_corners=False)
+    y = torch.nn.functional.grid_sample(x, grid, mode="bicubic", padding_mode="zeros", align_corners=False)
+
+    # Permute back to (B, H, W, C)
+    rotated = y.permute(0, 2, 3, 1)
+
+    return _unpremultiply_rgba(rotated.clamp(0.0, 1.0))
+
 
 
 def _apply_external_mask_to_rgba(image: torch.Tensor, mask: torch.Tensor | None) -> torch.Tensor:

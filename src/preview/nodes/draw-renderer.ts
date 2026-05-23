@@ -1,21 +1,38 @@
 import type { ComfyNode, DrawRenderSession } from "../../types.js";
 import { ensureState, setInfo, getRenderCanvasSize } from "../shared/state.js";
-import { isNode as isDrawNode } from "./draw.js";
+import {
+  isNode as isDrawNode,
+  updateDrawOverlayWidget,
+  syncDrawWidgets,
+  getDrawInfoText,
+  updateDrawToolButtons,
+} from "./draw.js";
 import { blit } from "../shared/bounds.js";
 import { ensurePreviewWidget } from "../shared/preview-widget.js";
 import { getInputOriginSlot, getUpstreamNode } from "../graph.js";
 import { resolveNodeStreamPreview } from "../nodestream.js";
 import { resolveNodeIntrinsicMediaSize } from "../source.js";
 import {
-  normalizeDrawColor, normalizeDrawEdge, normalizeDrawTool, normalizeDrawOverlayFormat,
-  clampDrawDimension, clampDrawOpacity, clampDrawSize, clampDrawSoftness,
-  resizeCanvasPreserve, renderDrawPreview, resolveDrawOverlayCanvas,
-  canvasToOverlayData,
+  findWidget,
+  widgetNumber,
+  widgetString,
+  widgetBoolean,
+  setWidgetValue,
+  setWidgetStringValue,
+} from "../shared/widgets.js";
+import {
+  normalizeDrawColor,
+  normalizeDrawEdge,
+  normalizeDrawTool,
+  clampDrawDimension,
+  clampDrawOpacity,
+  clampDrawSize,
+  clampDrawSoftness,
+  createOffscreenCanvas,
+  resizeCanvasPreserve,
+  renderDrawPreview,
+  resolveDrawOverlayCanvas,
 } from "../draw.js";
-import { findWidget, widgetNumber, widgetString, widgetBoolean, setWidgetValue, setWidgetStringValue } from "../shared/widgets.js";
-import { updateDrawToolButtons, updateDrawOverlayWidget, syncDrawWidgets, getDrawInfoText } from "./draw.js";
-
-// ── Pure helpers (no renderer needed) ──
 
 export function strokeStyle(color: string, opacity: number): string {
   const normalized = normalizeDrawColor(color, "#FFFFFF");
@@ -49,7 +66,7 @@ export function paintDrawSegment(node: ComfyNode, fromX: number, fromY: number, 
   const st = ensureState(node);
   const canvas = st.drawCanvas;
   if (!canvas) return;
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return;
   const tool = normalizeDrawTool(widgetString(node, "tool", "brush"));
   const edge = normalizeDrawEdge(widgetString(node, "brush_edge", "hard"));
@@ -108,7 +125,7 @@ let _softStampCache: {
   color: string;
   opacity: number;
   tool: "brush" | "eraser";
-  canvas: HTMLCanvasElement;
+  canvas: any;
 } | null = null;
 
 function buildSoftBrushStamp(
@@ -117,7 +134,7 @@ function buildSoftBrushStamp(
   color: string,
   opacity: number,
   tool: "brush" | "eraser",
-): HTMLCanvasElement {
+): any {
   const sizePx = Math.max(2, Math.ceil(brushSize));
   // Quantise size/opacity to keep the cache hit-rate high during a stroke.
   const sizeKey = sizePx;
@@ -133,9 +150,9 @@ function buildSoftBrushStamp(
   ) {
     return _softStampCache.canvas;
   }
-  const stamp = document.createElement("canvas");
+  const stamp = createOffscreenCanvas(sizePx, sizePx);
   stamp.width = stamp.height = sizePx;
-  const sctx = stamp.getContext("2d")!;
+  const sctx = stamp.getContext("2d", { willReadFrequently: true })!;
   const r = sizePx / 2;
   // innerR = 0 means fully feathered (gradient starts at the centre), innerR = r
   // means perfectly hard. softness=0 -> innerR very close to r (almost hard),
@@ -222,12 +239,10 @@ export function drawBrushCursorOverlay(node: ComfyNode, ctx: CanvasRenderingCont
   ctx.restore();
 }
 
-export function cloneCanvas(source: HTMLCanvasElement | null): HTMLCanvasElement | null {
+export function cloneCanvas(source: HTMLCanvasElement | null): any {
   if (!source) return null;
-  const copy = document.createElement("canvas");
-  copy.width = Math.max(1, source.width || 1);
-  copy.height = Math.max(1, source.height || 1);
-  const ctx = copy.getContext("2d");
+  const copy = createOffscreenCanvas(Math.max(1, source.width || 1), Math.max(1, source.height || 1));
+  const ctx = copy.getContext("2d", { willReadFrequently: true });
   if (!ctx) return null;
   ctx.clearRect(0, 0, copy.width, copy.height);
   ctx.drawImage(source, 0, 0, copy.width, copy.height);
@@ -236,7 +251,7 @@ export function cloneCanvas(source: HTMLCanvasElement | null): HTMLCanvasElement
 
 export function restoreCanvas(target: HTMLCanvasElement | null, snapshot: HTMLCanvasElement | null): void {
   if (!target || !snapshot) return;
-  const ctx = target.getContext("2d");
+  const ctx = target.getContext("2d", { willReadFrequently: true });
   if (!ctx) return;
   ctx.clearRect(0, 0, target.width, target.height);
   ctx.drawImage(snapshot, 0, 0, target.width, target.height);
@@ -273,11 +288,9 @@ export function ensureDrawCanvasSize(node: ComfyNode, width: number, height: num
   }
 }
 
-export function deriveMaskCanvasFromCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
-  const output = document.createElement("canvas");
-  output.width = Math.max(1, source.width || 1);
-  output.height = Math.max(1, source.height || 1);
-  const octx = output.getContext("2d")!;
+export function deriveMaskCanvasFromCanvas(source: HTMLCanvasElement): any {
+  const output = createOffscreenCanvas(Math.max(1, source.width || 1), Math.max(1, source.height || 1));
+  const octx = output.getContext("2d", { willReadFrequently: true })!;
   octx.clearRect(0, 0, output.width, output.height);
   octx.drawImage(source, 0, 0, output.width, output.height);
   const image = octx.getImageData(0, 0, output.width, output.height);
@@ -300,11 +313,9 @@ export function deriveMaskCanvasFromCanvas(source: HTMLCanvasElement): HTMLCanva
  * display canvas: any pixel with matte > 0 → RGB=255, A=255; otherwise RGB=0, A=255.
  * Used exclusively for the Preview bridge display — not for the compositing pipeline.
  */
-export function maskToOpaqueDisplayCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
-  const output = document.createElement("canvas");
-  output.width = Math.max(1, source.width || 1);
-  output.height = Math.max(1, source.height || 1);
-  const octx = output.getContext("2d")!;
+export function maskToOpaqueDisplayCanvas(source: HTMLCanvasElement): any {
+  const output = createOffscreenCanvas(Math.max(1, source.width || 1), Math.max(1, source.height || 1));
+  const octx = output.getContext("2d", { willReadFrequently: true })!;
   octx.clearRect(0, 0, output.width, output.height);
   octx.drawImage(source, 0, 0, output.width, output.height);
   const image = octx.getImageData(0, 0, output.width, output.height);
@@ -348,7 +359,7 @@ export async function renderDrawNode(node: ComfyNode, tick: number, session: Dra
   const previewCanvas = await renderDrawPreview(node, baseCanvas, inputSize);
   st.drawBaseCanvas = baseCanvas;
   blit(node, st, previewCanvas, renderCanvasSize);
-  const previewCtx = st.canvas?.getContext("2d");
+  const previewCtx = st.canvas?.getContext("2d", { willReadFrequently: true });
   if (previewCtx) {
     drawBrushCursorOverlay(node, previewCtx);
   }
@@ -371,7 +382,7 @@ export async function ensureDrawInteractionReady(node: ComfyNode, session: DrawR
   return !!next.drawGeometry && !!next.drawCanvas;
 }
 
-export async function renderDrawMaskCanvas(node: ComfyNode, tick: number, session: DrawRenderSession): Promise<HTMLCanvasElement> {
+export async function renderDrawMaskCanvas(node: ComfyNode, tick: number, session: DrawRenderSession): Promise<any> {
   const upstream = getUpstreamNode(node, 0);
   let width = clampDrawDimension(widgetNumber(node, "width", 1024));
   let height = clampDrawDimension(widgetNumber(node, "height", 1024));
@@ -384,11 +395,9 @@ export async function renderDrawMaskCanvas(node: ComfyNode, tick: number, sessio
     }
   }
   const overlay = await resolveDrawOverlayCanvas(node, width, height);
-  const output = document.createElement("canvas");
-  output.width = overlay.width || 1;
-  output.height = overlay.height || 1;
-  const octx = output.getContext("2d")!;
-  const overlayCtx = overlay.getContext("2d");
+  const output = createOffscreenCanvas(overlay.width || 1, overlay.height || 1);
+  const octx = output.getContext("2d", { willReadFrequently: true })!;
+  const overlayCtx = overlay.getContext("2d", { willReadFrequently: true });
   if (!overlayCtx) return output;
   const image = overlayCtx.getImageData(0, 0, overlay.width || 1, overlay.height || 1);
   const data = image.data;

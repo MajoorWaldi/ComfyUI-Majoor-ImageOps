@@ -71,6 +71,29 @@ def _trim_clip(source: torch.Tensor, start: int, end: int) -> torch.Tensor:
     return source[actual_start:actual_end + 1]
 
 
+def _coerce_channels(tensor: torch.Tensor, target_channels: int) -> torch.Tensor:
+    batch, h, w, channels = tensor.shape
+    if channels == target_channels:
+        return tensor
+    if target_channels >= 3 and channels == 1:
+        rgb = tensor.expand(-1, -1, -1, 3)
+        if target_channels == 4:
+            alpha = torch.ones((batch, h, w, 1), device=tensor.device, dtype=tensor.dtype)
+            return torch.cat([rgb, alpha], dim=-1)
+        return rgb
+    if target_channels == 4 and channels == 3:
+        alpha = torch.ones((batch, h, w, 1), device=tensor.device, dtype=tensor.dtype)
+        return torch.cat([tensor, alpha], dim=-1)
+    if target_channels == 3 and channels == 4:
+        return tensor[..., :3]
+    if channels < target_channels:
+        padding = torch.zeros((batch, h, w, target_channels - channels), device=tensor.device, dtype=tensor.dtype)
+        if target_channels >= 4 and channels <= 3:
+            padding[..., -1] = 1.0
+        return torch.cat([tensor, padding], dim=-1)
+    return tensor[..., :target_channels]
+
+
 def _pad_to_size(source: torch.Tensor, target_w: int, target_h: int) -> torch.Tensor:
     batch, source_h, source_w, channels = source.shape
     if source_w == target_w and source_h == target_h:
@@ -99,7 +122,7 @@ def _align_pair(image_a: torch.Tensor, image_b: torch.Tensor, fit_mode: str) -> 
         return _pad_to_size(image_a, target_w, target_h), _pad_to_size(image_b, target_w, target_h)
 
     raise ValueError(
-        "ImageOps Join requires matching dimensions in strict mode. "
+        "ImageOps Append requires matching dimensions in strict mode. "
         f"image_a is {a_w}x{a_h}, image_b is {b_w}x{b_h}. "
         "Use resize_to_first or pad_to_max to align them."
     )
@@ -140,6 +163,10 @@ class ImageOpsAppend:
             tensor = _select_media_tensor(value, None).float().clamp(0.0, 1.0)
             start, end = trims.get(clip_index, (0, -1))
             tensors.append(_trim_clip(tensor, start, end))
+
+        # Coerce channels to the maximum channel count among connected inputs
+        max_channels = max(int(t.shape[3]) for t in tensors)
+        tensors = [_coerce_channels(t, max_channels) for t in tensors]
 
         if bool(bypass) or len(tensors) == 1:
             out = tensors[0]

@@ -245,7 +245,7 @@ function sampleCanvasColor(canvas, event) {
   const x = Math.max(0, Math.min(canvas.width - 1, Math.floor(point.x)));
   const y = Math.max(0, Math.min(canvas.height - 1, Math.floor(point.y)));
   try {
-    const pixel = canvas.getContext("2d")?.getImageData(x, y, 1, 1).data;
+    const pixel = canvas.getContext("2d", { willReadFrequently: true })?.getImageData(x, y, 1, 1).data;
     if (!pixel) return null;
     return `#${toHexByte(pixel[0])}${toHexByte(pixel[1])}${toHexByte(pixel[2])}`;
   } catch {

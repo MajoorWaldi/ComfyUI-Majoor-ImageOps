@@ -99,6 +99,15 @@ export function makeCanvas(width: number, height: number): HTMLCanvasElement {
   return canvas;
 }
 
+export function createOffscreenCanvas(width: number, height: number): any {
+  if (typeof OffscreenCanvas !== "undefined") {
+    try {
+      return new OffscreenCanvas(normalizeCanvasDimension(width, 1), normalizeCanvasDimension(height, 1));
+    } catch {}
+  }
+  return makeCanvas(width, height);
+}
+
 export function resizeCanvasPreserve(source: HTMLCanvasElement | null, width: number, height: number): HTMLCanvasElement {
   const target = makeCanvas(width, height);
   if (!source) return target;

@@ -243,7 +243,7 @@ export function imageOpsAdapter(): Adapter {
           const firstCount = Math.max(1, frameCounts.get(first.inputIndex) ?? 1);
           const localTick = normalizeFrameIndex(tick ?? 0, firstCount);
           const sourceFrame = getSourceFrame(first, localTick);
-          await seekAppendBranchFrame(first.upstreamNode, sourceFrame, firstCount);
+          await seekAppendBranchFrame(first.upstreamNode ?? null, sourceFrame, firstCount);
           return (await renderInputAt?.(first, sourceFrame)) ?? first.canvas;
         }
 
@@ -265,7 +265,7 @@ export function imageOpsAdapter(): Adapter {
         if (!selected) return inputs[0];
         const selectedCount = Math.max(1, frameCounts.get(selected.inputIndex) ?? 1);
         const sourceFrame = getSourceFrame(selected, localTick);
-        await seekAppendBranchFrame(selected.upstreamNode, sourceFrame, selectedCount);
+        await seekAppendBranchFrame(selected.upstreamNode ?? null, sourceFrame, selectedCount);
         return (await renderInputAt?.(selected, sourceFrame)) ?? selected.canvas;
       } else if (cls === "ImageOpsComp") {
         return ops.comp(ctx, canvasSize, node, inputs);

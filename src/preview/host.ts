@@ -258,7 +258,7 @@ export function registerImageOpsLivePreview(): void {
       const single = document.createElement("canvas");
       single.width = Math.max(1, Math.round(frames[0].width));
       single.height = Math.max(1, Math.round(frames[0].height));
-      const singleCtx = single.getContext("2d");
+      const singleCtx = single.getContext("2d", { willReadFrequently: true });
       if (!singleCtx) return null;
       singleCtx.drawImage(frames[0].source, 0, 0, single.width, single.height);
       return single;
@@ -278,7 +278,7 @@ export function registerImageOpsLivePreview(): void {
     const strip = document.createElement("canvas");
     strip.width = totalWidth;
     strip.height = totalHeight;
-    const stripCtx = strip.getContext("2d");
+    const stripCtx = strip.getContext("2d", { willReadFrequently: true });
     if (!stripCtx) return null;
     stripCtx.fillStyle = "#000";
     stripCtx.fillRect(0, 0, strip.width, strip.height);
@@ -376,7 +376,7 @@ export function registerImageOpsLivePreview(): void {
         const strip = document.createElement("canvas");
         strip.width = Math.max(1, readyOwn.naturalWidth);
         strip.height = Math.max(1, readyOwn.naturalHeight);
-        const stripCtx = strip.getContext("2d");
+        const stripCtx = strip.getContext("2d", { willReadFrequently: true });
         if (stripCtx) {
           stripCtx.drawImage(readyOwn, 0, 0, strip.width, strip.height);
           return { canvas: strip, source: "native", frameCount: 1 };
@@ -918,6 +918,7 @@ export function registerImageOpsLivePreview(): void {
     const st = ensureState(node);
     if (st.hooked) return;
     st.hooked = true;
+    st._abortController = new AbortController();
 
     // Cleanup RAF and timers when the node is removed from the graph.
     const origOnRemoved = (node as any).onRemoved;
@@ -1134,6 +1135,10 @@ export function registerImageOpsLivePreview(): void {
     const chainCb = (prop: "onConnectionsChange" | "onConfigure"): void => {
       const orig = node[prop];
       (node as any)[prop] = function (this: any) {
+        if (prop === "onConfigure") {
+          try { st._abortController?.abort(); } catch {}
+          st._abortController = new AbortController();
+        }
         const r = orig?.apply(this, arguments as any);
         if (isCropNode(node) && prop === "onConfigure") {
           hideCropGeometryWidgets(node);
@@ -1221,6 +1226,7 @@ export function registerImageOpsLivePreview(): void {
           hideCompWidgets(node);
           ensureCompState(node);
           st.compInteractiveHooked = false;
+          (st as any).compKeyboardHooked = false;
           attachCompInteractionsExt(node, compCtx);
           updateCompControls(node);
         }

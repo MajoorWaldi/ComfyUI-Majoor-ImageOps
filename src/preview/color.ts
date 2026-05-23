@@ -46,7 +46,7 @@ export function getColorWheelSwatchCss(hueDeg: number, saturationPercent: number
 }
 
 export function drawColorWheel(canvas: HTMLCanvasElement, hueDeg: number, saturationPercent: number): void {
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return;
   const width = Math.max(1, canvas.width || 1);
   const height = Math.max(1, canvas.height || 1);

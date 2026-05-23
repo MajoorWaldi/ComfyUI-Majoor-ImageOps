@@ -91,7 +91,8 @@ function attachPreviewNavigation(node, canvasSize) {
     markPreviewInteraction(node);
     reblitNow();
   };
-  document.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+  const signal = st?._abortController?.signal;
+  document.addEventListener("wheel", handleWheel, { capture: true, passive: false, signal });
   st._navWheelCleanup = () => document.removeEventListener("wheel", handleWheel, { capture: true });
   canvas.addEventListener("dblclick", () => {
     if (isInteractiveNode(node)) return;

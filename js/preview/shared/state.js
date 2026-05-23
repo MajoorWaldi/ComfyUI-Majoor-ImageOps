@@ -4,6 +4,7 @@ import { isStressed } from "./fps-monitor.js";
 function ensureState(node) {
   node.__imageops_state ?? (node.__imageops_state = {
     hooked: false,
+    _abortController: null,
     previewRoot: null,
     previewMetaRow: null,
     previewControls: null,

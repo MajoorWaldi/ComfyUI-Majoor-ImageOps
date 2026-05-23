@@ -58,6 +58,15 @@ function makeCanvas(width, height) {
   canvas.height = normalizeCanvasDimension(height, 1);
   return canvas;
 }
+function createOffscreenCanvas(width, height) {
+  if (typeof OffscreenCanvas !== "undefined") {
+    try {
+      return new OffscreenCanvas(normalizeCanvasDimension(width, 1), normalizeCanvasDimension(height, 1));
+    } catch {
+    }
+  }
+  return makeCanvas(width, height);
+}
 function resizeCanvasPreserve(source, width, height) {
   const target = makeCanvas(width, height);
   if (!source) return target;
@@ -296,6 +305,7 @@ export {
   clampDrawOpacity,
   clampDrawSize,
   clampDrawSoftness,
+  createOffscreenCanvas,
   loadOverlayCanvas,
   makeCanvas,
   makeSolidBackgroundCanvas,

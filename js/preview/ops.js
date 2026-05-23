@@ -96,7 +96,7 @@ function makeCanvas(width, height) {
 const preparedMaskCache = /* @__PURE__ */ new WeakMap();
 const canvasFieldCache = /* @__PURE__ */ new WeakMap();
 function prepareMaskCanvasInPlace(canvas) {
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return canvas;
   const width = canvas.width || 1;
   const height = canvas.height || 1;
@@ -174,7 +174,7 @@ function resizeWithMode(source, width, height, filter, mode, fillColor = "#00000
   const targetWidth = Math.max(1, Math.round(width));
   const targetHeight = Math.max(1, Math.round(height));
   const output = makeCanvas(targetWidth, targetHeight);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   const normalizedMode = String(mode || "stretch").toLowerCase();
   const srcW = Math.max(1, source.width || 1);
   const srcH = Math.max(1, source.height || 1);
@@ -209,7 +209,7 @@ function fitCanvas(source, width, height) {
     return source;
   }
   const output = makeCanvas(width, height);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   setResampleMode(octx, "bicubic");
   octx.clearRect(0, 0, output.width, output.height);
   octx.drawImage(source, 0, 0, output.width, output.height);
@@ -221,7 +221,7 @@ function fitCanvas(source, width, height) {
 function flipCanvas(source, horizontal, vertical) {
   if (!horizontal && !vertical) return source;
   const output = makeCanvas(source.width || 1, source.height || 1);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.save();
   octx.translate(horizontal ? output.width : 0, vertical ? output.height : 0);
   octx.scale(horizontal ? -1 : 1, vertical ? -1 : 1);
@@ -234,14 +234,14 @@ function rotateDiscrete(source, quarterTurns) {
   if (turns === 0) return source;
   const swap = turns % 2 === 1;
   const output = makeCanvas(swap ? source.height : source.width, swap ? source.width : source.height);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.translate(output.width / 2, output.height / 2);
   octx.rotate(turns * Math.PI / 2);
   octx.drawImage(source, -source.width / 2, -source.height / 2);
   return output;
 }
 function computeMaskBounds(maskCanvas) {
-  const ctx = maskCanvas.getContext("2d");
+  const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return null;
   const image = ctx.getImageData(0, 0, maskCanvas.width || 1, maskCanvas.height || 1);
   const data = image.data;
@@ -266,7 +266,7 @@ function computeMaskBounds(maskCanvas) {
 }
 function compositeAt(base, top, mode, opacity, x, y, width, height) {
   const output = makeCanvas(base.width || 1, base.height || 1);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.clearRect(0, 0, output.width, output.height);
   octx.drawImage(base, 0, 0, output.width, output.height);
   octx.save();
@@ -306,7 +306,7 @@ function renderConstantCanvas(node, maskOnly = false) {
   const height = Math.max(1, Math.round(numAny(node, ["height"], 1024)));
   const alpha = Math.max(0, Math.min(1, numAny(node, ["alpha"], 1)));
   const canvas = makeCanvas(width, height);
-  const out = canvas.getContext("2d");
+  const out = canvas.getContext("2d", { willReadFrequently: true });
   if (maskOnly) {
     out.fillStyle = `rgba(255,255,255,${alpha})`;
     out.fillRect(0, 0, width, height);
@@ -351,7 +351,7 @@ function renderRampCanvas(node, maskOnly = false) {
   const height = Math.max(1, Math.round(numAny(node, ["height"], 1024)));
   const alpha = Math.max(0, Math.min(1, numAny(node, ["alpha"], 1)));
   const canvas = makeCanvas(width, height);
-  const out = canvas.getContext("2d");
+  const out = canvas.getContext("2d", { willReadFrequently: true });
   if (maskOnly) {
     out.fillStyle = `rgba(255,255,255,${alpha})`;
     out.fillRect(0, 0, width, height);
@@ -421,7 +421,7 @@ function renderGrainCanvas(node, source, rawMask, frameIndex) {
   const width = source.width || 1;
   const height = source.height || 1;
   const output = makeCanvas(width, height);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.drawImage(source, 0, 0, width, height);
   const img = octx.getImageData(0, 0, width, height);
   const data = img.data;
@@ -432,7 +432,7 @@ function renderGrainCanvas(node, source, rawMask, frameIndex) {
   const grainFrame = animated ? Math.max(0, Math.round(frameIndex)) : 0;
   const mode = strAny(node, ["blend_mode"], "add", frameIndex);
   const mask = resolvePreviewMaskCanvas(node, source, rawMask, frameIndex);
-  const maskData = mask?.getContext("2d")?.getImageData(0, 0, width, height).data ?? null;
+  const maskData = mask?.getContext("2d", { willReadFrequently: true })?.getImageData(0, 0, width, height).data ?? null;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
@@ -455,14 +455,14 @@ function renderTextCanvas(node, source, rawMask, frameIndex) {
   const width = source.width || 1;
   const height = source.height || 1;
   const output = makeCanvas(width, height);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.drawImage(source, 0, 0, width, height);
   const text = resolveConnectedString(node, "text") ?? strAny(node, ["text"], "ImageOps Text", frameIndex);
   const opacity = Math.max(0, Math.min(1, numAny(node, ["opacity"], 1, frameIndex)));
   if (!text || opacity <= 0) return output;
   const mask = resolvePreviewMaskCanvas(node, source, rawMask, frameIndex);
   const layer = makeCanvas(width, height);
-  const lctx = layer.getContext("2d");
+  const lctx = layer.getContext("2d", { willReadFrequently: true });
   const fontSize = Math.max(1, Math.round(numAny(node, ["font_size"], 64, frameIndex)));
   const align = strAny(node, ["align"], "center", frameIndex).toLowerCase();
   const x = numAny(node, ["x"], 0.5, frameIndex) * Math.max(1, width - 1);
@@ -691,7 +691,7 @@ function buildNoiseField(width, height, options) {
 }
 function renderNoiseFieldCanvas(width, height, grayValues, low, high, maskOnly = false) {
   const canvas = makeCanvas(width, height);
-  const context = canvas.getContext("2d");
+  const context = canvas.getContext("2d", { willReadFrequently: true });
   const image = context.createImageData(width, height);
   const data = image.data;
   for (let index = 0; index < grayValues.length; index++) {
@@ -765,7 +765,7 @@ function extractCanvasField(canvas, width, height, channel) {
   const cachedField = canvasFieldCache.get(canvas)?.get(cacheKey);
   if (cachedField) return cachedField;
   const fitted = (canvas.width || 1) === width && (canvas.height || 1) === height ? canvas : fitCanvas(canvas, width, height);
-  const data = fitted.getContext("2d").getImageData(0, 0, width, height).data;
+  const data = fitted.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, width, height).data;
   const field = new Float32Array(width * height);
   const weights = getOpsConstants().luma_weights;
   const preparedMask = isPreparedMaskCanvas(fitted);
@@ -921,10 +921,10 @@ function renderDistortCanvas(node, inputs, frameIndex = 0) {
     yField = xField === yField ? xField : blurField(yField, width, height, blurRadius);
   }
   const sourceCanvas = source;
-  const sourceCtx = sourceCanvas.getContext("2d");
+  const sourceCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
   const sourceData = sourceCtx.getImageData(0, 0, width, height);
   const output = makeCanvas(width, height);
-  const outCtx = output.getContext("2d");
+  const outCtx = output.getContext("2d", { willReadFrequently: true });
   const outImage = outCtx.createImageData(width, height);
   const outData = outImage.data;
   const strengthX = numAny(node, ["strength_x"], 40, frameIndex);
@@ -1210,7 +1210,7 @@ function applyUnsharp(ctx, W, H, amount = 1) {
   const tmp = document.createElement("canvas");
   tmp.width = W;
   tmp.height = H;
-  const tctx = tmp.getContext("2d");
+  const tctx = tmp.getContext("2d", { willReadFrequently: true });
   tctx.filter = "blur(2px)";
   tctx.drawImage(ctx.canvas, 0, 0);
   tctx.filter = "none";
@@ -1261,7 +1261,7 @@ function applyBlur(ctx, W, H, radiusPx, sigmaPx) {
   const cssSigma = safeSigma > 0 ? Math.min(blurPx, safeSigma) : Math.max(0.1, blurPx / 3);
   const tmp = acquireCanvas(W, H);
   try {
-    const tctx = tmp.getContext("2d");
+    const tctx = tmp.getContext("2d", { willReadFrequently: true });
     tctx.filter = `blur(${cssSigma}px)`;
     tctx.drawImage(ctx.canvas, 0, 0);
     tctx.filter = "none";
@@ -1323,10 +1323,10 @@ function applyTransform(ctx, W, H, tx, ty, rotDeg, scale, filter, expand, fillMo
   const needsRotate = Math.abs(rotDeg) > 1e-4;
   const needsTranslate = tx !== 0 || ty !== 0;
   if (!needsScale && !needsRotate && !needsTranslate) return;
-  const sourceCtx = ctx.canvas.getContext("2d");
+  const sourceCtx = ctx.canvas.getContext("2d", { willReadFrequently: true });
   if (!sourceCtx) return;
   const output = makeCanvas(W, H);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   setResampleMode(octx, filter);
   octx.clearRect(0, 0, W, H);
   if (normalizedFill === "color") {
@@ -1403,12 +1403,12 @@ function applyGlow(ctx, W, H, threshold, intensity, blurPx) {
   const tmp = document.createElement("canvas");
   tmp.width = W;
   tmp.height = H;
-  const tctx = tmp.getContext("2d");
+  const tctx = tmp.getContext("2d", { willReadFrequently: true });
   tctx.putImageData(new ImageData(hi, W, H), 0, 0);
   const blur = document.createElement("canvas");
   blur.width = W;
   blur.height = H;
-  const bctx = blur.getContext("2d");
+  const bctx = blur.getContext("2d", { willReadFrequently: true });
   bctx.filter = `blur(${Math.max(0, blurPx)}px)`;
   bctx.drawImage(tmp, 0, 0);
   bctx.filter = "none";
@@ -1425,7 +1425,7 @@ function applyCropReformat(ctx, W, H, x, y, cw, ch, padding, outW, outH, mode) {
   const tmp = document.createElement("canvas");
   tmp.width = cropW + pad * 2;
   tmp.height = cropH + pad * 2;
-  const tctx = tmp.getContext("2d");
+  const tctx = tmp.getContext("2d", { willReadFrequently: true });
   tctx.clearRect(0, 0, tmp.width, tmp.height);
   tctx.drawImage(ctx.canvas, -Math.round(x) + pad, -Math.round(y) + pad);
   const finalW = outW > 0 ? Math.round(outW) : tmp.width;
@@ -1433,7 +1433,7 @@ function applyCropReformat(ctx, W, H, x, y, cw, ch, padding, outW, outH, mode) {
   const dst = document.createElement("canvas");
   dst.width = finalW;
   dst.height = finalH;
-  const dctx = dst.getContext("2d");
+  const dctx = dst.getContext("2d", { willReadFrequently: true });
   dctx.clearRect(0, 0, finalW, finalH);
   if (mode === "stretch") {
     dctx.drawImage(tmp, 0, 0, finalW, finalH);
@@ -1461,7 +1461,7 @@ function applyCrop(ctx, node, sourceWidth, sourceHeight, aspectRatio, outW, outH
     clampCropScale(num(node, "crop_scale", 1))
   );
   const output = makeCanvas(finalW, finalH);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.imageSmoothingEnabled = true;
   octx.imageSmoothingQuality = "high";
   octx.clearRect(0, 0, finalW, finalH);
@@ -1495,12 +1495,12 @@ function renderPadOutCanvases(node, source, frameIndex = 0, applyInvertMask = tr
   const sourceHeight = source.height || 1;
   const { padLeft, padTop, padRight, padBottom, outWidth, outHeight } = resolvePadOutGeometry(sourceWidth, sourceHeight, node, frameIndex);
   const image = makeCanvas(outWidth, outHeight);
-  const imageCtx = image.getContext("2d");
+  const imageCtx = image.getContext("2d", { willReadFrequently: true });
   imageCtx.fillStyle = "#000000";
   imageCtx.fillRect(0, 0, outWidth, outHeight);
   imageCtx.drawImage(source, padLeft, padTop, sourceWidth, sourceHeight);
   const mask = makeCanvas(outWidth, outHeight);
-  const maskCtx = mask.getContext("2d");
+  const maskCtx = mask.getContext("2d", { willReadFrequently: true });
   if (invertMask) {
     maskCtx.fillStyle = "#FFFFFF";
     maskCtx.fillRect(padLeft, padTop, sourceWidth, sourceHeight);
@@ -1683,13 +1683,13 @@ function warpCanvasToQuad(source, outputWidth, outputHeight, corners, filter = "
     markPreparedMaskCanvas(mask);
     return { image, mask };
   }
-  const sourceCtx = source.getContext("2d");
+  const sourceCtx = source.getContext("2d", { willReadFrequently: true });
   const srcImage = sourceCtx.getImageData(0, 0, width, height);
   const srcData = srcImage.data;
-  const imageCtx = image.getContext("2d");
+  const imageCtx = image.getContext("2d", { willReadFrequently: true });
   const outImage = imageCtx.createImageData(outputWidth, outputHeight);
   const outData = outImage.data;
-  const maskCtx = mask.getContext("2d");
+  const maskCtx = mask.getContext("2d", { willReadFrequently: true });
   const outMask = maskCtx.createImageData(outputWidth, outputHeight);
   const outMaskData = outMask.data;
   const useNearest = filter === "nearest";
@@ -1735,7 +1735,7 @@ function renderCornerPinCanvases(node, source, frameIndex = 0) {
   if (bypass) {
     const image2 = fitCanvas(source, width, height);
     const mask2 = makeCanvas(width, height);
-    const maskCtx2 = mask2.getContext("2d");
+    const maskCtx2 = mask2.getContext("2d", { willReadFrequently: true });
     if (!invertMask) {
       maskCtx2.fillStyle = "#FFFFFF";
       maskCtx2.fillRect(0, 0, width, height);
@@ -1747,7 +1747,7 @@ function renderCornerPinCanvases(node, source, frameIndex = 0) {
   if (!inverse) {
     const image2 = fitCanvas(source, width, height);
     const mask2 = makeCanvas(width, height);
-    const maskCtx2 = mask2.getContext("2d");
+    const maskCtx2 = mask2.getContext("2d", { willReadFrequently: true });
     if (invertMask) {
       maskCtx2.fillStyle = "#FFFFFF";
       maskCtx2.fillRect(0, 0, width, height);
@@ -1755,11 +1755,11 @@ function renderCornerPinCanvases(node, source, frameIndex = 0) {
     markPreparedMaskCanvas(mask2);
     return { image: image2, mask: mask2 };
   }
-  const sourceCtx = source.getContext("2d");
+  const sourceCtx = source.getContext("2d", { willReadFrequently: true });
   const srcImage = sourceCtx.getImageData(0, 0, width, height);
   const srcData = srcImage.data;
   const image = makeCanvas(width, height);
-  const imageCtx = image.getContext("2d");
+  const imageCtx = image.getContext("2d", { willReadFrequently: true });
   if (fillMode === "color") {
     imageCtx.fillStyle = fillColor;
     imageCtx.fillRect(0, 0, width, height);
@@ -1769,7 +1769,7 @@ function renderCornerPinCanvases(node, source, frameIndex = 0) {
   const outImage = imageCtx.getImageData(0, 0, width, height);
   const outData = outImage.data;
   const mask = makeCanvas(width, height);
-  const maskCtx = mask.getContext("2d");
+  const maskCtx = mask.getContext("2d", { willReadFrequently: true });
   const outMask = maskCtx.createImageData(width, height);
   const outMaskData = outMask.data;
   const useNearest = filter === "nearest";
@@ -1854,7 +1854,7 @@ function buildMaskAlphaCanvas(maskCanvas, width, height) {
   const cachedPrepared = preparedMaskCache.get(maskCanvas)?.get(cacheKey);
   if (cachedPrepared) return cachedPrepared;
   const output = makeCanvas(width, height);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.clearRect(0, 0, width, height);
   octx.imageSmoothingEnabled = true;
   octx.imageSmoothingQuality = "high";
@@ -1880,7 +1880,7 @@ function buildMaskAlphaCanvas(maskCanvas, width, height) {
 function maskCanvasToPreviewCanvas(maskCanvas, includeAlpha = false) {
   const prepared = buildMaskAlphaCanvas(maskCanvas, maskCanvas.width || 1, maskCanvas.height || 1);
   const output = makeCanvas(prepared.width || 1, prepared.height || 1);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.drawImage(prepared, 0, 0, output.width, output.height);
   const image = octx.getImageData(0, 0, output.width, output.height);
   const data = image.data;
@@ -1896,7 +1896,7 @@ function maskCanvasToPreviewCanvas(maskCanvas, includeAlpha = false) {
 }
 function alphaMaskCanvas(source) {
   const output = makeCanvas(source.width || 1, source.height || 1);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.clearRect(0, 0, output.width, output.height);
   octx.drawImage(source, 0, 0, output.width, output.height);
   const image = octx.getImageData(0, 0, output.width, output.height);
@@ -1913,7 +1913,7 @@ function alphaMaskCanvas(source) {
   return markPreparedMaskCanvas(output);
 }
 function canvasHasVisibleTransparency(source) {
-  const ctx = source.getContext("2d");
+  const ctx = source.getContext("2d", { willReadFrequently: true });
   if (!ctx) return false;
   const data = ctx.getImageData(0, 0, source.width || 1, source.height || 1).data;
   for (let index = 3; index < data.length; index += 4) {
@@ -1947,7 +1947,7 @@ function applyMaskConvertLevels(value, blackPoint, whitePoint) {
 }
 function imageToMaskPreviewCanvas(source, node, frameIndex = 0) {
   const output = makeCanvas(source.width || 1, source.height || 1);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.drawImage(source, 0, 0, output.width, output.height);
   const image = octx.getImageData(0, 0, output.width, output.height);
   const data = image.data;
@@ -1972,14 +1972,14 @@ function imageToMaskPreviewCanvas(source, node, frameIndex = 0) {
   const antialiasRadius = Math.max(0, numAny(node ?? {}, ["antialias_radius", "mask_antialias", "antialias"], 0, frameIndex));
   const levelsSource = antialiasRadius > 0 ? makeCanvas(output.width, output.height) : output;
   if (antialiasRadius > 0) {
-    const blurCtx = levelsSource.getContext("2d");
+    const blurCtx = levelsSource.getContext("2d", { willReadFrequently: true });
     blurCtx.filter = `blur(${antialiasRadius}px)`;
     blurCtx.drawImage(output, 0, 0);
     blurCtx.filter = "none";
   }
   const blackPoint = numAny(node ?? {}, ["black_point", "black"], 0, frameIndex);
   const whitePoint = numAny(node ?? {}, ["white_point", "white"], 1, frameIndex);
-  const levelsCtx = levelsSource.getContext("2d");
+  const levelsCtx = levelsSource.getContext("2d", { willReadFrequently: true });
   const levelsImage = levelsCtx.getImageData(0, 0, levelsSource.width, levelsSource.height);
   const levelsData = levelsImage.data;
   for (let index = 0; index < levelsData.length; index += 4) {
@@ -1995,9 +1995,9 @@ function imageToMaskPreviewCanvas(source, node, frameIndex = 0) {
 }
 function applyEffectToCanvas(source, effect) {
   const output = makeCanvas(source.width || 1, source.height || 1);
-  const copyCtx = output.getContext("2d");
+  const copyCtx = output.getContext("2d", { willReadFrequently: true });
   copyCtx.drawImage(source, 0, 0, output.width, output.height);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   const result = effect(octx, output.width, output.height);
   return result instanceof HTMLCanvasElement ? result : output;
 }
@@ -2009,7 +2009,7 @@ function resolvePreviewMaskCanvas(node, source, rawMask, frameIndex = 0) {
 function compositeProcessedWithMask(baseCanvas, processedCanvas, maskCanvas) {
   if (!maskCanvas) return processedCanvas;
   const output = makeCanvas(processedCanvas.width || 1, processedCanvas.height || 1);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.imageSmoothingEnabled = true;
   octx.imageSmoothingQuality = "high";
   octx.clearRect(0, 0, output.width, output.height);
@@ -2034,7 +2034,7 @@ function renderMaskedEffectPreview(node, source, rawMask, processImage, options 
 function premultLayerWithMask(imageCanvas, maskCanvas) {
   if (!maskCanvas) return imageCanvas;
   const output = makeCanvas(imageCanvas.width || 1, imageCanvas.height || 1);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.clearRect(0, 0, output.width, output.height);
   octx.imageSmoothingEnabled = true;
   octx.imageSmoothingQuality = "high";
@@ -2048,7 +2048,7 @@ function premultLayerWithMask(imageCanvas, maskCanvas) {
 function invertMaskCanvas(maskCanvas) {
   const prepared = buildMaskAlphaCanvas(maskCanvas, maskCanvas.width || 1, maskCanvas.height || 1);
   const output = makeCanvas(prepared.width || 1, prepared.height || 1);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.drawImage(prepared, 0, 0, output.width, output.height);
   const image = octx.getImageData(0, 0, output.width, output.height);
   const data = image.data;
@@ -2067,7 +2067,7 @@ function invertMaskAlphaCanvas(maskCanvas) {
 function normalizePreparedMaskCanvas(maskCanvas) {
   const prepared = isPreparedMaskCanvas(maskCanvas) ? maskCanvas : buildMaskAlphaCanvas(maskCanvas, maskCanvas.width || 1, maskCanvas.height || 1);
   const output = makeCanvas(prepared.width || 1, prepared.height || 1);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.drawImage(prepared, 0, 0, output.width, output.height);
   const image = octx.getImageData(0, 0, output.width, output.height);
   const data = image.data;
@@ -2090,7 +2090,7 @@ function blurMaskAlphaCanvas(maskCanvas, radius) {
   const safeRadius = Math.max(0, radius);
   if (safeRadius <= 0) return prepared;
   const output = makeCanvas(prepared.width || 1, prepared.height || 1);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.filter = `blur(${safeRadius}px)`;
   octx.drawImage(prepared, 0, 0, output.width, output.height);
   octx.filter = "none";
@@ -2107,11 +2107,11 @@ function renderSpherizeMaskCanvas(node, source, rawMask, frameIndex = 0) {
     height = Math.max(64, Math.round(numAny(node, ["height"], height, frameIndex)));
   }
   const output = makeCanvas(width, height);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   const image = octx.createImageData(width, height);
   const data = image.data;
   const fittedMask = rawMask ? buildMaskAlphaCanvas(rawMask, width, height) : null;
-  const maskData = fittedMask?.getContext("2d").getImageData(0, 0, width, height).data ?? null;
+  const maskData = fittedMask?.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, width, height).data ?? null;
   for (let y = 0; y < height; y++) {
     const gy = height > 1 ? y / (height - 1) * 2 - 1 : 0;
     for (let x = 0; x < width; x++) {
@@ -2148,9 +2148,9 @@ function renderCompPreview(node, inputLayers) {
     setWidgetValue(hw, outputHeight);
   }
   const output = makeCanvas(outputWidth, outputHeight);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   const alphaCanvas = makeCanvas(outputWidth, outputHeight);
-  const alphaCtx = alphaCanvas.getContext("2d");
+  const alphaCtx = alphaCanvas.getContext("2d", { willReadFrequently: true });
   octx.fillStyle = parseHexColor(str(node, "background_color", "#000000"));
   octx.fillRect(0, 0, outputWidth, outputHeight);
   alphaCtx.clearRect(0, 0, outputWidth, outputHeight);
@@ -2309,7 +2309,7 @@ function blurMaskCanvas(source, radius) {
   const normalizedRadius = Math.max(0, radius);
   if (normalizedRadius <= 1e-3) return source;
   const output = makeCanvas(source.width || 1, source.height || 1);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.clearRect(0, 0, output.width, output.height);
   octx.filter = `blur(${normalizedRadius}px)`;
   octx.drawImage(source, 0, 0, output.width, output.height);
@@ -2336,8 +2336,8 @@ function renderKeyerCanvases(node, source, rawMask, frameIndex) {
   const height = source.height || 1;
   const image = makeCanvas(width, height);
   const mask = makeCanvas(width, height);
-  const ictx = image.getContext("2d");
-  const mctx = mask.getContext("2d");
+  const ictx = image.getContext("2d", { willReadFrequently: true });
+  const mctx = mask.getContext("2d", { willReadFrequently: true });
   ictx.drawImage(source, 0, 0, width, height);
   const img = ictx.getImageData(0, 0, width, height);
   const data = img.data;
@@ -2345,7 +2345,7 @@ function renderKeyerCanvases(node, source, rawMask, frameIndex) {
   const maskImg = mctx.createImageData(width, height);
   const maskData = maskImg.data;
   const extMask = resolvePreviewMaskCanvas(node, source, rawMask, frameIndex);
-  const extData = extMask?.getContext("2d")?.getImageData(0, 0, width, height).data ?? null;
+  const extData = extMask?.getContext("2d", { willReadFrequently: true })?.getImageData(0, 0, width, height).data ?? null;
   const keyMode = strAny(node, ["mode", "key_mode"], "color", frameIndex).toLowerCase();
   const keyColors = parseKeyColors(strAny(node, ["key_colors"], "", frameIndex));
   const keyTargets = keyColors.length > 0 ? keyColors : [hexToRgb01(strAny(node, ["key_color"], "#00ff00", frameIndex))];
@@ -2377,7 +2377,7 @@ function renderKeyerCanvases(node, source, rawMask, frameIndex) {
   }
   mctx.putImageData(maskImg, 0, 0);
   const finalMask = blur > 1e-3 ? blurMaskCanvas(mask, blur) : mask;
-  const finalMaskData = finalMask.getContext("2d")?.getImageData(0, 0, width, height).data ?? null;
+  const finalMaskData = finalMask.getContext("2d", { willReadFrequently: true })?.getImageData(0, 0, width, height).data ?? null;
   if (finalMaskData) {
     for (let i = 0; i < data.length; i += 4) {
       let matte = finalMaskData[i + 3] / 255;
@@ -2435,7 +2435,7 @@ function blendChannel01(base, top, mode) {
 function fitMergeForeground(topCanvas, width, height, fitMode) {
   const mode = String(fitMode || "stretch").toLowerCase().replace(/[-\s]+/g, "_");
   const out = makeCanvas(width, height);
-  const octx = out.getContext("2d");
+  const octx = out.getContext("2d", { willReadFrequently: true });
   octx.clearRect(0, 0, out.width, out.height);
   octx.imageSmoothingEnabled = true;
   octx.imageSmoothingQuality = "high";
@@ -2464,7 +2464,7 @@ function blend(ctx, W, H, topCanvas, mode, mix, foregroundFit = "stretch", blend
   if (m <= 0) return;
   const scaledTop = fitMergeForeground(topCanvas, W, H, foregroundFit);
   const base = getImageData(ctx, W, H);
-  const top = scaledTop.getContext("2d").getImageData(0, 0, W, H);
+  const top = scaledTop.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, W, H);
   const bd = base.data;
   const td = top.data;
   const blendMode = normalizeBlendModeName(mode);
@@ -2568,7 +2568,7 @@ function resolveResizeDimensions(node, sourceWidth, sourceHeight) {
 }
 function cropRectCanvas(source, x, y, width, height) {
   const out = makeCanvas(Math.max(1, width), Math.max(1, height));
-  const octx = out.getContext("2d");
+  const octx = out.getContext("2d", { willReadFrequently: true });
   octx.clearRect(0, 0, out.width, out.height);
   octx.drawImage(source, x, y, width, height, 0, 0, out.width, out.height);
   return out;
@@ -2594,7 +2594,7 @@ function stitchCanvases(a, b, direction, spacingWidth, spacingColor, matchSize) 
   const width = horizontal ? a.width + second.width + spacing : Math.max(a.width, second.width);
   const height = horizontal ? Math.max(a.height, second.height) : a.height + second.height + spacing;
   const output = makeCanvas(width, height);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.fillStyle = parseHexColor(spacingColor);
   octx.fillRect(0, 0, width, height);
   if (normalizedDirection === "left") {
@@ -2616,7 +2616,7 @@ function extractSplitChannelCanvas(source, outputSlot, mode) {
   const normalizedMode = String(mode || "rgba").toLowerCase();
   const channelIndex = Math.max(0, Math.min(3, outputSlot ?? 0));
   const output = makeCanvas(source.width || 1, source.height || 1);
-  const octx = output.getContext("2d");
+  const octx = output.getContext("2d", { willReadFrequently: true });
   octx.clearRect(0, 0, output.width, output.height);
   octx.drawImage(source, 0, 0, output.width, output.height);
   if (normalizedMode === "rgba" || normalizedMode === "rgb") {
@@ -2668,8 +2668,8 @@ function mergeChannelInputs(inputs, mode) {
   const height = inputs[0].height || 1;
   const channels = inputs.slice(0, 4).map((input) => fitCanvas(input, width, height));
   const output = makeCanvas(width, height);
-  const octx = output.getContext("2d");
-  const images = channels.map((canvas) => canvas.getContext("2d").getImageData(0, 0, width, height).data);
+  const octx = output.getContext("2d", { willReadFrequently: true });
+  const images = channels.map((canvas) => canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, width, height).data);
   const out = octx.createImageData(width, height);
   const data = out.data;
   const normalizedMode = String(mode || "rgba").toLowerCase();
@@ -2889,10 +2889,10 @@ const ops = {
     const blurred = blurFn(source);
     const fittedMask = buildMaskAlphaCanvas(mask, sw, sh);
     const output = makeCanvas(sw, sh);
-    const outCtx = output.getContext("2d");
+    const outCtx = output.getContext("2d", { willReadFrequently: true });
     const blurredMasked = acquireCanvas(sw, sh);
     try {
-      const bmCtx = blurredMasked.getContext("2d");
+      const bmCtx = blurredMasked.getContext("2d", { willReadFrequently: true });
       bmCtx.clearRect(0, 0, sw, sh);
       bmCtx.globalCompositeOperation = "source-over";
       bmCtx.drawImage(blurred, 0, 0);
@@ -2920,7 +2920,7 @@ const ops = {
     const extracted = applyEffectToCanvas(source, (effectCtx, width, height) => {
       applyChannel(effectCtx, width, height, strAny(node, ["channel"], "Red", frameIndex));
     });
-    const ectx = extracted.getContext("2d");
+    const ectx = extracted.getContext("2d", { willReadFrequently: true });
     const img = ectx.getImageData(0, 0, extracted.width, extracted.height);
     const data = img.data;
     for (let i = 3; i < data.length; i += 4) data[i] = 255;
@@ -3008,7 +3008,7 @@ const ops = {
       const aspectRatio = numAny(node, ["aspect_ratio"], 1, frameIndex);
       if (Math.abs(aspectRatio - 1) > 1e-4) {
         const scaled = makeCanvas(working.width || 1, Math.max(1, Math.round((working.height || 1) * aspectRatio)));
-        const sctx = scaled.getContext("2d");
+        const sctx = scaled.getContext("2d", { willReadFrequently: true });
         setResampleMode(sctx, normalizeFilterName(strAny(node, ["upscale_method", "interpolation", "transform_method", "filter"], "bilinear", frameIndex)));
         sctx.drawImage(working, 0, 0, scaled.width, scaled.height);
         working = scaled;
@@ -3180,7 +3180,7 @@ const ops = {
     const left = Math.max(0, Math.round(numAny(node, ["left"], 0)));
     const right = Math.max(0, Math.round(numAny(node, ["right"], 0)));
     const output = makeCanvas((source.width || 1) + left + right, (source.height || 1) + top + bottom);
-    const octx = output.getContext("2d");
+    const octx = output.getContext("2d", { willReadFrequently: true });
     octx.fillStyle = parseHexColor(strAny(node, ["color", "background_color", "pad_color", "padding_color"], "#808080"));
     octx.fillRect(0, 0, output.width, output.height);
     octx.drawImage(source, left, top, source.width || 1, source.height || 1);
@@ -3239,10 +3239,10 @@ const ops = {
     const base = fitCanvas(inputs[0] ?? ctx.canvas, (inputs[0] ?? ctx.canvas).width || 1, (inputs[0] ?? ctx.canvas).height || 1);
     const mask = inputs[1] ? fitCanvas(inputs[1], base.width, base.height) : null;
     if (!mask) return base;
-    const bctx = base.getContext("2d");
+    const bctx = base.getContext("2d", { willReadFrequently: true });
     const image = bctx.getImageData(0, 0, base.width, base.height);
     const data = image.data;
-    const matte = mask.getContext("2d").getImageData(0, 0, base.width, base.height).data;
+    const matte = mask.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, base.width, base.height).data;
     const channel = strAny(node, ["channel"], "A").toLowerCase();
     const channelIndex = channel === "g" || channel === "green" ? 1 : channel === "b" || channel === "blue" ? 2 : channel === "a" || channel === "alpha" ? 3 : 0;
     for (let i = 0; i < data.length; i += 4) {
@@ -3269,7 +3269,7 @@ const ops = {
       const th = Math.max(64, Math.round(numAny(node, ["height"], 512, frameIndex)));
       if (tw !== source.width || th !== source.height) {
         const resized = makeCanvas(tw, th);
-        resized.getContext("2d").drawImage(source, 0, 0, tw, th);
+        resized.getContext("2d", { willReadFrequently: true }).drawImage(source, 0, 0, tw, th);
         source = resized;
       }
     } else {
@@ -3309,7 +3309,7 @@ const ops = {
     const ow = overlay.width || 1;
     const oh = overlay.height || 1;
     const matte = makeCanvas(ow, oh);
-    const mctx = matte.getContext("2d");
+    const mctx = matte.getContext("2d", { willReadFrequently: true });
     mctx.drawImage(overlay, 0, 0);
     const img = mctx.getImageData(0, 0, ow, oh);
     const data = img.data;
@@ -3371,7 +3371,7 @@ const ops = {
       const mn = Math.round(clamp01(Math.min(lo, hi)) * 255);
       const mx = Math.round(clamp01(Math.max(lo, hi)) * 255);
       const clampMaskOut = makeCanvas(resolvedMask.width || 1, resolvedMask.height || 1);
-      const clampMaskCtx = clampMaskOut.getContext("2d");
+      const clampMaskCtx = clampMaskOut.getContext("2d", { willReadFrequently: true });
       clampMaskCtx.drawImage(resolvedMask, 0, 0);
       const clampImg = clampMaskCtx.getImageData(0, 0, clampMaskOut.width, clampMaskOut.height);
       const clampData = clampImg.data;

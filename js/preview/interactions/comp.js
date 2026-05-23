@@ -302,12 +302,13 @@ function attachInteractions(node, ctx) {
   if (!st.compKeyboardHooked) {
     st.compKeyboardHooked = true;
     let pointerOverCanvas = false;
+    const signal = st?._abortController?.signal;
     canvas.addEventListener("pointerenter", () => {
       pointerOverCanvas = true;
-    });
+    }, signal ? { signal } : void 0);
     canvas.addEventListener("pointerleave", () => {
       pointerOverCanvas = false;
-    });
+    }, signal ? { signal } : void 0);
     const isEditableTarget = (target) => {
       const el = target;
       if (!el) return false;
@@ -342,7 +343,7 @@ function attachInteractions(node, ctx) {
           ctx.markCanvasDirty();
         }
       }
-    });
+    }, signal ? { signal } : void 0);
   }
 }
 export {
