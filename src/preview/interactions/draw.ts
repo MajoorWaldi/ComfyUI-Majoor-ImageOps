@@ -36,21 +36,64 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     return canvasToDrawSourcePoint(st.drawGeometry, w.x, w.y);
   };
 
-  // State for Ctrl+left-drag pan.
-  let ctrlPanDrag: {
-    pointerId: number;
-    startCanvasX: number;
-    startCanvasY: number;
-    startPanX: number;
-    startPanY: number;
-  } | null = null;
-
-  // RAF handle to coalesce pan renders.
+  // RAF handle to coalesce hover renders.
+  let hoverRafPending = false;
   let panRafPending = false;
 
-  // Coalesces hover-only renders to one per animation frame so repeated
-  // pointermove events don't queue unlimited async render calls.
-  let hoverRafPending = false;
+  const startPreviewPan = (event: PointerEvent): boolean => {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return false;
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    st.previewPanDrag = {
+      pointerId: event.pointerId,
+      startCanvasX: (event.clientX - rect.left) * sx,
+      startCanvasY: (event.clientY - rect.top) * sy,
+      startPanX: (st.previewPanX as number) ?? 0,
+      startPanY: (st.previewPanY as number) ?? 0,
+    };
+    try {
+      canvas.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Some environments may reject pointer capture for synthetic pointers.
+    }
+    canvas.style.cursor = "grabbing";
+    return true;
+  };
+
+  const updatePreviewPan = (event: PointerEvent): boolean => {
+    const drag = st.previewPanDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return true;
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    const cx = (event.clientX - rect.left) * sx;
+    const cy = (event.clientY - rect.top) * sy;
+    st.previewPanX = drag.startPanX + (cx - drag.startCanvasX);
+    st.previewPanY = drag.startPanY + (cy - drag.startCanvasY);
+    ctx.markPreviewInteraction(node);
+    if (!panRafPending) {
+      panRafPending = true;
+      requestAnimationFrame(() => {
+        panRafPending = false;
+        void ctx.renderDrawNode(node, 0);
+      });
+    }
+    return true;
+  };
+
+  const releasePreviewPan = (event: PointerEvent): boolean => {
+    if (!st.previewPanDrag || st.previewPanDrag.pointerId !== event.pointerId) return false;
+    st.previewPanDrag = null;
+    canvas.style.cursor = event.ctrlKey || event.metaKey ? "grab" : "";
+    try {
+      canvas.releasePointerCapture?.(event.pointerId);
+    } catch {
+      // Ignore missing capture state.
+    }
+    return true;
+  };
 
   if (!st.drawGeometry || !st.drawCanvas) {
     void ctx.renderDrawNode(node, 0);
@@ -253,23 +296,11 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
   });
 
   canvas.addEventListener("pointerdown", async (event: PointerEvent) => {
-    // ── Ctrl+left-drag: pan the viewport ────────────────────────────────────
     if ((event.ctrlKey || event.metaKey) && event.button === 0) {
       event.preventDefault();
+      event.stopPropagation();
       canvas.focus();
-      try { canvas.setPointerCapture?.(event.pointerId); } catch {}
-      const rect = canvas.getBoundingClientRect();
-      if (rect.width < 1 || rect.height < 1) return;
-      const sx = canvas.width  / rect.width;
-      const sy = canvas.height / rect.height;
-      ctrlPanDrag = {
-        pointerId:    event.pointerId,
-        startCanvasX: (event.clientX - rect.left) * sx,
-        startCanvasY: (event.clientY - rect.top)  * sy,
-        startPanX:    (st.previewPanX as number) ?? 0,
-        startPanY:    (st.previewPanY as number) ?? 0,
-      };
-      canvas.style.cursor = "grabbing";
+      startPreviewPan(event);
       return;
     }
 
@@ -313,23 +344,9 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
   });
 
   canvas.addEventListener("pointermove", (event: PointerEvent) => {
-    // ── Ctrl+drag pan in progress ────────────────────────────────────────────
-    if (ctrlPanDrag && ctrlPanDrag.pointerId === event.pointerId) {
-      const rect = canvas.getBoundingClientRect();
-      if (rect.width < 1 || rect.height < 1) return;
-      const sx = canvas.width  / rect.width;
-      const sy = canvas.height / rect.height;
-      const cx = (event.clientX - rect.left) * sx;
-      const cy = (event.clientY - rect.top)  * sy;
-      st.previewPanX = ctrlPanDrag.startPanX + (cx - ctrlPanDrag.startCanvasX);
-      st.previewPanY = ctrlPanDrag.startPanY + (cy - ctrlPanDrag.startCanvasY);
-      if (!panRafPending) {
-        panRafPending = true;
-        requestAnimationFrame(() => {
-          panRafPending = false;
-          void ctx.renderDrawNode(node, 0);
-        });
-      }
+    if (updatePreviewPan(event)) {
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
 
@@ -372,13 +389,6 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
   });
 
   const releaseStroke = (event: PointerEvent) => {
-    // ── Release Ctrl+pan drag ────────────────────────────────────────────────
-    if (ctrlPanDrag && ctrlPanDrag.pointerId === event.pointerId) {
-      ctrlPanDrag = null;
-      canvas.style.cursor = "";
-      try { canvas.releasePointerCapture?.(event.pointerId); } catch {}
-      return;
-    }
     if (!st.drawStroke || st.drawStroke.pointerId !== event.pointerId) return;
     st.drawStroke = null;
     try {
@@ -390,16 +400,16 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     ctx.refreshNode(node);
   };
 
-  canvas.addEventListener("pointerup", releaseStroke);
+  canvas.addEventListener("pointerup", (event: PointerEvent) => {
+    if (releasePreviewPan(event)) return;
+    releaseStroke(event);
+  });
   canvas.addEventListener("pointercancel", (event: PointerEvent) => {
-    if (ctrlPanDrag && ctrlPanDrag.pointerId === event.pointerId) {
-      ctrlPanDrag = null;
-      canvas.style.cursor = "";
-    }
+    if (releasePreviewPan(event)) return;
     releaseStroke(event);
   });
   canvas.addEventListener("pointerleave", () => {
-    if (!st.drawStroke && !ctrlPanDrag) {
+    if (!st.drawStroke && !st.previewPanDrag) {
       st.drawHover = null;
       canvas.style.cursor = "";
       void ctx.renderDrawNode(node, 0);

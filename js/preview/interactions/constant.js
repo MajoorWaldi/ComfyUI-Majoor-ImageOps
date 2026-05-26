@@ -22,21 +22,6 @@ function attachInteractions(node, ctx) {
     syncConstantWidgets(node);
     ctx.refreshNode(node);
   };
-  const ratioSelect = root.querySelector('select[data-constant-ratio="1"]');
-  const applyRatioPreset = (changedField) => {
-    const preset = String(ratioSelect?.value ?? "custom");
-    const ratio = CONSTANT_RATIO_PRESETS[preset];
-    if (!ratio) return;
-    const widthWidget = findWidget(node, "width");
-    const heightWidget = findWidget(node, "height");
-    const currentWidth = clampInt(Number(widthWidget?.value ?? 1024), 1024, 1, 8192);
-    const currentHeight = clampInt(Number(heightWidget?.value ?? 1024), 1024, 1, 8192);
-    if (changedField === "width") {
-      setWidgetValue(heightWidget, clampInt(currentWidth / ratio, currentHeight, 1, 8192));
-    } else {
-      setWidgetValue(widthWidget, clampInt(currentHeight * ratio, currentWidth, 1, 8192));
-    }
-  };
   for (const button of Array.from(root.querySelectorAll("button[data-constant-mode]"))) {
     button.addEventListener("click", (event) => {
       event.preventDefault();
@@ -65,13 +50,6 @@ function attachInteractions(node, ctx) {
       refresh();
     });
   }
-  ratioSelect?.addEventListener("change", () => {
-    const preset = String(ratioSelect.value ?? "custom");
-    if (preset !== "custom") {
-      applyRatioPreset("width");
-    }
-    refresh();
-  });
   syncConstantWidgets(node);
 }
 export {

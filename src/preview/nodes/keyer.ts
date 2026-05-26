@@ -9,145 +9,147 @@ export function isNode(node: ComfyNode): boolean {
   return String(node?.comfyClass ?? "") === NODE_CLASS;
 }
 
+function styleSegmentControl(container: HTMLElement): void {
+  container.style.display = "flex";
+  container.style.background = "#181818";
+  container.style.borderRadius = "6px";
+  container.style.padding = "2px";
+  container.style.border = "1px solid #2e2e2e";
+  container.style.width = "100%";
+  container.style.boxSizing = "border-box";
+}
+
+function styleSegmentButton(button: HTMLButtonElement, active: boolean): void {
+  button.style.flex = "1";
+  button.style.border = "none";
+  button.style.outline = "none";
+  button.style.borderRadius = "4px";
+  button.style.padding = "4px 8px";
+  button.style.fontSize = "10.5px";
+  button.style.fontFamily = "var(--comfy-font-sans, Inter, sans-serif)";
+  button.style.cursor = "pointer";
+  button.style.transition = "background 0.15s, color 0.15s";
+  button.style.lineHeight = "1.2";
+  button.style.textAlign = "center";
+
+  if (active) {
+    button.classList.add("active");
+    button.style.background = "#525252";
+    button.style.color = "#ffffff";
+    button.style.fontWeight = "600";
+  } else {
+    button.classList.remove("active");
+    button.style.background = "transparent";
+    button.style.color = "#aaaaaa";
+    button.style.fontWeight = "normal";
+  }
+}
+
+function setupSegmentHover(button: HTMLButtonElement): void {
+  button.addEventListener("mouseenter", () => {
+    if (!button.classList.contains("active")) {
+      button.style.background = "rgba(255,255,255,0.06)";
+      button.style.color = "#ffffff";
+    }
+  });
+  button.addEventListener("mouseleave", () => {
+    if (!button.classList.contains("active")) {
+      button.style.background = "transparent";
+      button.style.color = "#aaaaaa";
+    }
+  });
+}
+
 export type KeyerControlsUi = {
   controls: HTMLDivElement;
   modeButtons: HTMLButtonElement[];
-  invertButton: HTMLButtonElement;
-  invertMaskButton: HTMLButtonElement;
-  bypassButton: HTMLButtonElement;
+  invertButton: HTMLButtonElement | null;
+  invertMaskButton: HTMLButtonElement | null;
+  bypassButton: HTMLButtonElement | null;
   pickButton: HTMLButtonElement;
-  colorInput: HTMLInputElement;
-  toleranceInput: HTMLInputElement;
-  softnessInput: HTMLInputElement;
-  gainInput: HTMLInputElement;
-  blurInput: HTMLInputElement;
+  colorInput: HTMLInputElement | null;
+  toleranceInput: HTMLInputElement | null;
+  softnessInput: HTMLInputElement | null;
+  gainInput: HTMLInputElement | null;
+  blurInput: HTMLInputElement | null;
 };
 
 export function createKeyerControlsUi(): KeyerControlsUi {
   const controls = document.createElement("div");
   controls.style.marginTop = "8px";
   controls.style.display = "grid";
-  controls.style.gap = "8px";
+  controls.style.gridTemplateColumns = "72px 1fr";
+  controls.style.rowGap = "8px";
+  controls.style.columnGap = "12px";
+  controls.style.alignItems = "center";
+  controls.style.width = "100%";
+  controls.style.boxSizing = "border-box";
+  controls.style.padding = "0 4px";
+
+  const styleLabel = (el: HTMLElement) => {
+    el.style.fontSize = "11px";
+    el.style.opacity = "0.78";
+    el.style.fontFamily = "var(--comfy-font-sans, Inter, sans-serif)";
+    el.style.whiteSpace = "nowrap";
+  };
 
   const modeButtons: HTMLButtonElement[] = [];
 
-  const topRow = document.createElement("div");
-  topRow.style.display = "grid";
-  topRow.style.gridTemplateColumns = "repeat(2, minmax(0,1fr))";
-  topRow.style.gap = "4px";
+  // Row 1: Mode Segment Control
+  const modeLabel = document.createElement("div");
+  modeLabel.textContent = "Mode";
+  styleLabel(modeLabel);
+
+  const modeGroup = document.createElement("div");
+  styleSegmentControl(modeGroup);
+
   for (const [value, label] of [["color", "Color"], ["luma", "Luma"]] as const) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = label;
     button.dataset.keyerMode = value;
-    styleSoftButton(button, value === "color");
-    topRow.appendChild(button);
+    styleSegmentButton(button, value === "color");
+    setupSegmentHover(button);
+    modeGroup.appendChild(button);
     modeButtons.push(button);
   }
-  controls.appendChild(topRow);
 
-  const actionRow = document.createElement("div");
-  actionRow.style.display = "grid";
-  actionRow.style.gridTemplateColumns = "minmax(0,1fr) auto auto auto auto";
-  actionRow.style.gap = "6px";
-  const keyerColorSwatch = createColorSwatch("#00ff00", { title: "Key color" });
-  const colorInput = keyerColorSwatch.input;
+  controls.appendChild(modeLabel);
+  controls.appendChild(modeGroup);
 
-  const invertButton = document.createElement("button");
-  invertButton.type = "button";
-  invertButton.textContent = "Invert off";
-  styleSoftButton(invertButton, false);
-
-  const invertMaskButton = document.createElement("button");
-  invertMaskButton.type = "button";
-  invertMaskButton.textContent = "Inv mask off";
-  styleSoftButton(invertMaskButton, false);
+  // Row 2: Sampling Control (Pick button only)
+  const pickLabel = document.createElement("div");
+  pickLabel.textContent = "Sampling";
+  styleLabel(pickLabel);
+  pickLabel.dataset.keyerPickerLabel = "1";
 
   const pickButton = document.createElement("button");
   pickButton.type = "button";
   pickButton.textContent = "Pick";
   styleSoftButton(pickButton, false);
+  pickButton.style.width = "100%";
 
-  const bypassButton = document.createElement("button");
-  bypassButton.type = "button";
-  bypassButton.textContent = "Bypass off";
-  styleSoftButton(bypassButton, false);
+  const pickWrapper = document.createElement("div");
+  pickWrapper.style.display = "flex";
+  pickWrapper.style.width = "100%";
+  pickWrapper.appendChild(pickButton);
+  pickWrapper.dataset.keyerPickerWrapper = "1";
 
-  actionRow.appendChild(keyerColorSwatch.host);
-  actionRow.appendChild(pickButton);
-  actionRow.appendChild(invertButton);
-  actionRow.appendChild(invertMaskButton);
-  actionRow.appendChild(bypassButton);
-  controls.appendChild(actionRow);
-
-  const makeRange = (
-    labelText: string,
-    min: number,
-    max: number,
-    step: number,
-    value: number,
-    accent = "",
-  ): [HTMLDivElement, HTMLInputElement] => {
-    const row = document.createElement("div");
-    row.style.display = "grid";
-    row.style.gridTemplateColumns = "54px minmax(0,1fr) 38px";
-    row.style.gap = "7px";
-    row.style.alignItems = "center";
-
-    const label = document.createElement("div");
-    label.textContent = labelText;
-    label.style.fontSize = "11px";
-    label.style.opacity = "0.78";
-
-    const input = document.createElement("input");
-    input.type = "range";
-    input.min = String(min);
-    input.max = String(max);
-    input.step = String(step);
-    input.value = String(value);
-    input.title = labelText;
-    styleSoftRange(input);
-    if (accent) input.style.accentColor = accent;
-
-    const valueLabel = document.createElement("div");
-    valueLabel.dataset.keyerValue = "1";
-    valueLabel.textContent = String(value);
-    valueLabel.style.fontSize = "11px";
-    valueLabel.style.opacity = "0.84";
-    valueLabel.style.textAlign = "right";
-
-    row.appendChild(label);
-    row.appendChild(input);
-    row.appendChild(valueLabel);
-    return [row, input];
-  };
-
-  let row: HTMLDivElement;
-  let toleranceInput: HTMLInputElement;
-  let softnessInput: HTMLInputElement;
-  let gainInput: HTMLInputElement;
-  let blurInput: HTMLInputElement;
-  [row, toleranceInput] = makeRange("Tol", 0, 1, 0.01, 0.25, "");
-  controls.appendChild(row);
-  [row, softnessInput] = makeRange("Soft", 0, 1, 0.01, 0.1, "");
-  controls.appendChild(row);
-  [row, gainInput] = makeRange("Gain", 0, 4, 0.01, 1, "");
-  controls.appendChild(row);
-  [row, blurInput] = makeRange("Blur", 0, 64, 0.1, 0, "");
-  controls.appendChild(row);
+  controls.appendChild(pickLabel);
+  controls.appendChild(pickWrapper);
 
   return {
     controls,
     modeButtons,
-    invertButton,
-    invertMaskButton,
-    bypassButton,
+    invertButton: null,
+    invertMaskButton: null,
+    bypassButton: null,
     pickButton,
-    colorInput,
-    toleranceInput,
-    softnessInput,
-    gainInput,
-    blurInput,
+    colorInput: null,
+    toleranceInput: null,
+    softnessInput: null,
+    gainInput: null,
+    blurInput: null,
   };
 }
 
@@ -239,7 +241,14 @@ function hexToRgb(color: string): [number, number, number] {
 export function hideKeyerWidgets(node: ComfyNode): void {
   if (!isNode(node)) return;
   ensureKeyColorsWidget(node);
-  for (const name of KEYER_WIDGETS) hideWidgetsByName(node, name);
+  
+  // Hide internal storage and widgets rendered as custom HTML DOM elements
+  const namesToHide = ["key_colors", "mode"];
+  for (const name of namesToHide) {
+    hideWidgetsByName(node, name);
+  }
+
+
 }
 
 function setRange(input: HTMLInputElement | null, value: number): void {
@@ -267,8 +276,18 @@ export function syncKeyerWidgets(node: ComfyNode): void {
   setWidgetStringValuesByName(node, "key_color", keyColor, { notify: false, dirty: false });
 
   for (const button of st.keyerModeButtons ?? []) {
-    styleSoftButton(button, button.dataset.keyerMode === mode);
+    styleSegmentButton(button, button.dataset.keyerMode === mode);
   }
+
+  // Picker row visibility
+  const pickLabel = st.previewRoot?.querySelector('[data-keyer-picker-label]') as HTMLElement | null;
+  const pickWrapper = st.previewRoot?.querySelector('[data-keyer-picker-wrapper]') as HTMLElement | null;
+  if (pickLabel && pickWrapper) {
+    const show = mode === "color";
+    pickLabel.style.display = show ? "" : "none";
+    pickWrapper.style.display = show ? "" : "none";
+  }
+
   if (st.keyerColorInput) syncDarkColorInputUI(st.keyerColorInput, keyColor);
   setRange(st.keyerToleranceInput, widgetNumber(node, "tolerance", 0.25));
   setRange(st.keyerSoftnessInput, widgetNumber(node, "softness", 0.1));
@@ -280,7 +299,7 @@ export function syncKeyerWidgets(node: ComfyNode): void {
     styleSoftButton(st.keyerInvertButton, invert);
   }
   if (st.keyerInvertMaskButton) {
-    st.keyerInvertMaskButton.textContent = invertMask ? "Inv mask on" : "Inv mask off";
+    st.keyerInvertMaskButton.textContent = invertMask ? "Invert mask on" : "Invert mask off";
     styleSoftButton(st.keyerInvertMaskButton, invertMask);
   }
   if (st.keyerBypassButton) {

@@ -26,9 +26,58 @@ function attachInteractions(node, ctx) {
     const w = worldPointer(x, y);
     return canvasToDrawSourcePoint(st.drawGeometry, w.x, w.y);
   };
-  let ctrlPanDrag = null;
-  let panRafPending = false;
   let hoverRafPending = false;
+  let panRafPending = false;
+  const startPreviewPan = (event) => {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return false;
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    st.previewPanDrag = {
+      pointerId: event.pointerId,
+      startCanvasX: (event.clientX - rect.left) * sx,
+      startCanvasY: (event.clientY - rect.top) * sy,
+      startPanX: st.previewPanX ?? 0,
+      startPanY: st.previewPanY ?? 0
+    };
+    try {
+      canvas.setPointerCapture?.(event.pointerId);
+    } catch {
+    }
+    canvas.style.cursor = "grabbing";
+    return true;
+  };
+  const updatePreviewPan = (event) => {
+    const drag = st.previewPanDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return true;
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    const cx = (event.clientX - rect.left) * sx;
+    const cy = (event.clientY - rect.top) * sy;
+    st.previewPanX = drag.startPanX + (cx - drag.startCanvasX);
+    st.previewPanY = drag.startPanY + (cy - drag.startCanvasY);
+    ctx.markPreviewInteraction(node);
+    if (!panRafPending) {
+      panRafPending = true;
+      requestAnimationFrame(() => {
+        panRafPending = false;
+        void ctx.renderDrawNode(node, 0);
+      });
+    }
+    return true;
+  };
+  const releasePreviewPan = (event) => {
+    if (!st.previewPanDrag || st.previewPanDrag.pointerId !== event.pointerId) return false;
+    st.previewPanDrag = null;
+    canvas.style.cursor = event.ctrlKey || event.metaKey ? "grab" : "";
+    try {
+      canvas.releasePointerCapture?.(event.pointerId);
+    } catch {
+    }
+    return true;
+  };
   if (!st.drawGeometry || !st.drawCanvas) {
     void ctx.renderDrawNode(node, 0);
   }
@@ -204,23 +253,9 @@ function attachInteractions(node, ctx) {
   canvas.addEventListener("pointerdown", async (event) => {
     if ((event.ctrlKey || event.metaKey) && event.button === 0) {
       event.preventDefault();
+      event.stopPropagation();
       canvas.focus();
-      try {
-        canvas.setPointerCapture?.(event.pointerId);
-      } catch {
-      }
-      const rect = canvas.getBoundingClientRect();
-      if (rect.width < 1 || rect.height < 1) return;
-      const sx = canvas.width / rect.width;
-      const sy = canvas.height / rect.height;
-      ctrlPanDrag = {
-        pointerId: event.pointerId,
-        startCanvasX: (event.clientX - rect.left) * sx,
-        startCanvasY: (event.clientY - rect.top) * sy,
-        startPanX: st.previewPanX ?? 0,
-        startPanY: st.previewPanY ?? 0
-      };
-      canvas.style.cursor = "grabbing";
+      startPreviewPan(event);
       return;
     }
     if (st.drawGeometry) {
@@ -258,22 +293,9 @@ function attachInteractions(node, ctx) {
     void ctx.renderDrawNode(node, 0);
   });
   canvas.addEventListener("pointermove", (event) => {
-    if (ctrlPanDrag && ctrlPanDrag.pointerId === event.pointerId) {
-      const rect = canvas.getBoundingClientRect();
-      if (rect.width < 1 || rect.height < 1) return;
-      const sx = canvas.width / rect.width;
-      const sy = canvas.height / rect.height;
-      const cx = (event.clientX - rect.left) * sx;
-      const cy = (event.clientY - rect.top) * sy;
-      st.previewPanX = ctrlPanDrag.startPanX + (cx - ctrlPanDrag.startCanvasX);
-      st.previewPanY = ctrlPanDrag.startPanY + (cy - ctrlPanDrag.startCanvasY);
-      if (!panRafPending) {
-        panRafPending = true;
-        requestAnimationFrame(() => {
-          panRafPending = false;
-          void ctx.renderDrawNode(node, 0);
-        });
-      }
+    if (updatePreviewPan(event)) {
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
     canvas.style.cursor = event.ctrlKey || event.metaKey ? "grab" : "";
@@ -311,15 +333,6 @@ function attachInteractions(node, ctx) {
     void ctx.renderDrawNode(node, 0);
   });
   const releaseStroke = (event) => {
-    if (ctrlPanDrag && ctrlPanDrag.pointerId === event.pointerId) {
-      ctrlPanDrag = null;
-      canvas.style.cursor = "";
-      try {
-        canvas.releasePointerCapture?.(event.pointerId);
-      } catch {
-      }
-      return;
-    }
     if (!st.drawStroke || st.drawStroke.pointerId !== event.pointerId) return;
     st.drawStroke = null;
     try {
@@ -329,16 +342,16 @@ function attachInteractions(node, ctx) {
     ctx.updateDrawOverlayWidget(node);
     ctx.refreshNode(node);
   };
-  canvas.addEventListener("pointerup", releaseStroke);
+  canvas.addEventListener("pointerup", (event) => {
+    if (releasePreviewPan(event)) return;
+    releaseStroke(event);
+  });
   canvas.addEventListener("pointercancel", (event) => {
-    if (ctrlPanDrag && ctrlPanDrag.pointerId === event.pointerId) {
-      ctrlPanDrag = null;
-      canvas.style.cursor = "";
-    }
+    if (releasePreviewPan(event)) return;
     releaseStroke(event);
   });
   canvas.addEventListener("pointerleave", () => {
-    if (!st.drawStroke && !ctrlPanDrag) {
+    if (!st.drawStroke && !st.previewPanDrag) {
       st.drawHover = null;
       canvas.style.cursor = "";
       void ctx.renderDrawNode(node, 0);

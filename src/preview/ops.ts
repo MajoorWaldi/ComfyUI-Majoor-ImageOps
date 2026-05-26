@@ -2555,16 +2555,18 @@ export function renderCompPreview(
   const useFirst = bool(node, "use_first_layer_size", true);
   const largestWidth = inputLayers.reduce((value, entry) => Math.max(value, entry.sourceWidth || entry.image.width || 1), 1);
   const largestHeight = inputLayers.reduce((value, entry) => Math.max(value, entry.sourceHeight || entry.image.height || 1), 1);
-  const customAspect = str(node, "aspect_ratio", "free").trim().toLowerCase();
+  const customAspect = str(node, "aspect_ratio", "custom").trim().toLowerCase();
   const customRatio = customAspect === "1:1" || customAspect === "1/1"
     ? 1
-    : customAspect === "4:3" || customAspect === "4/3"
-      ? 4 / 3
-      : customAspect === "16:9" || customAspect === "16/9"
-        ? 16 / 9
-        : customAspect === "9:16" || customAspect === "9/16"
-          ? 9 / 16
-          : null;
+    : customAspect === "3:4" || customAspect === "3/4"
+      ? 3 / 4
+      : customAspect === "4:3" || customAspect === "4/3"
+        ? 4 / 3
+        : customAspect === "16:9" || customAspect === "16/9"
+          ? 16 / 9
+          : customAspect === "9:16" || customAspect === "9/16"
+            ? 9 / 16
+            : null;
   const outputWidth = useAutoLayering
     ? largestWidth
     : useFirst && firstInput

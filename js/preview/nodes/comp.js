@@ -1,7 +1,8 @@
 import { COMP_BLEND_MODES, getCompSlots, serializeCompLayers, syncCompLayers, clampCompCenter } from "../comp.js";
 import { getFitPlacement } from "../shared/geometry.js";
-import { findWidget, hideWidgetForGood, setWidgetStringValue, widgetBoolean, widgetString } from "../shared/widgets.js";
+import { findWidget, hideWidgetForGood, setWidgetStringValue, widgetBoolean, widgetString, widgetNumber, setWidgetValue } from "../shared/widgets.js";
 import { ensureState } from "../shared/state.js";
+import { markCanvasDirty } from "../shared/canvas.js";
 import {
   createContextMenuSelect,
   setControlDisabled,
@@ -18,7 +19,7 @@ function createCompControlsUi() {
   const controls = document.createElement("div");
   controls.style.marginTop = "8px";
   controls.style.display = "grid";
-  controls.style.gridTemplateColumns = "auto auto auto auto auto minmax(0, 1fr) auto";
+  controls.style.gridTemplateColumns = "auto auto auto auto auto minmax(0, 1fr)";
   controls.style.gap = "6px";
   controls.style.alignItems = "center";
   controls.style.minWidth = "0";
@@ -46,17 +47,6 @@ function createCompControlsUi() {
   cornerPinButton.type = "button";
   cornerPinButton.textContent = "Pin";
   styleSoftButton(cornerPinButton, false);
-  const aspectRatioSelect = document.createElement("select");
-  aspectRatioSelect.title = "Custom Format aspect ratio";
-  aspectRatioSelect.style.width = "100%";
-  aspectRatioSelect.style.minWidth = "0";
-  styleSoftField(aspectRatioSelect);
-  for (const [value, label] of [["free", "Free"], ["1/1", "1/1"], ["4/3", "4/3"], ["16/9", "16/9"], ["9/16", "9/16"]]) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    aspectRatioSelect.appendChild(option);
-  }
   const layerLabel = document.createElement("div");
   layerLabel.style.fontSize = "11px";
   layerLabel.style.opacity = "0.85";
@@ -97,7 +87,6 @@ function createCompControlsUi() {
   controls.appendChild(resetButton);
   controls.appendChild(resizeButton);
   controls.appendChild(cornerPinButton);
-  controls.appendChild(createContextMenuSelect(aspectRatioSelect));
   controls.appendChild(layerLabel);
   bottomRow.appendChild(createContextMenuSelect(modeSelect));
   bottomRow.appendChild(opacityLabel);
@@ -110,7 +99,7 @@ function createCompControlsUi() {
     resetButton,
     resizeButton,
     cornerPinButton,
-    aspectRatioSelect,
+    aspectRatioSelect: null,
     modeSelect,
     opacityInput,
     opacityLabel,
@@ -119,7 +108,52 @@ function createCompControlsUi() {
 }
 function hideCompWidgets(node) {
   hideWidgetForGood(node, findWidget(node, "layers_json"));
-  hideWidgetForGood(node, findWidget(node, "aspect_ratio"));
+}
+function aspectRatioValue(value) {
+  switch (String(value || "custom").trim().toLowerCase()) {
+    case "1/1":
+    case "1:1":
+      return 1;
+    case "3/4":
+    case "3:4":
+      return 3 / 4;
+    case "4/3":
+    case "4:3":
+      return 4 / 3;
+    case "16/9":
+    case "16:9":
+      return 16 / 9;
+    case "9/16":
+    case "9:16":
+      return 9 / 16;
+    default:
+      return null;
+  }
+}
+function syncCompWidgets(node, changedName, notify = true) {
+  if (!isNode(node)) return;
+  if (widgetBoolean(node, "use_first_layer_size", true) || widgetBoolean(node, "auto_layering", false)) {
+    return;
+  }
+  const widthWidget = findWidget(node, "width");
+  const heightWidget = findWidget(node, "height");
+  if (!widthWidget || !heightWidget) return;
+  const preset = widgetString(node, "aspect_ratio", "custom");
+  if (preset === "custom") {
+    return;
+  }
+  const ratio = aspectRatioValue(preset);
+  if (!ratio) return;
+  let width = Math.max(1, Math.round(widgetNumber(node, "width", 1024)));
+  let height = Math.max(1, Math.round(widgetNumber(node, "height", 1024)));
+  if (changedName === "height") {
+    width = Math.max(1, Math.round(height * ratio));
+    setWidgetValue(widthWidget, width, { notify });
+  } else {
+    height = Math.max(1, Math.round(width / ratio));
+    setWidgetValue(heightWidget, height, { notify });
+  }
+  markCanvasDirty();
 }
 function ensureCompInputs(node, minLayers = 1) {
   if (!isNode(node) || !node.addInput) return;
@@ -181,8 +215,8 @@ function getCompInfoText(_node, connectedLayers, totalLayers, width, height) {
   return `Comp preview (${connectedLayers}/${totalLayers} layers, ${width}x${height})`;
 }
 function normalizeCompAspectRatioValue(value) {
-  const normalized = String(value || "free").trim().toLowerCase().replace(":", "/");
-  return ["1/1", "4/3", "16/9", "9/16"].includes(normalized) ? normalized : "free";
+  const normalized = String(value || "custom").trim().toLowerCase().replace(":", "/");
+  return ["1/1", "3/4", "4/3", "16/9", "9/16"].includes(normalized) ? normalized : "custom";
 }
 function getCompCursor(mode) {
   switch (mode) {
@@ -258,7 +292,7 @@ function updateCompControls(node) {
   const selected = layers.find((layer) => layer.slot === st.compSelectedSlot) ?? layers[layers.length - 1] ?? null;
   const customFormat = !widgetBoolean(node, "use_first_layer_size", true) && !widgetBoolean(node, "auto_layering", false);
   if (st.compAspectRatioSelect) {
-    st.compAspectRatioSelect.value = normalizeCompAspectRatioValue(widgetString(node, "aspect_ratio", "free"));
+    st.compAspectRatioSelect.value = normalizeCompAspectRatioValue(widgetString(node, "aspect_ratio", "custom"));
     setControlDisabled(st.compAspectRatioSelect, !customFormat);
     st.compAspectRatioSelect.title = customFormat ? "Custom Format aspect ratio" : "Aspect ratio is only used when Custom Format is active";
   }
@@ -409,6 +443,7 @@ export {
   readCompLayers,
   removeSelectedCompLayer,
   setDarkColorInputState2 as setDarkColorInputState,
+  syncCompWidgets,
   syncDarkColorInputUI2 as syncDarkColorInputUI,
   updateCompControls,
   updateSelectedCompLayer,

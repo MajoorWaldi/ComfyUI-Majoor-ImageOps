@@ -1,9 +1,9 @@
-import { createContextMenuSelect, styleSoftButton, styleSoftField } from "../shared/dom-styles.js";
-import { findWidget, hideWidgetForGood, setWidgetBooleanValue, setWidgetStringValue, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
+import { styleSoftButton } from "../shared/dom-styles.js";
+import { findWidget, setWidgetStringValue, setWidgetValue, widgetNumber, widgetString } from "../shared/widgets.js";
 const NODE_CLASS = "ImageOpsPadOut";
 const PADOUT_WIDGETS = [
   "bypass",
-  "target_format",
+  "aspect_ratio",
   "fill_mode",
   "fill_preset",
   "fill_color",
@@ -26,77 +26,17 @@ function createPadOutControlsUi() {
   const controls = document.createElement("div");
   controls.dataset.padoutUi = "1";
   controls.style.marginTop = "8px";
-  controls.style.display = "grid";
-  controls.style.gap = "8px";
-  const makeRow = () => {
-    const row = document.createElement("div");
-    row.style.display = "flex";
-    row.style.alignItems = "center";
-    row.style.gap = "6px";
-    row.style.flexWrap = "wrap";
-    return row;
-  };
-  const makeLabel = (text) => {
-    const label = document.createElement("span");
-    label.textContent = text;
-    label.style.fontSize = "11px";
-    label.style.opacity = "0.76";
-    return label;
-  };
-  const ratioRow = makeRow();
-  ratioRow.appendChild(makeLabel("Ratio"));
-  const ratioSelect = document.createElement("select");
-  ratioSelect.dataset.padout = "ratio_select";
-  styleSoftField(ratioSelect);
-  ratioSelect.style.width = "120px";
-  for (const [value, label] of [["custom", "Free"], ["1:1", "1:1"], ["16:9", "16:9"], ["9:16", "9:16"], ["4:3", "4:3"], ["3:4", "3:4"]]) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    ratioSelect.appendChild(option);
-  }
-  ratioRow.appendChild(createContextMenuSelect(ratioSelect));
-  controls.appendChild(ratioRow);
-  const anchorRow = makeRow();
-  anchorRow.appendChild(makeLabel("Anchor"));
-  const anchorSelect = document.createElement("select");
-  anchorSelect.dataset.padout = "anchor_select";
-  styleSoftField(anchorSelect);
-  anchorSelect.style.width = "120px";
-  for (const [value, label] of [["center", "Center"], ["top", "Top"], ["bottom", "Bottom"], ["left", "Left"], ["right", "Right"], ["fit_w", "Fit W"], ["fit_h", "Fit H"]]) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    anchorSelect.appendChild(option);
-  }
-  anchorRow.appendChild(createContextMenuSelect(anchorSelect));
-  controls.appendChild(anchorRow);
-  const actionsRow = makeRow();
+  controls.style.display = "flex";
+  controls.style.justifyContent = "center";
+  controls.style.width = "100%";
   const fitButton = document.createElement("button");
   fitButton.type = "button";
   fitButton.textContent = "Fit All";
   fitButton.dataset.padout = "fit_all";
   styleSoftButton(fitButton, false);
-  actionsRow.appendChild(fitButton);
-  const invertMaskButton = document.createElement("button");
-  invertMaskButton.type = "button";
-  invertMaskButton.textContent = "Inv mask off";
-  invertMaskButton.dataset.padout = "invert_mask";
-  styleSoftButton(invertMaskButton, false);
-  actionsRow.appendChild(invertMaskButton);
-  const bypassButton = document.createElement("button");
-  bypassButton.type = "button";
-  bypassButton.textContent = "Bypass off";
-  bypassButton.dataset.padout = "bypass";
-  styleSoftButton(bypassButton, false);
-  actionsRow.appendChild(bypassButton);
-  const hint = document.createElement("div");
-  hint.textContent = "Wheel: zoom. Middle drag: pan. Arrow keys: nudge. Shift: x4.";
-  hint.style.fontSize = "11px";
-  hint.style.opacity = "0.7";
-  hint.style.marginLeft = "auto";
-  actionsRow.appendChild(hint);
-  controls.appendChild(actionsRow);
+  fitButton.style.padding = "4px 16px";
+  fitButton.style.fontSize = "11px";
+  controls.appendChild(fitButton);
   return { controls };
 }
 function normalizeTargetFormat(value) {
@@ -122,12 +62,6 @@ function getPadOutInfoText(_node, width, height) {
 }
 function hidePadOutWidgets(node) {
   if (!isNode(node)) return;
-  const names = new Set(PADOUT_WIDGETS);
-  for (const widget of node.widgets ?? []) {
-    if (widget && names.has(String(widget.name ?? ""))) {
-      hideWidgetForGood(node, widget);
-    }
-  }
 }
 function getPadOutSnap(node) {
   return Math.max(1, Math.round(widgetNumber(node, "snap_to_multiple", 1)));
@@ -136,7 +70,7 @@ function snapPadValue(value, snap) {
   return snap <= 1 ? Math.max(0, Math.round(value)) : Math.max(0, Math.round(Math.round(value) / snap) * snap);
 }
 function getPadOutTargetRatio(node) {
-  return TARGET_RATIO_MAP[normalizeTargetFormat(widgetString(node, "target_format", "custom"))] ?? null;
+  return TARGET_RATIO_MAP[normalizeTargetFormat(widgetString(node, "aspect_ratio", "custom"))] ?? null;
 }
 function getPadOutSourceSize(node, geometry = null) {
   if (geometry?.sourceWidth && geometry?.sourceHeight) {
@@ -199,13 +133,13 @@ function setPadOutOutputRect(node, sourceWidth, sourceHeight, x1, y1, outWidth, 
   setPadOutPadding(node, left, top, right, bottom, notify);
 }
 function setPadOutTargetFormatCustomIfNeeded(node) {
-  const currentFormat = widgetString(node, "target_format", "custom");
+  const currentFormat = widgetString(node, "aspect_ratio", "custom");
   const ratio = TARGET_RATIO_MAP[normalizeTargetFormat(currentFormat)] ?? null;
   if (ratio == null) return;
   const frame = getPadOutFrame(node);
   const actualRatio = frame.outWidth / Math.max(1, frame.outHeight);
   if (Math.abs(actualRatio - ratio) > 0.015) {
-    setWidgetStringValue(findWidget(node, "target_format"), "custom");
+    setWidgetStringValue(findWidget(node, "aspect_ratio"), "custom");
   }
 }
 function applyPadOutTargetFormat(node, targetFormat) {
@@ -226,7 +160,7 @@ function hydratePadOutTargetFormat(node) {
   const st = node.__imageops_state;
   if (st?.padOutRatioHydrated) return;
   if (st) st.padOutRatioHydrated = true;
-  const targetFormat = widgetString(node, "target_format", "custom");
+  const targetFormat = widgetString(node, "aspect_ratio", "custom");
   const ratio = TARGET_RATIO_MAP[normalizeTargetFormat(targetFormat)] ?? null;
   if (ratio == null) return;
   const frame = getPadOutFrame(node);
@@ -280,25 +214,9 @@ function applyPadOutAnchor(node, anchor) {
 }
 function syncPadOutControls(node) {
   if (!isNode(node)) return;
+  hidePadOutWidgets(node);
   const root = controlRoot(node);
   if (!root) return;
-  const targetFormat = widgetString(node, "target_format", "custom");
-  const bypass = widgetBoolean(node, "bypass", false);
-  const invertMask = widgetBoolean(node, "invert_mask", false);
-  const ratioSelect = control(node, "ratio_select");
-  if (ratioSelect && ratioSelect.value !== targetFormat) ratioSelect.value = targetFormat;
-  const anchorSelect = control(node, "anchor_select");
-  if (anchorSelect && !anchorSelect.value) anchorSelect.value = "center";
-  const invertButton = control(node, "invert_mask");
-  if (invertButton) {
-    invertButton.textContent = invertMask ? "Inv mask on" : "Inv mask off";
-    styleSoftButton(invertButton, invertMask);
-  }
-  const bypassButton = control(node, "bypass");
-  if (bypassButton) {
-    bypassButton.textContent = bypass ? "Bypass on" : "Bypass off";
-    styleSoftButton(bypassButton, bypass);
-  }
   const fitButton = control(node, "fit_all");
   if (fitButton) styleSoftButton(fitButton, false);
 }
@@ -311,24 +229,6 @@ function attachPadOutControls(node, ctx) {
     syncPadOutControls(node);
     ctx.refreshNode(node);
   };
-  control(node, "ratio_select")?.addEventListener("change", (event) => {
-    const targetFormat = event.currentTarget.value || "custom";
-    setWidgetStringValue(findWidget(node, "target_format"), targetFormat);
-    if (targetFormat !== "custom") applyPadOutTargetFormat(node, targetFormat);
-    rerender();
-  });
-  control(node, "anchor_select")?.addEventListener("change", (event) => {
-    applyPadOutAnchor(node, event.currentTarget.value || "center");
-    rerender();
-  });
-  control(node, "invert_mask")?.addEventListener("click", () => {
-    setWidgetBooleanValue(findWidget(node, "invert_mask"), !widgetBoolean(node, "invert_mask", false));
-    rerender();
-  });
-  control(node, "bypass")?.addEventListener("click", () => {
-    setWidgetBooleanValue(findWidget(node, "bypass"), !widgetBoolean(node, "bypass", false));
-    rerender();
-  });
   control(node, "fit_all")?.addEventListener("click", () => {
     const st = node.__imageops_state;
     st.previewZoom = 1;

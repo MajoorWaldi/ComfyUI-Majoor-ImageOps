@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from ._helpers import _hex_to_rgb01, _scalar
+from ._helpers import _hex_to_rgb01, _scalar, ASPECT_RATIO_PRESETS
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 
@@ -52,6 +52,7 @@ class ImageOpsConstant:
                 "mode": (_MODES, {"default": "constant"}),
                 "width": ("INT", {"default": 1024, "min": 1, "max": 8192, "step": 1}),
                 "height": ("INT", {"default": 1024, "min": 1, "max": 8192, "step": 1}),
+                "aspect_ratio": (list(ASPECT_RATIO_PRESETS.keys()), {"default": "custom"}),
                 "frame_count": ("INT", {"default": 1, "min": 1, "max": 4096, "step": 1}),
                 "color": ("COLOR", {"default": "#ffffff"}),
                 "color_b": ("COLOR", {"default": "#000000"}),
@@ -70,6 +71,7 @@ class ImageOpsConstant:
         mode="constant",
         width=1024,
         height=1024,
+        aspect_ratio="custom",
         frame_count=None,
         frame_length=None,
         batch_size=None,
@@ -82,8 +84,8 @@ class ImageOpsConstant:
         unique_id=None,
     ):
         progress = start_progress(unique_id=unique_id)
-        out_w = max(1, _scalar(width, int))
-        out_h = max(1, _scalar(height, int))
+        from .comp import _resolve_custom_comp_size
+        out_w, out_h = _resolve_custom_comp_size(width, height, aspect_ratio)
         frame_count_source = frame_count if frame_count is not None else (frame_length if frame_length is not None else (batch_size if batch_size is not None else 1))
         batch = max(1, _scalar(frame_count_source, int))
         opacity = max(0.0, min(1.0, _scalar(alpha)))

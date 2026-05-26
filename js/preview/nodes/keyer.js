@@ -1,113 +1,120 @@
-import { createColorSwatch, styleSoftButton, styleSoftRange, syncDarkColorInputUI } from "../shared/dom-styles.js";
+import { styleSoftButton, syncDarkColorInputUI } from "../shared/dom-styles.js";
 import { getCanvasPointer } from "../shared/geometry.js";
 import { findWidget, hideWidgetForGood, hideWidgetsByName, setWidgetBooleanValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
 const NODE_CLASS = "ImageOpsKeyer";
 function isNode(node) {
   return String(node?.comfyClass ?? "") === NODE_CLASS;
 }
+function styleSegmentControl(container) {
+  container.style.display = "flex";
+  container.style.background = "#181818";
+  container.style.borderRadius = "6px";
+  container.style.padding = "2px";
+  container.style.border = "1px solid #2e2e2e";
+  container.style.width = "100%";
+  container.style.boxSizing = "border-box";
+}
+function styleSegmentButton(button, active) {
+  button.style.flex = "1";
+  button.style.border = "none";
+  button.style.outline = "none";
+  button.style.borderRadius = "4px";
+  button.style.padding = "4px 8px";
+  button.style.fontSize = "10.5px";
+  button.style.fontFamily = "var(--comfy-font-sans, Inter, sans-serif)";
+  button.style.cursor = "pointer";
+  button.style.transition = "background 0.15s, color 0.15s";
+  button.style.lineHeight = "1.2";
+  button.style.textAlign = "center";
+  if (active) {
+    button.classList.add("active");
+    button.style.background = "#525252";
+    button.style.color = "#ffffff";
+    button.style.fontWeight = "600";
+  } else {
+    button.classList.remove("active");
+    button.style.background = "transparent";
+    button.style.color = "#aaaaaa";
+    button.style.fontWeight = "normal";
+  }
+}
+function setupSegmentHover(button) {
+  button.addEventListener("mouseenter", () => {
+    if (!button.classList.contains("active")) {
+      button.style.background = "rgba(255,255,255,0.06)";
+      button.style.color = "#ffffff";
+    }
+  });
+  button.addEventListener("mouseleave", () => {
+    if (!button.classList.contains("active")) {
+      button.style.background = "transparent";
+      button.style.color = "#aaaaaa";
+    }
+  });
+}
 function createKeyerControlsUi() {
   const controls = document.createElement("div");
   controls.style.marginTop = "8px";
   controls.style.display = "grid";
-  controls.style.gap = "8px";
+  controls.style.gridTemplateColumns = "72px 1fr";
+  controls.style.rowGap = "8px";
+  controls.style.columnGap = "12px";
+  controls.style.alignItems = "center";
+  controls.style.width = "100%";
+  controls.style.boxSizing = "border-box";
+  controls.style.padding = "0 4px";
+  const styleLabel = (el) => {
+    el.style.fontSize = "11px";
+    el.style.opacity = "0.78";
+    el.style.fontFamily = "var(--comfy-font-sans, Inter, sans-serif)";
+    el.style.whiteSpace = "nowrap";
+  };
   const modeButtons = [];
-  const topRow = document.createElement("div");
-  topRow.style.display = "grid";
-  topRow.style.gridTemplateColumns = "repeat(2, minmax(0,1fr))";
-  topRow.style.gap = "4px";
+  const modeLabel = document.createElement("div");
+  modeLabel.textContent = "Mode";
+  styleLabel(modeLabel);
+  const modeGroup = document.createElement("div");
+  styleSegmentControl(modeGroup);
   for (const [value, label] of [["color", "Color"], ["luma", "Luma"]]) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = label;
     button.dataset.keyerMode = value;
-    styleSoftButton(button, value === "color");
-    topRow.appendChild(button);
+    styleSegmentButton(button, value === "color");
+    setupSegmentHover(button);
+    modeGroup.appendChild(button);
     modeButtons.push(button);
   }
-  controls.appendChild(topRow);
-  const actionRow = document.createElement("div");
-  actionRow.style.display = "grid";
-  actionRow.style.gridTemplateColumns = "minmax(0,1fr) auto auto auto auto";
-  actionRow.style.gap = "6px";
-  const keyerColorSwatch = createColorSwatch("#00ff00", { title: "Key color" });
-  const colorInput = keyerColorSwatch.input;
-  const invertButton = document.createElement("button");
-  invertButton.type = "button";
-  invertButton.textContent = "Invert off";
-  styleSoftButton(invertButton, false);
-  const invertMaskButton = document.createElement("button");
-  invertMaskButton.type = "button";
-  invertMaskButton.textContent = "Inv mask off";
-  styleSoftButton(invertMaskButton, false);
+  controls.appendChild(modeLabel);
+  controls.appendChild(modeGroup);
+  const pickLabel = document.createElement("div");
+  pickLabel.textContent = "Sampling";
+  styleLabel(pickLabel);
+  pickLabel.dataset.keyerPickerLabel = "1";
   const pickButton = document.createElement("button");
   pickButton.type = "button";
   pickButton.textContent = "Pick";
   styleSoftButton(pickButton, false);
-  const bypassButton = document.createElement("button");
-  bypassButton.type = "button";
-  bypassButton.textContent = "Bypass off";
-  styleSoftButton(bypassButton, false);
-  actionRow.appendChild(keyerColorSwatch.host);
-  actionRow.appendChild(pickButton);
-  actionRow.appendChild(invertButton);
-  actionRow.appendChild(invertMaskButton);
-  actionRow.appendChild(bypassButton);
-  controls.appendChild(actionRow);
-  const makeRange = (labelText, min, max, step, value, accent = "") => {
-    const row2 = document.createElement("div");
-    row2.style.display = "grid";
-    row2.style.gridTemplateColumns = "54px minmax(0,1fr) 38px";
-    row2.style.gap = "7px";
-    row2.style.alignItems = "center";
-    const label = document.createElement("div");
-    label.textContent = labelText;
-    label.style.fontSize = "11px";
-    label.style.opacity = "0.78";
-    const input = document.createElement("input");
-    input.type = "range";
-    input.min = String(min);
-    input.max = String(max);
-    input.step = String(step);
-    input.value = String(value);
-    input.title = labelText;
-    styleSoftRange(input);
-    if (accent) input.style.accentColor = accent;
-    const valueLabel = document.createElement("div");
-    valueLabel.dataset.keyerValue = "1";
-    valueLabel.textContent = String(value);
-    valueLabel.style.fontSize = "11px";
-    valueLabel.style.opacity = "0.84";
-    valueLabel.style.textAlign = "right";
-    row2.appendChild(label);
-    row2.appendChild(input);
-    row2.appendChild(valueLabel);
-    return [row2, input];
-  };
-  let row;
-  let toleranceInput;
-  let softnessInput;
-  let gainInput;
-  let blurInput;
-  [row, toleranceInput] = makeRange("Tol", 0, 1, 0.01, 0.25, "");
-  controls.appendChild(row);
-  [row, softnessInput] = makeRange("Soft", 0, 1, 0.01, 0.1, "");
-  controls.appendChild(row);
-  [row, gainInput] = makeRange("Gain", 0, 4, 0.01, 1, "");
-  controls.appendChild(row);
-  [row, blurInput] = makeRange("Blur", 0, 64, 0.1, 0, "");
-  controls.appendChild(row);
+  pickButton.style.width = "100%";
+  const pickWrapper = document.createElement("div");
+  pickWrapper.style.display = "flex";
+  pickWrapper.style.width = "100%";
+  pickWrapper.appendChild(pickButton);
+  pickWrapper.dataset.keyerPickerWrapper = "1";
+  controls.appendChild(pickLabel);
+  controls.appendChild(pickWrapper);
   return {
     controls,
     modeButtons,
-    invertButton,
-    invertMaskButton,
-    bypassButton,
+    invertButton: null,
+    invertMaskButton: null,
+    bypassButton: null,
     pickButton,
-    colorInput,
-    toleranceInput,
-    softnessInput,
-    gainInput,
-    blurInput
+    colorInput: null,
+    toleranceInput: null,
+    softnessInput: null,
+    gainInput: null,
+    blurInput: null
   };
 }
 const KEYER_WIDGETS = [
@@ -189,7 +196,10 @@ function hexToRgb(color) {
 function hideKeyerWidgets(node) {
   if (!isNode(node)) return;
   ensureKeyColorsWidget(node);
-  for (const name of KEYER_WIDGETS) hideWidgetsByName(node, name);
+  const namesToHide = ["key_colors", "mode"];
+  for (const name of namesToHide) {
+    hideWidgetsByName(node, name);
+  }
 }
 function setRange(input, value) {
   if (!input) return;
@@ -212,7 +222,14 @@ function syncKeyerWidgets(node) {
   const selectionCount = Math.max(1, parseKeyColorSelection(node).length || (keyColor ? 1 : 0));
   setWidgetStringValuesByName(node, "key_color", keyColor, { notify: false, dirty: false });
   for (const button of st.keyerModeButtons ?? []) {
-    styleSoftButton(button, button.dataset.keyerMode === mode);
+    styleSegmentButton(button, button.dataset.keyerMode === mode);
+  }
+  const pickLabel = st.previewRoot?.querySelector("[data-keyer-picker-label]");
+  const pickWrapper = st.previewRoot?.querySelector("[data-keyer-picker-wrapper]");
+  if (pickLabel && pickWrapper) {
+    const show = mode === "color";
+    pickLabel.style.display = show ? "" : "none";
+    pickWrapper.style.display = show ? "" : "none";
   }
   if (st.keyerColorInput) syncDarkColorInputUI(st.keyerColorInput, keyColor);
   setRange(st.keyerToleranceInput, widgetNumber(node, "tolerance", 0.25));
@@ -224,7 +241,7 @@ function syncKeyerWidgets(node) {
     styleSoftButton(st.keyerInvertButton, invert);
   }
   if (st.keyerInvertMaskButton) {
-    st.keyerInvertMaskButton.textContent = invertMask ? "Inv mask on" : "Inv mask off";
+    st.keyerInvertMaskButton.textContent = invertMask ? "Invert mask on" : "Invert mask off";
     styleSoftButton(st.keyerInvertMaskButton, invertMask);
   }
   if (st.keyerBypassButton) {

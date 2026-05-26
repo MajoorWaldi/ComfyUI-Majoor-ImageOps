@@ -1,8 +1,9 @@
 import type { ComfyNode, CompDragMode, CompLayerPreviewGeometry, CornerPinHandle } from "../../types.js";
 import { COMP_BLEND_MODES, getCompSlots, serializeCompLayers, syncCompLayers, clampCompCenter } from "../comp.js";
 import { type FitPlacement, getFitPlacement } from "../shared/geometry.js";
-import { findWidget, hideWidgetForGood, setWidgetStringValue, widgetBoolean, widgetString } from "../shared/widgets.js";
+import { findWidget, hideWidgetForGood, setWidgetStringValue, widgetBoolean, widgetString, widgetNumber, setWidgetValue } from "../shared/widgets.js";
 import { ensureState } from "../shared/state.js";
+import { markCanvasDirty } from "../shared/canvas.js";
 import {
   createContextMenuSelect,
   setControlDisabled,
@@ -27,7 +28,7 @@ export type CompControlsUi = {
   resetButton: HTMLButtonElement;
   resizeButton: HTMLButtonElement;
   cornerPinButton: HTMLButtonElement;
-  aspectRatioSelect: HTMLSelectElement;
+  aspectRatioSelect: HTMLSelectElement | null;
   modeSelect: HTMLSelectElement;
   opacityInput: HTMLInputElement;
   opacityLabel: HTMLDivElement;
@@ -38,7 +39,7 @@ export function createCompControlsUi(): CompControlsUi {
   const controls = document.createElement("div");
   controls.style.marginTop = "8px";
   controls.style.display = "grid";
-  controls.style.gridTemplateColumns = "auto auto auto auto auto minmax(0, 1fr) auto";
+  controls.style.gridTemplateColumns = "auto auto auto auto auto minmax(0, 1fr)";
   controls.style.gap = "6px";
   controls.style.alignItems = "center";
   controls.style.minWidth = "0";
@@ -71,18 +72,6 @@ export function createCompControlsUi(): CompControlsUi {
   cornerPinButton.type = "button";
   cornerPinButton.textContent = "Pin";
   styleSoftButton(cornerPinButton, false);
-
-  const aspectRatioSelect = document.createElement("select");
-  aspectRatioSelect.title = "Custom Format aspect ratio";
-  aspectRatioSelect.style.width = "100%";
-  aspectRatioSelect.style.minWidth = "0";
-  styleSoftField(aspectRatioSelect);
-  for (const [value, label] of [["free", "Free"], ["1/1", "1/1"], ["4/3", "4/3"], ["16/9", "16/9"], ["9/16", "9/16"]] as const) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    aspectRatioSelect.appendChild(option);
-  }
 
   const layerLabel = document.createElement("div");
   layerLabel.style.fontSize = "11px";
@@ -129,7 +118,6 @@ export function createCompControlsUi(): CompControlsUi {
   controls.appendChild(resetButton);
   controls.appendChild(resizeButton);
   controls.appendChild(cornerPinButton);
-  controls.appendChild(createContextMenuSelect(aspectRatioSelect));
   controls.appendChild(layerLabel);
   bottomRow.appendChild(createContextMenuSelect(modeSelect));
   bottomRow.appendChild(opacityLabel);
@@ -143,7 +131,7 @@ export function createCompControlsUi(): CompControlsUi {
     resetButton,
     resizeButton,
     cornerPinButton,
-    aspectRatioSelect,
+    aspectRatioSelect: null,
     modeSelect,
     opacityInput,
     opacityLabel,
@@ -153,7 +141,54 @@ export function createCompControlsUi(): CompControlsUi {
 
 export function hideCompWidgets(node: ComfyNode): void {
   hideWidgetForGood(node, findWidget(node, "layers_json"));
-  hideWidgetForGood(node, findWidget(node, "aspect_ratio"));
+}
+
+function aspectRatioValue(value: string): number | null {
+  switch (String(value || "custom").trim().toLowerCase()) {
+    case "1/1":
+    case "1:1": return 1;
+    case "3/4":
+    case "3:4": return 3 / 4;
+    case "4/3":
+    case "4:3": return 4 / 3;
+    case "16/9":
+    case "16:9": return 16 / 9;
+    case "9/16":
+    case "9:16": return 9 / 16;
+    default: return null;
+  }
+}
+
+export function syncCompWidgets(node: ComfyNode, changedName?: string, notify: boolean = true): void {
+  if (!isNode(node)) return;
+
+  if (widgetBoolean(node, "use_first_layer_size", true) || widgetBoolean(node, "auto_layering", false)) {
+    return;
+  }
+
+  const widthWidget = findWidget(node, "width");
+  const heightWidget = findWidget(node, "height");
+  if (!widthWidget || !heightWidget) return;
+
+  const preset = widgetString(node, "aspect_ratio", "custom");
+  if (preset === "custom") {
+    return;
+  }
+
+  const ratio = aspectRatioValue(preset);
+  if (!ratio) return;
+
+  let width = Math.max(1, Math.round(widgetNumber(node, "width", 1024)));
+  let height = Math.max(1, Math.round(widgetNumber(node, "height", 1024)));
+
+  if (changedName === "height") {
+    width = Math.max(1, Math.round(height * ratio));
+    setWidgetValue(widthWidget, width, { notify });
+  } else {
+    height = Math.max(1, Math.round(width / ratio));
+    setWidgetValue(heightWidget, height, { notify });
+  }
+  markCanvasDirty();
 }
 
 export function ensureCompInputs(node: ComfyNode, minLayers: number = 1): void {
@@ -227,8 +262,8 @@ export function getCompInfoText(_node: ComfyNode, connectedLayers: number, total
 }
 
 function normalizeCompAspectRatioValue(value: string): string {
-  const normalized = String(value || "free").trim().toLowerCase().replace(":", "/");
-  return ["1/1", "4/3", "16/9", "9/16"].includes(normalized) ? normalized : "free";
+  const normalized = String(value || "custom").trim().toLowerCase().replace(":", "/");
+  return ["1/1", "3/4", "4/3", "16/9", "9/16"].includes(normalized) ? normalized : "custom";
 }
 
 export function getCompCursor(mode: CompDragMode | "move" | null): string {
@@ -311,7 +346,7 @@ export function updateCompControls(node: ComfyNode): void {
   const selected = layers.find((layer) => layer.slot === st.compSelectedSlot) ?? layers[layers.length - 1] ?? null;
   const customFormat = !widgetBoolean(node, "use_first_layer_size", true) && !widgetBoolean(node, "auto_layering", false);
   if (st.compAspectRatioSelect) {
-    st.compAspectRatioSelect.value = normalizeCompAspectRatioValue(widgetString(node, "aspect_ratio", "free"));
+    st.compAspectRatioSelect.value = normalizeCompAspectRatioValue(widgetString(node, "aspect_ratio", "custom"));
     setControlDisabled(st.compAspectRatioSelect, !customFormat);
     st.compAspectRatioSelect.title = customFormat
       ? "Custom Format aspect ratio"

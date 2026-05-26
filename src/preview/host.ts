@@ -47,6 +47,7 @@ import {
   syncDarkColorInputUI,
   setDarkColorInputState,
   getCompInfoText,
+  syncCompWidgets,
 } from "./nodes/comp.js";
 import { isNode as isCornerPinNode, getCornerPinInfoText } from "./nodes/corner-pin.js";
 import { applyPadOutTargetFormat, attachPadOutControls, getPadOutInfoText, hidePadOutWidgets, hydratePadOutTargetFormat, isNode as isPadOutNode, syncPadOutControls } from "./nodes/pad-out.js";
@@ -116,6 +117,169 @@ function hydrateKeyerDefaults(node: ComfyNode, nodeData: any): void {
 }
 
 export function registerImageOpsLivePreview(): void {
+  if (typeof document !== "undefined" && !document.getElementById("comfyui-imageops-styles")) {
+    const style = document.createElement("style");
+    style.id = "comfyui-imageops-styles";
+    style.textContent = `
+      /* Scrollbars in custom UI panel */
+      .comfy-menu::-webkit-scrollbar,
+      .comfy-panel::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      .comfy-menu::-webkit-scrollbar-thumb,
+      .comfy-panel::-webkit-scrollbar-thumb {
+        background: #444;
+        border-radius: 3px;
+      }
+      .comfy-menu::-webkit-scrollbar-track,
+      .comfy-panel::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.1);
+      }
+
+      /* Fields & Inputs */
+      .comfy-input {
+        font-family: var(--comfy-font-sans, Inter, sans-serif);
+        font-size: 11px !important;
+        border-radius: 4px !important;
+        border: 1px solid #3f3f3f !important;
+        background: #1c1c1c !important;
+        color: #fff !important;
+        padding: 4px 6px !important;
+        box-sizing: border-box !important;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      }
+      .comfy-input:focus {
+        border-color: #555 !important;
+        outline: none !important;
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.05);
+      }
+
+      /* Buttons */
+      .comfy-btn {
+        font-family: var(--comfy-font-sans, Inter, sans-serif);
+        font-size: 11px !important;
+        border-radius: 4px !important;
+        border: 1px solid #3f3f3f !important;
+        background: #2b2b2b !important;
+        color: #ccc !important;
+        padding: 4px 8px !important;
+        cursor: pointer !important;
+        line-height: 1.2 !important;
+        transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+        user-select: none;
+      }
+      .comfy-btn:hover {
+        background: #3e3e3e !important;
+        color: #fff !important;
+        border-color: #555 !important;
+      }
+      .comfy-btn:active {
+        background: #1c1c1c !important;
+        color: #aaa !important;
+      }
+      .comfy-btn.active {
+        background: #444 !important;
+        color: #fff !important;
+        border-color: #666 !important;
+        font-weight: 500;
+      }
+
+      /* Range/Slider Input */
+      .comfy-slider {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 6px;
+        background: #151515 !important;
+        border: 1px solid #2e2e2e !important;
+        border-radius: 3px !important;
+        outline: none !important;
+        margin: 6px 0 !important;
+        cursor: ew-resize !important;
+        transition: border-color 0.15s ease;
+      }
+      .comfy-slider:hover {
+        border-color: #3f3f3f !important;
+      }
+
+      /* WebKit Slider Thumb (Chrome, Safari, Edge) */
+      .comfy-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #ccc;
+        border: 1px solid #444;
+        cursor: ew-resize;
+        transition: background-color 0.15s ease, transform 0.1s ease;
+      }
+      .comfy-slider::-webkit-slider-thumb:hover {
+        background: #fff;
+        transform: scale(1.15);
+      }
+      .comfy-slider::-webkit-slider-thumb:active {
+        background: #aaa;
+      }
+
+      /* Firefox Slider Thumb */
+      .comfy-slider::-moz-range-thumb {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #ccc;
+        border: 1px solid #444;
+        cursor: ew-resize;
+        transition: background-color 0.15s ease, transform 0.1s ease;
+      }
+      .comfy-slider::-moz-range-thumb:hover {
+        background: #fff;
+        transform: scale(1.15);
+      }
+
+      /* Details Panel (Collapsible Panel) */
+      .comfy-details {
+        margin-top: 8px !important;
+        background: rgba(255, 255, 255, 0.02) !important;
+        border: 1px solid #333333 !important;
+        border-radius: 4px !important;
+        padding: 4px 8px 8px !important;
+        font-family: var(--comfy-font-sans, Inter, sans-serif);
+      }
+      .comfy-details summary {
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 600;
+        opacity: 0.85;
+        padding: 6px 0;
+        user-select: none;
+        color: #fff;
+      }
+      .comfy-details summary:hover {
+        opacity: 1;
+      }
+
+      /* Custom Dropdown Context Menu */
+      .comfy-menu {
+        background: #1c1c1f !important;
+        border: 1px solid #3e3e3e !important;
+        border-radius: 4px !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6) !important;
+        box-sizing: border-box;
+      }
+      .comfy-menu button {
+        border-radius: 3px !important;
+        font-family: var(--comfy-font-sans, Inter, sans-serif);
+        transition: background-color 0.1s ease;
+      }
+      .comfy-menu button:hover {
+        background: #3e3e42 !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
   initOpsConstants();
   const cfg = getPreviewConfig();
   const canvasSize = cfg.canvasSize;
@@ -194,12 +358,7 @@ export function registerImageOpsLivePreview(): void {
         st.drawOverlayKey = null;
         syncDrawWidgets(node);
       }
-      if (isImageOpsNativeUiClass(node.comfyClass)) {
-        syncCompactNativeWidgetControls(node);
-      }
-      if (isCompNode(node)) {
-        syncCompactNativeWidgetControls(node);
-      }
+      // Removed syncCompactNativeWidgetControls calls to support native ComfyUI widgets
       if (isCornerPinNode(node) || isPadOutNode(node) || isRampNode(node)) {
         if (st.canvas) st.canvas.style.cursor = "default";
       }
@@ -1001,10 +1160,7 @@ export function registerImageOpsLivePreview(): void {
         if (isRampNode(node)) syncRampWidgets(node);
         if (isDrawNode(node)) syncDrawWidgets(node);
         if (isKeyerNode(node)) syncKeyerWidgets(node);
-        if (isImageOpsNativeUiClass(node.comfyClass) || isCompNode(node)) {
-          hideCompactUiWidgets(node);
-          syncCompactNativeWidgetControls(node);
-        }
+        // Removed hideCompactUiWidgets & syncCompactNativeWidgetControls in favor of native ComfyUI widgets
       } catch (e) {
         console.warn("[ImageOps] late widget sync failed for", node?.comfyClass, e);
       }
@@ -1015,10 +1171,7 @@ export function registerImageOpsLivePreview(): void {
     if (isImageOpsClass(node.comfyClass)) {
       node.previewMediaType = "image";
       ensurePreviewWidget(node, progress, canvasSize, () => nodeCtx.refreshNode(node));
-      if (isImageOpsNativeUiClass(node.comfyClass) || isCompNode(node)) {
-        hideCompactUiWidgets(node);
-        syncCompactNativeWidgetControls(node);
-      }(node);
+      // Removed hideCompactUiWidgets & syncCompactNativeWidgetControls in favor of native ComfyUI widgets
       attachPreviewNavigation(node, canvasSize);
       if (isPreviewNode(node)) {
         attachPreviewInteractionsExt(node, nodeCtx);
@@ -1084,13 +1237,14 @@ export function registerImageOpsLivePreview(): void {
         }
         if (isCompNode(node)) {
           ensureCompState(node);
+          syncCompWidgets(node, w.name);
           updateCompControls(node);
         }
         if (isPreviewNode(node)) {
           syncPreviewWidgets(node);
         }
         if (isConstantNode(node)) {
-          syncConstantWidgets(node);
+          syncConstantWidgets(node, w.name);
         }
         if (isGrainNode(node)) {
           syncGrainWidgets(node);
@@ -1108,18 +1262,16 @@ export function registerImageOpsLivePreview(): void {
           syncKeyerWidgets(node);
         }
         if (isPadOutNode(node)) {
-          if (w.name === "target_format") {
+          if (w.name === "aspect_ratio") {
             (st as any).padOutRatioHydrated = false;
             hydratePadOutTargetFormat(node);
           } else if (w.name === "snap_to_multiple") {
-            const targetFormat = widgetString(node, "target_format", "custom");
+            const targetFormat = widgetString(node, "aspect_ratio", "custom");
             if (targetFormat !== "custom") applyPadOutTargetFormat(node, targetFormat);
           }
           syncPadOutControls(node);
         }
-        if (isImageOpsNativeUiClass(node.comfyClass) || isCompNode(node)) {
-          syncCompactNativeWidgetControls(node);
-        }
+        // Removed syncCompactNativeWidgetControls calls to support native ComfyUI widgets
         // Use 0ms delay when RAF loop is stopped (frozen FrameRange, static nodes) for
         // instant visual feedback. Use full debounce when the loop is already running —
         // it will pick up widget changes on the next tick automatically.
@@ -1225,6 +1377,7 @@ export function registerImageOpsLivePreview(): void {
         if (isCompNode(node) && prop === "onConfigure") {
           hideCompWidgets(node);
           ensureCompState(node);
+          syncCompWidgets(node);
           st.compInteractiveHooked = false;
           (st as any).compKeyboardHooked = false;
           attachCompInteractionsExt(node, compCtx);
@@ -1262,10 +1415,7 @@ export function registerImageOpsLivePreview(): void {
           hideFrameSelectorWidgets(node);
           syncFrameSelectorWidgets(node);
         }
-        if ((isImageOpsNativeUiClass(node.comfyClass) || isCompNode(node)) && prop === "onConfigure") {
-          hideCompactUiWidgets(node);
-          syncCompactNativeWidgetControls(node);
-        }
+        // Removed hideCompactUiWidgets & syncCompactNativeWidgetControls calls to support native ComfyUI widgets
         if (prop === "onConfigure" && isImageOpsClass(node.comfyClass)) {
           const minH = getNodePreviewMinHeight(node);
           // Defer so any post-configure size restoration by ComfyUI happens first.

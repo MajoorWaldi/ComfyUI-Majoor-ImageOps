@@ -22,7 +22,7 @@ function attachPreviewNavigation(node, canvasSize) {
     return { rect, sx: canvas.width / rect.width, sy: canvas.height / rect.height };
   };
   canvas.addEventListener("pointerdown", (event) => {
-    if (event.button !== 1) return;
+    if (event.button !== 0 || isInteractiveNode(node)) return;
     event.preventDefault();
     event.stopPropagation();
     try {
@@ -38,6 +38,7 @@ function attachPreviewNavigation(node, canvasSize) {
       startPanX: st.previewPanX,
       startPanY: st.previewPanY
     };
+    canvas.style.cursor = "grabbing";
   });
   let panRafPending = false;
   canvas.addEventListener("pointermove", (event) => {
@@ -60,6 +61,7 @@ function attachPreviewNavigation(node, canvasSize) {
   canvas.addEventListener("pointerup", (event) => {
     if (st.previewPanDrag?.pointerId === event.pointerId) {
       st.previewPanDrag = null;
+      canvas.style.cursor = "";
       try {
         canvas.releasePointerCapture(event.pointerId);
       } catch {
@@ -69,12 +71,14 @@ function attachPreviewNavigation(node, canvasSize) {
   canvas.addEventListener("pointercancel", (event) => {
     if (st.previewPanDrag?.pointerId === event.pointerId) {
       st.previewPanDrag = null;
+      canvas.style.cursor = "";
     }
   });
   const handleWheel = (event) => {
     const target = event.target;
     if (target !== canvas && !canvas.contains(target)) return;
     if (isInteractiveNode(node)) return;
+    if (!(event.ctrlKey || event.metaKey)) return;
     event.stopImmediatePropagation();
     event.preventDefault();
     const r = safeRect();

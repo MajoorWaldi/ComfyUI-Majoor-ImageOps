@@ -1,5 +1,5 @@
 import { ensureState } from "./state.js";
-import { isImageOpsClass, isImageOpsNativeUiClass } from "./classes.js";
+import { isImageOpsClass } from "./classes.js";
 import { createPreviewControlsUi, isNode as isPreviewNode } from "../nodes/preview.js";
 import { createConstantControlsUi, isNode as isConstantNode } from "../nodes/constant.js";
 import { createGrainControlsUi, isNode as isGrainNode } from "../nodes/grain.js";
@@ -13,10 +13,7 @@ import { createJoinControlsUi, isNode as isAppendNode } from "../nodes/append.js
 import { createFrameSelectorControlsUi, isNode as isFrameRangeNode } from "../nodes/frame-range.js";
 import { createKeyerControlsUi, isNode as isKeyerNode } from "../nodes/keyer.js";
 import { createPadOutControlsUi, isNode as isPadOutNode } from "../nodes/pad-out.js";
-import { styleSoftButton, styleSoftField, styleInlineAction, createColorSwatch, createContextMenuSelect, syncDarkColorInputUI } from "./dom-styles.js";
-import { getWidgetInputSpec, listCompactUiWidgets, setWidgetMixedValue } from "./widgets.js";
-import { bindCollapsibleToUiState } from "./ui-persist.js";
-import { attachDblClickReset } from "./dbl-click-reset.js";
+import { styleInlineAction } from "./dom-styles.js";
 function getNodePreviewMinHeight(node) {
   if (isDrawNode(node)) return 220;
   if (isConstantNode(node)) return 390;
@@ -76,205 +73,9 @@ function getCompactWidgetValue(widget, fallback) {
   return String(raw ?? "");
 }
 function buildCompactNativeWidgetControls(node, onWidgetChange) {
-  if (!isImageOpsNativeUiClass(node.comfyClass) && !isCompNode(node)) return null;
-  const widgets = listCompactUiWidgets(node);
-  if (!widgets.length) return null;
-  const st = ensureState(node);
-  const bindings = [];
-  const panel = document.createElement("div");
-  panel.style.marginTop = "8px";
-  panel.style.display = "grid";
-  panel.style.gap = "8px";
-  const seenNames = /* @__PURE__ */ new Set();
-  for (const widget of widgets) {
-    if (seenNames.has(widget.name)) continue;
-    seenNames.add(widget.name);
-    const spec = getWidgetInputSpec(node, widget.name);
-    if (!spec) continue;
-    const row = document.createElement("div");
-    row.style.display = "grid";
-    row.style.gridTemplateColumns = "minmax(84px, auto) minmax(0,1fr)";
-    row.style.gap = "8px";
-    row.style.alignItems = "center";
-    const label = document.createElement("div");
-    label.textContent = String(spec.options?.display_name ?? prettifyWidgetLabel(widget.name));
-    label.style.fontSize = "11px";
-    label.style.opacity = "0.78";
-    label.style.lineHeight = "1.2";
-    row.appendChild(label);
-    const commitValue = (value) => {
-      setWidgetMixedValue(widget, value);
-      syncCompactNativeWidgetControls(node);
-      onWidgetChange?.();
-    };
-    const comboOptions = Array.isArray(spec.typeSpec) ? spec.typeSpec : String(spec.typeSpec ?? "").trim().toUpperCase() === "COMBO" && Array.isArray(spec.options?.options) ? spec.options.options : null;
-    if (comboOptions !== null) {
-      const select = document.createElement("select");
-      styleSoftField(select);
-      select.style.width = "100%";
-      for (const entry of comboOptions) {
-        const option = document.createElement("option");
-        option.value = String(entry);
-        option.textContent = prettifyWidgetLabel(String(entry));
-        select.appendChild(option);
-      }
-      if (spec.options?.tooltip) select.title = String(spec.options.tooltip);
-      select.addEventListener("change", () => commitValue(select.value));
-      row.appendChild(createContextMenuSelect(select));
-      bindings.push({ widget, kind: "select", control: select, integer: false });
-      panel.appendChild(row);
-      continue;
-    }
-    const kind = String(spec.typeSpec ?? "").trim().toUpperCase();
-    if (kind === "BOOLEAN") {
-      const button = document.createElement("button");
-      button.type = "button";
-      if (spec.options?.tooltip) button.title = String(spec.options.tooltip);
-      button.addEventListener("click", () => {
-        const active = String(widget.value ?? "false").toLowerCase().match(/^(true|1)$/) != null;
-        commitValue(!active);
-      });
-      row.appendChild(button);
-      bindings.push({ widget, kind: "boolean", control: button, integer: false });
-      panel.appendChild(row);
-      continue;
-    }
-    if (kind === "COLOR") {
-      const initialColor = String(widget.value ?? spec.options?.default ?? "#000000");
-      const { input: colorInput, host: colorHost } = createColorSwatch(initialColor, {
-        title: spec.options?.tooltip ? String(spec.options.tooltip) : void 0
-      });
-      colorInput.addEventListener("input", () => commitValue(colorInput.value));
-      const defaultColor = String(spec.options?.default ?? "#000000");
-      attachDblClickReset(colorHost, { defaultValue: defaultColor, onReset: (v) => commitValue(String(v)) });
-      attachDblClickReset(colorInput, { defaultValue: defaultColor, onReset: (v) => commitValue(String(v)) });
-      row.appendChild(colorHost);
-      bindings.push({ widget, kind: "color", control: colorInput, integer: false });
-      panel.appendChild(row);
-      continue;
-    }
-    const input = document.createElement("input");
-    input.type = kind === "STRING" ? "text" : "number";
-    input.style.width = "100%";
-    if (kind !== "STRING") {
-      if (spec.options?.min != null) input.min = String(spec.options.min);
-      if (spec.options?.max != null) input.max = String(spec.options.max);
-      if (spec.options?.step != null) input.step = String(spec.options.step);
-      input.style.fontFamily = "ui-monospace, SFMono-Regular, Consolas, monospace";
-      input.addEventListener("input", () => {
-        const next = Number(input.value);
-        if (!Number.isFinite(next)) return;
-        commitValue(kind === "INT" ? Math.round(next) : next);
-      });
-      const numericDefault = Number(spec.options?.default ?? 0);
-      if (Number.isFinite(numericDefault)) {
-        attachDblClickReset(input, {
-          defaultValue: kind === "INT" ? Math.round(numericDefault) : numericDefault,
-          onReset: (v) => commitValue(v)
-        });
-      }
-    } else {
-      input.addEventListener("change", () => commitValue(input.value));
-      const stringDefault = String(spec.options?.default ?? "");
-      attachDblClickReset(input, { defaultValue: stringDefault, onReset: (v) => commitValue(String(v)) });
-    }
-    if (spec.options?.tooltip) input.title = String(spec.options.tooltip);
-    styleSoftField(input);
-    if (kind === "INT" && widget.name === "seed") {
-      const wrap = document.createElement("div");
-      wrap.style.cssText = "display:flex;gap:4px;align-items:center;min-width:0";
-      wrap.appendChild(input);
-      const rand = document.createElement("button");
-      rand.type = "button";
-      rand.textContent = "\u{1F3B2}";
-      rand.title = "Randomize seed";
-      rand.style.cssText = "background:#2a2a2a;color:#ddd;border:1px solid #444;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:12px;line-height:1;flex:0 0 auto";
-      rand.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const max = Number.isFinite(Number(spec.options?.max)) ? Number(spec.options?.max) : 2147483647;
-        const min = Number.isFinite(Number(spec.options?.min)) ? Number(spec.options?.min) : 0;
-        const span = Math.max(1, Math.min(max, 2147483647) - Math.max(min, 0));
-        const next = Math.floor(Math.random() * span) + Math.max(min, 0);
-        input.value = String(next);
-        commitValue(next);
-      });
-      wrap.appendChild(rand);
-      row.appendChild(wrap);
-    } else {
-      row.appendChild(input);
-    }
-    bindings.push({ widget, kind: kind === "STRING" ? "text" : "number", control: input, integer: kind === "INT" });
-    panel.appendChild(row);
-  }
-  if (!bindings.length) return null;
-  st.compactWidgetBindings = bindings;
-  syncCompactNativeWidgetControls(node);
-  const COLLAPSE_THRESHOLD = 4;
-  if (bindings.length > COLLAPSE_THRESHOLD) {
-    const details = document.createElement("details");
-    details.style.marginTop = "8px";
-    details.style.background = "rgba(255,255,255,0.03)";
-    details.style.border = "1px solid rgba(255,255,255,0.08)";
-    details.style.borderRadius = "6px";
-    details.style.padding = "4px 8px 8px";
-    const summary = document.createElement("summary");
-    summary.textContent = `Controls (${bindings.length})`;
-    summary.style.cursor = "pointer";
-    summary.style.fontSize = "11px";
-    summary.style.opacity = "0.85";
-    summary.style.padding = "4px 0";
-    summary.style.userSelect = "none";
-    details.appendChild(summary);
-    panel.style.marginTop = "6px";
-    details.appendChild(panel);
-    bindCollapsibleToUiState(details, String(node.comfyClass ?? "unknown"), "compactPanelOpen", false);
-    details.addEventListener("toggle", () => {
-      try {
-        node.graph?.setDirtyCanvas?.(true, true);
-      } catch {
-      }
-      try {
-        const root = ensureState(node).previewRoot;
-        const target = getNodePreviewTargetSize(node, root ?? null, Math.max(360, Math.round(node.size?.[0] ?? 360)));
-        node.setSize?.(target);
-      } catch {
-      }
-    });
-    return details;
-  }
-  return panel;
+  return null;
 }
 function syncCompactNativeWidgetControls(node) {
-  const bindings = ensureState(node).compactWidgetBindings ?? [];
-  for (const binding of bindings) {
-    const spec = getWidgetInputSpec(node, binding.widget.name);
-    const fallback = spec?.options?.default;
-    if (binding.kind === "boolean") {
-      const button = binding.control;
-      const active = String(binding.widget.value ?? fallback ?? "false").toLowerCase().match(/^(true|1)$/) != null;
-      const labelOn = spec?.options?.label_on ? String(spec.options.label_on) : "On";
-      const labelOff = spec?.options?.label_off ? String(spec.options.label_off) : "Off";
-      button.textContent = active ? labelOn : labelOff;
-      styleSoftButton(button, active);
-      continue;
-    }
-    if (binding.kind === "select") {
-      binding.control.value = getCompactWidgetValue(binding.widget, fallback);
-      continue;
-    }
-    if (binding.kind === "number") {
-      const input = binding.control;
-      const raw = Number(binding.widget.value ?? fallback ?? "");
-      input.value = Number.isFinite(raw) ? String(binding.integer ? Math.round(raw) : raw) : "";
-      continue;
-    }
-    if (binding.kind === "color") {
-      syncDarkColorInputUI(binding.control, String(binding.widget.value ?? fallback ?? "#000000"));
-      continue;
-    }
-    binding.control.value = getCompactWidgetValue(binding.widget, fallback);
-  }
 }
 function getNodePreviewTargetSize(node, root, fallbackWidth = 360) {
   const minWidth = 360;
@@ -427,7 +228,7 @@ function ensurePreviewWidget(node, progress, canvasSize, onNativeWidgetChange) {
   } else if (constantNode) {
     previewControls = createConstantControlsUi().controls;
   } else if (grainNode) {
-    previewControls = createGrainControlsUi().controls;
+    previewControls = createGrainControlsUi(node).controls;
   } else if (textNode) {
     previewControls = createTextControlsUi().controls;
   } else if (rampNode) {
@@ -698,10 +499,38 @@ function ensurePreviewWidget(node, progress, canvasSize, onNativeWidgetChange) {
       obs.observe(root, { attributes: true, attributeFilter: ["style"] });
       state._displayObserverCleanup = () => obs.disconnect();
     });
+    if (drawNode && drawClearButton) {
+      const clearWrap = document.createElement("div");
+      clearWrap.style.display = "flex";
+      clearWrap.style.justifyContent = "center";
+      clearWrap.style.marginTop = "8px";
+      clearWrap.style.marginBottom = "8px";
+      clearWrap.style.width = "100%";
+      clearWrap.appendChild(drawClearButton);
+      node.addDOMWidget("clear_action", "ImageOpsClear", clearWrap, {
+        serialize: false,
+        hideOnZoom: false,
+        getMinHeight: () => 32
+      });
+      const clearWidget = (node.widgets ?? []).find((widget) => widget?.name === "clear_action");
+      if (clearWidget?.hidden !== false) {
+        clearWidget.hidden = false;
+      }
+    }
   } else {
     const domEl = node.domElement ?? node.element;
     if (domEl instanceof HTMLElement) {
       domEl.appendChild(root);
+      if (drawNode && drawClearButton) {
+        const clearWrap = document.createElement("div");
+        clearWrap.style.display = "flex";
+        clearWrap.style.justifyContent = "center";
+        clearWrap.style.marginTop = "8px";
+        clearWrap.style.marginBottom = "8px";
+        clearWrap.style.width = "100%";
+        clearWrap.appendChild(drawClearButton);
+        domEl.appendChild(clearWrap);
+      }
     } else {
       console.warn("[ImageOps] addDOMWidget unavailable and no DOM container found on node", node.id);
     }

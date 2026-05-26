@@ -77,7 +77,9 @@ function hideWidgetForGood(node, widget, suffix = "") {
 function hideWidgetsByName(node, name) {
   if (!node?.widgets) return;
   for (const widget of node.widgets) {
-    if (widget?.name === name) hideWidgetForGood(node, widget);
+    if (widget?.name && widget.name.toLowerCase() === name.toLowerCase()) {
+      hideWidgetForGood(node, widget);
+    }
   }
 }
 function setWidgetValue(widget, value, options = {}) {
@@ -168,9 +170,6 @@ function listCompactUiWidgets(node) {
   return (node?.widgets ?? []).filter((widget) => supportsCompactUi(node, widget));
 }
 function hideCompactUiWidgets(node) {
-  for (const widget of listCompactUiWidgets(node)) {
-    hideWidgetForGood(node, widget);
-  }
 }
 function cloneDefaultValue(value) {
   if (value == null || typeof value !== "object") return value;

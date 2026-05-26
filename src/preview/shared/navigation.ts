@@ -29,9 +29,9 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
     return { rect, sx: canvas.width / rect.width, sy: canvas.height / rect.height };
   };
 
-  // ── Middle-button pan ──
+  // ── Left-drag pan ──
   canvas.addEventListener("pointerdown", (event: PointerEvent) => {
-    if (event.button !== 1) return;
+    if (event.button !== 0 || isInteractiveNode(node)) return;
     event.preventDefault();
     event.stopPropagation();
     try { canvas.setPointerCapture(event.pointerId); } catch {}
@@ -44,6 +44,7 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
       startPanX: st.previewPanX,
       startPanY: st.previewPanY,
     };
+    canvas.style.cursor = "grabbing";
   });
 
   let panRafPending = false;
@@ -65,6 +66,7 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
   canvas.addEventListener("pointerup", (event: PointerEvent) => {
     if (st.previewPanDrag?.pointerId === event.pointerId) {
       st.previewPanDrag = null;
+      canvas.style.cursor = "";
       try { canvas.releasePointerCapture(event.pointerId); } catch {}
     }
   });
@@ -72,6 +74,7 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
   canvas.addEventListener("pointercancel", (event: PointerEvent) => {
     if (st.previewPanDrag?.pointerId === event.pointerId) {
       st.previewPanDrag = null;
+      canvas.style.cursor = "";
     }
   });
 
@@ -84,6 +87,7 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
     if (target !== canvas && !canvas.contains(target)) return;
     // Let interactive nodes (Draw) handle wheel themselves — don't block their handlers.
     if (isInteractiveNode(node)) return;
+    if (!(event.ctrlKey || event.metaKey)) return;
     // Prevent the graph from zooming when the cursor is over our preview canvas.
     event.stopImmediatePropagation();
     event.preventDefault();
@@ -118,3 +122,4 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
     reblitNow();
   });
 }
+

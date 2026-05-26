@@ -91,17 +91,15 @@ export function hideWidgetForGood(node: ComfyNode, widget: ComfyWidget | null, s
   }
 }
 
-/**
- * Hide every widget whose name matches. Useful when ComfyUI's Vue frontend
- * adds a duplicate widget with the same name but a different (uppercase) type
- * (e.g. `color` + `COLOR`, `boolean` + `BOOLEAN`).
- */
 export function hideWidgetsByName(node: ComfyNode, name: string): void {
   if (!node?.widgets) return;
   for (const widget of node.widgets) {
-    if (widget?.name === name) hideWidgetForGood(node, widget);
+    if (widget?.name && widget.name.toLowerCase() === name.toLowerCase()) {
+      hideWidgetForGood(node, widget);
+    }
   }
 }
+
 
 export function setWidgetValue(widget: ComfyWidget | null, value: number, options: WidgetSetOptions = {}): void {
   if (!widget) return;
@@ -209,9 +207,7 @@ export function listCompactUiWidgets(node: ComfyNode): ComfyWidget[] {
 }
 
 export function hideCompactUiWidgets(node: ComfyNode): void {
-  for (const widget of listCompactUiWidgets(node)) {
-    hideWidgetForGood(node, widget);
-  }
+  // No-op: Disabled in favor of native ComfyUI widgets to prevent masking input connection slots (INT/FLOAT)
 }
 
 function cloneDefaultValue<T>(value: T): T {

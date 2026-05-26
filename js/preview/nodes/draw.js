@@ -1,13 +1,8 @@
 import { findWidget, widgetNumber, widgetString, widgetBoolean, hideWidgetsByName, setWidgetValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetBooleanValue } from "../shared/widgets.js";
 import { ensureState } from "../shared/state.js";
 import {
-  createColorSwatch,
-  createContextMenuSelect,
   setDarkColorInputState,
-  styleInlineAction,
   styleSoftButton,
-  styleSoftField,
-  styleSoftRange,
   syncDarkColorInputUI
 } from "../shared/dom-styles.js";
 import {
@@ -25,209 +20,198 @@ const NODE_CLASS = "ImageOpsDraw";
 function isNode(node) {
   return String(node?.comfyClass ?? "") === NODE_CLASS;
 }
+function styleSegmentControl(container) {
+  container.style.display = "flex";
+  container.style.background = "#181818";
+  container.style.borderRadius = "6px";
+  container.style.padding = "2px";
+  container.style.border = "1px solid #2e2e2e";
+  container.style.width = "100%";
+  container.style.boxSizing = "border-box";
+}
+function styleSegmentButton(button, active) {
+  button.style.flex = "1";
+  button.style.border = "none";
+  button.style.outline = "none";
+  button.style.borderRadius = "4px";
+  button.style.padding = "4px 8px";
+  button.style.fontSize = "10.5px";
+  button.style.fontFamily = "var(--comfy-font-sans, Inter, sans-serif)";
+  button.style.cursor = "pointer";
+  button.style.transition = "background 0.15s, color 0.15s";
+  button.style.lineHeight = "1.2";
+  button.style.textAlign = "center";
+  if (active) {
+    button.classList.add("active");
+    button.style.background = "#525252";
+    button.style.color = "#ffffff";
+    button.style.fontWeight = "600";
+  } else {
+    button.classList.remove("active");
+    button.style.background = "transparent";
+    button.style.color = "#aaaaaa";
+    button.style.fontWeight = "normal";
+  }
+}
+function setupSegmentHover(button) {
+  button.addEventListener("mouseenter", () => {
+    if (!button.classList.contains("active")) {
+      button.style.background = "rgba(255,255,255,0.06)";
+      button.style.color = "#ffffff";
+    }
+  });
+  button.addEventListener("mouseleave", () => {
+    if (!button.classList.contains("active")) {
+      button.style.background = "transparent";
+      button.style.color = "#aaaaaa";
+    }
+  });
+}
 function createDrawControlsUi() {
   const controls = document.createElement("div");
   controls.style.marginTop = "8px";
   controls.style.display = "grid";
-  controls.style.gap = "8px";
-  const topRow = document.createElement("div");
-  topRow.style.display = "flex";
-  topRow.style.alignItems = "center";
-  topRow.style.justifyContent = "space-between";
-  topRow.style.gap = "8px";
-  const toolRow = document.createElement("div");
-  toolRow.style.display = "flex";
-  toolRow.style.alignItems = "center";
-  toolRow.style.gap = "6px";
+  controls.style.gridTemplateColumns = "72px 1fr";
+  controls.style.rowGap = "8px";
+  controls.style.columnGap = "12px";
+  controls.style.alignItems = "center";
+  controls.style.width = "100%";
+  controls.style.boxSizing = "border-box";
+  controls.style.padding = "0 4px";
+  const styleLabel = (el) => {
+    el.style.fontSize = "11px";
+    el.style.opacity = "0.78";
+    el.style.fontFamily = "var(--comfy-font-sans, Inter, sans-serif)";
+    el.style.whiteSpace = "nowrap";
+  };
+  const toolLabel = document.createElement("div");
+  toolLabel.textContent = "Tool";
+  styleLabel(toolLabel);
   const brushButton = document.createElement("button");
   brushButton.type = "button";
   brushButton.textContent = "Brush";
-  styleSoftButton(brushButton, true);
+  styleSegmentButton(brushButton, true);
+  setupSegmentHover(brushButton);
   const eraserButton = document.createElement("button");
   eraserButton.type = "button";
   eraserButton.textContent = "Eraser";
-  styleSoftButton(eraserButton, false);
-  const clearButton = document.createElement("button");
-  clearButton.type = "button";
-  clearButton.textContent = "Clear";
-  styleInlineAction(clearButton);
-  const overlayFormatSelect = document.createElement("select");
-  overlayFormatSelect.title = "Overlay format";
-  overlayFormatSelect.style.width = "72px";
-  styleSoftField(overlayFormatSelect);
-  for (const format of ["png", "webp"]) {
-    const option = document.createElement("option");
-    option.value = format;
-    option.textContent = format.toUpperCase();
-    overlayFormatSelect.appendChild(option);
-  }
-  const rightTools = document.createElement("div");
-  rightTools.style.display = "flex";
-  rightTools.style.alignItems = "center";
-  rightTools.style.gap = "6px";
-  rightTools.appendChild(createContextMenuSelect(overlayFormatSelect));
-  rightTools.appendChild(clearButton);
-  toolRow.appendChild(brushButton);
-  toolRow.appendChild(eraserButton);
-  topRow.appendChild(toolRow);
-  topRow.appendChild(rightTools);
-  const strokeRow = document.createElement("div");
-  strokeRow.style.display = "grid";
-  strokeRow.style.gridTemplateColumns = "auto minmax(0,1fr) auto auto minmax(0,1fr)";
-  strokeRow.style.alignItems = "center";
-  strokeRow.style.gap = "6px";
-  const colorLabel = document.createElement("div");
-  colorLabel.textContent = "Color";
-  colorLabel.style.fontSize = "11px";
-  colorLabel.style.opacity = "0.78";
-  const colorSwatchResult = createColorSwatch("#FFFFFF");
-  const colorInput = colorSwatchResult.input;
+  styleSegmentButton(eraserButton, false);
+  setupSegmentHover(eraserButton);
+  const toolGroup = document.createElement("div");
+  styleSegmentControl(toolGroup);
+  toolGroup.appendChild(brushButton);
+  toolGroup.appendChild(eraserButton);
+  controls.appendChild(toolLabel);
+  controls.appendChild(toolGroup);
+  const edgeLabel = document.createElement("div");
+  edgeLabel.textContent = "Edge";
+  styleLabel(edgeLabel);
   const edgeSelect = document.createElement("select");
-  styleSoftField(edgeSelect);
-  edgeSelect.title = "Brush edge";
+  edgeSelect.style.display = "none";
   for (const edge of ["hard", "soft"]) {
     const option = document.createElement("option");
     option.value = edge;
-    option.textContent = edge === "hard" ? "Hard edge" : "Soft edge";
+    option.textContent = edge === "hard" ? "Hard" : "Soft";
     edgeSelect.appendChild(option);
   }
-  const opacityLabel = document.createElement("div");
-  opacityLabel.textContent = "100%";
-  opacityLabel.style.fontSize = "11px";
-  opacityLabel.style.opacity = "0.82";
-  opacityLabel.style.justifySelf = "end";
-  const opacityInput = document.createElement("input");
-  opacityInput.type = "range";
-  opacityInput.min = "0";
-  opacityInput.max = "100";
-  opacityInput.step = "1";
-  opacityInput.value = "100";
-  opacityInput.title = "Brush opacity";
-  styleSoftRange(opacityInput);
-  strokeRow.appendChild(colorLabel);
-  strokeRow.appendChild(colorSwatchResult.host);
-  strokeRow.appendChild(createContextMenuSelect(edgeSelect));
-  strokeRow.appendChild(opacityLabel);
-  strokeRow.appendChild(opacityInput);
-  const softnessRow = document.createElement("div");
-  softnessRow.style.display = "grid";
-  softnessRow.style.gridTemplateColumns = "auto minmax(0,1fr) auto";
-  softnessRow.style.alignItems = "center";
-  softnessRow.style.gap = "6px";
-  const softnessTextLabel = document.createElement("div");
-  softnessTextLabel.textContent = "Softness";
-  softnessTextLabel.style.fontSize = "11px";
-  softnessTextLabel.style.opacity = "0.78";
-  const softnessInput = document.createElement("input");
-  softnessInput.type = "range";
-  softnessInput.min = "0";
-  softnessInput.max = "100";
-  softnessInput.step = "1";
-  softnessInput.value = "50";
-  softnessInput.title = "Soft brush feather (only when edge=Soft)";
-  styleSoftRange(softnessInput);
-  const softnessLabel = document.createElement("div");
-  softnessLabel.textContent = "50%";
-  softnessLabel.style.fontSize = "11px";
-  softnessLabel.style.opacity = "0.82";
-  softnessLabel.style.justifySelf = "end";
-  softnessRow.appendChild(softnessTextLabel);
-  softnessRow.appendChild(softnessInput);
-  softnessRow.appendChild(softnessLabel);
-  const sizeRow = document.createElement("div");
-  sizeRow.style.display = "grid";
-  sizeRow.style.gridTemplateColumns = "auto auto";
-  sizeRow.style.alignItems = "center";
-  sizeRow.style.gap = "6px";
-  sizeRow.style.minWidth = "0";
-  const linkButton = document.createElement("button");
-  linkButton.type = "button";
-  linkButton.textContent = "Linked";
-  styleSoftButton(linkButton, true);
-  const bgColorSwatchResult = createColorSwatch("#000000", { compact: true, title: "Background color" });
-  const bgColorInput = bgColorSwatchResult.input;
-  sizeRow.appendChild(linkButton);
-  sizeRow.appendChild(bgColorSwatchResult.host);
-  const dynamicsRow = document.createElement("div");
-  dynamicsRow.style.display = "flex";
-  dynamicsRow.style.alignItems = "center";
-  dynamicsRow.style.gap = "10px";
-  dynamicsRow.style.flexWrap = "wrap";
-  dynamicsRow.style.fontSize = "11px";
-  dynamicsRow.style.opacity = "0.86";
-  const dynamicsLabel = document.createElement("span");
-  dynamicsLabel.textContent = "Dynamics";
-  dynamicsLabel.style.opacity = "0.78";
-  const makeDynamicsToggle = (text, title) => {
-    const label = document.createElement("label");
-    label.style.display = "inline-flex";
-    label.style.alignItems = "center";
-    label.style.gap = "4px";
-    label.title = title;
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.style.margin = "0";
-    label.appendChild(input);
-    label.appendChild(document.createTextNode(text));
-    return [label, input];
+  const hardButton = document.createElement("button");
+  hardButton.type = "button";
+  hardButton.textContent = "Hard";
+  styleSegmentButton(hardButton, true);
+  setupSegmentHover(hardButton);
+  const softButton = document.createElement("button");
+  softButton.type = "button";
+  softButton.textContent = "Soft";
+  styleSegmentButton(softButton, false);
+  setupSegmentHover(softButton);
+  edgeSelect.__hardButton = hardButton;
+  edgeSelect.__softButton = softButton;
+  const updateEdgeUi = (edge) => {
+    styleSegmentButton(hardButton, edge === "hard");
+    styleSegmentButton(softButton, edge === "soft");
   };
-  const [pressureSizeLabel, pressureSizeInput] = makeDynamicsToggle("Size pressure", "Pen pressure changes brush diameter");
-  const [pressureOpacityLabel, pressureOpacityInput] = makeDynamicsToggle("Opacity pressure", "Pen pressure changes brush opacity");
-  const [tiltSizeLabel, tiltSizeInput] = makeDynamicsToggle("Tilt size", "Pen tilt widens the brush footprint");
-  dynamicsRow.appendChild(dynamicsLabel);
-  dynamicsRow.appendChild(pressureSizeLabel);
-  dynamicsRow.appendChild(pressureOpacityLabel);
-  dynamicsRow.appendChild(tiltSizeLabel);
-  controls.appendChild(topRow);
-  controls.appendChild(strokeRow);
-  controls.appendChild(softnessRow);
-  controls.appendChild(sizeRow);
-  controls.appendChild(dynamicsRow);
+  hardButton.addEventListener("click", (e) => {
+    e.preventDefault();
+    edgeSelect.value = "hard";
+    edgeSelect.dispatchEvent(new Event("change"));
+    updateEdgeUi("hard");
+  });
+  softButton.addEventListener("click", (e) => {
+    e.preventDefault();
+    edgeSelect.value = "soft";
+    edgeSelect.dispatchEvent(new Event("change"));
+    updateEdgeUi("soft");
+  });
+  const edgeGroup = document.createElement("div");
+  styleSegmentControl(edgeGroup);
+  edgeGroup.appendChild(hardButton);
+  edgeGroup.appendChild(softButton);
+  edgeGroup.appendChild(edgeSelect);
+  controls.appendChild(edgeLabel);
+  controls.appendChild(edgeGroup);
+  const clearButton = document.createElement("button");
+  clearButton.type = "button";
+  clearButton.textContent = "\u21BA Clear";
+  clearButton.style.border = "1px solid #3f3f3f";
+  clearButton.style.background = "#2a2a2a";
+  clearButton.style.color = "#ccc";
+  clearButton.style.borderRadius = "4px";
+  clearButton.style.padding = "4px 16px";
+  clearButton.style.cursor = "pointer";
+  clearButton.style.fontSize = "11px";
+  clearButton.style.lineHeight = "1.2";
+  clearButton.style.transition = "background 0.15s ease, color 0.15s ease, border-color 0.15s ease";
+  clearButton.addEventListener("mouseenter", () => {
+    clearButton.style.background = "#3e3e3e";
+    clearButton.style.color = "#fff";
+    clearButton.style.borderColor = "#555";
+  });
+  clearButton.addEventListener("mouseleave", () => {
+    clearButton.style.background = "#2a2a2a";
+    clearButton.style.color = "#ccc";
+    clearButton.style.borderColor = "#3f3f3f";
+  });
+  clearButton.addEventListener("mousedown", () => {
+    clearButton.style.background = "#1c1c1c";
+    clearButton.style.color = "#aaa";
+  });
+  clearButton.addEventListener("mouseup", () => {
+    clearButton.style.background = "#3e3e3e";
+    clearButton.style.color = "#fff";
+  });
   return {
     controls,
     brushButton,
     eraserButton,
     clearButton,
-    colorInput,
+    colorInput: null,
     edgeSelect,
-    softnessInput,
-    softnessLabel,
-    opacityInput,
-    opacityLabel,
+    softnessInput: null,
+    softnessLabel: null,
+    opacityInput: null,
+    opacityLabel: null,
     sizeInput: null,
     sizeLabel: null,
     widthInput: null,
     heightInput: null,
-    linkButton,
-    bgColorInput,
-    overlayFormatSelect,
-    pressureSizeInput,
-    pressureOpacityInput,
-    tiltSizeInput
+    linkButton: null,
+    bgColorInput: null,
+    overlayFormatSelect: null,
+    pressureSizeInput: null,
+    pressureOpacityInput: null,
+    tiltSizeInput: null
   };
 }
 function hideDrawWidgets(node) {
-  const names = [
-    "bypass",
-    "invert_mask",
-    "sync_dimensions",
-    "width",
-    "height",
-    "bg_color",
-    "tool",
-    "brush_color",
-    "brush_size",
-    "brush_edge",
-    "brush_softness",
-    "brush_opacity",
-    "brush_pressure_size",
-    "brush_pressure_opacity",
-    "brush_tilt_size",
-    "overlay_format",
+  const namesToHide = [
     "overlay_data",
-    "overlay_layers"
+    "overlay_layers",
+    "tool",
+    "brush_edge"
   ];
-  for (const name of names) hideWidgetsByName(node, name);
+  for (const name of namesToHide) {
+    hideWidgetsByName(node, name);
+  }
 }
 function canvasToDrawSourcePoint(geometry, x, y) {
   if (!geometry) return { x: 0, y: 0, inside: false };
@@ -247,8 +231,8 @@ function getDrawInfoText(node, width, height) {
 function updateDrawToolButtons(node) {
   const st = ensureState(node);
   const tool = normalizeDrawTool(widgetString(node, "tool", "brush"));
-  if (st.drawBrushButton) styleSoftButton(st.drawBrushButton, tool === "brush");
-  if (st.drawEraserButton) styleSoftButton(st.drawEraserButton, tool === "eraser");
+  if (st.drawBrushButton) styleSegmentButton(st.drawBrushButton, tool === "brush");
+  if (st.drawEraserButton) styleSegmentButton(st.drawEraserButton, tool === "eraser");
 }
 function updateDrawOverlayWidget(node) {
   const st = ensureState(node);
@@ -275,6 +259,7 @@ function syncDrawWidgets(node, changedName) {
   const pressureOpacityWidget = findWidget(node, "brush_pressure_opacity");
   const tiltSizeWidget = findWidget(node, "brush_tilt_size");
   const overlayFormatWidget = findWidget(node, "overlay_format");
+  const softnessWidget = findWidget(node, "brush_softness");
   if (!widthWidget || !heightWidget) return;
   let width = clampDrawDimension(widgetNumber(node, "width", 1024));
   let height = clampDrawDimension(widgetNumber(node, "height", 1024));
@@ -320,15 +305,17 @@ function syncDrawWidgets(node, changedName) {
   if (st.drawEdgeSelect) {
     const edgeMode = normalizeDrawEdge(widgetString(node, "brush_edge", "hard"));
     st.drawEdgeSelect.value = edgeMode;
+    const hb = st.drawEdgeSelect.__hardButton;
+    const sb = st.drawEdgeSelect.__softButton;
+    if (hb) styleSegmentButton(hb, edgeMode === "hard");
+    if (sb) styleSegmentButton(sb, edgeMode === "soft");
     if (st.drawSoftnessInput) {
-      const softness = Math.round(clampDrawSoftness(widgetNumber(node, "brush_softness", 0.5), 0.5) * 100);
-      st.drawSoftnessInput.value = String(softness);
-      st.drawSoftnessInput.disabled = edgeMode === "hard";
-      st.drawSoftnessInput.style.opacity = edgeMode === "hard" ? "0.45" : "1";
-      st.drawSoftnessInput.title = `Soft brush feather ${softness}%`;
+      const softnessPercent = Math.round(clampDrawSoftness(widgetNumber(node, "brush_softness", 0.5), 0.5) * 100);
+      const hardness = edgeMode === "hard" ? 100 : 100 - softnessPercent;
+      st.drawSoftnessInput.value = String(hardness);
+      st.drawSoftnessInput.title = `Brush edge hardness ${hardness}%`;
       if (st.drawSoftnessLabel) {
-        st.drawSoftnessLabel.textContent = `${softness}%`;
-        st.drawSoftnessLabel.style.opacity = edgeMode === "hard" ? "0.45" : "0.82";
+        st.drawSoftnessLabel.textContent = `${hardness}%`;
       }
     }
   }
@@ -359,9 +346,20 @@ function syncDrawWidgets(node, changedName) {
   setWidgetBooleanValue(linkWidget, linked);
   if (st.drawBgColorInput && !inputConnected) setWidgetStringValue(bgWidget, st.drawBgColorInput.value);
   if (st.drawColorInput) setWidgetStringValue(colorWidget, st.drawColorInput.value);
-  if (st.drawEdgeSelect) setWidgetStringValue(edgeWidget, st.drawEdgeSelect.value);
+  if (st.drawSoftnessInput) {
+    const hardness = Number(st.drawSoftnessInput.value);
+    if (hardness === 100) {
+      setWidgetStringValue(edgeWidget, "hard");
+      setWidgetValue(softnessWidget, 0);
+    } else {
+      setWidgetStringValue(edgeWidget, "soft");
+      setWidgetValue(softnessWidget, (100 - hardness) / 100);
+    }
+  }
   if (st.drawOpacityInput) setWidgetValue(opacityWidget, Number(st.drawOpacityInput.value) / 100);
   if (st.drawSizeInput) setWidgetValue(sizeWidget, Number(st.drawSizeInput.value));
+  if (st.drawWidthInput && !inputConnected) setWidgetValue(widthWidget, Number(st.drawWidthInput.value));
+  if (st.drawHeightInput && !inputConnected) setWidgetValue(heightWidget, Number(st.drawHeightInput.value));
   if (st.drawPressureSizeInput) setWidgetBooleanValue(pressureSizeWidget, st.drawPressureSizeInput.checked);
   if (st.drawPressureOpacityInput) setWidgetBooleanValue(pressureOpacityWidget, st.drawPressureOpacityInput.checked);
   if (st.drawTiltSizeInput) setWidgetBooleanValue(tiltSizeWidget, st.drawTiltSizeInput.checked);
@@ -375,6 +373,7 @@ export {
   getDrawInfoText,
   hideDrawWidgets,
   isNode,
+  styleSegmentButton,
   syncDrawWidgets,
   updateDrawOverlayWidget,
   updateDrawToolButtons

@@ -7,6 +7,7 @@ import torch
 from comfy_api.latest import io
 
 from ._helpers import (
+    ASPECT_RATIO_PRESETS,
     COMP_BLEND_MODES,
     _alpha_mask_from_image,
     _coerce_media_to_tensor,
@@ -41,24 +42,16 @@ def _io_combo(name: str, options: list[str], **kwargs):
     return _io_field("String", "Input", name, **kwargs)
 
 
-_COMP_ASPECT_RATIOS = ["free", "1/1", "4/3", "16/9", "9/16"]
-_COMP_RATIO_VALUES = {
-    "1/1": (1, 1),
-    "1:1": (1, 1),
-    "4/3": (4, 3),
-    "4:3": (4, 3),
-    "16/9": (16, 9),
-    "16:9": (16, 9),
-    "9/16": (9, 16),
-    "9:16": (9, 16),
-}
+_COMP_ASPECT_RATIOS = list(ASPECT_RATIO_PRESETS.keys())
 
 
 def _resolve_custom_comp_size(width: int, height: int, aspect_ratio: str) -> tuple[int, int]:
     out_w = max(1, _scalar(width, int))
     out_h = max(1, _scalar(height, int))
-    normalized = str(aspect_ratio or "free").strip().lower().replace(" ", "")
-    ratio = _COMP_RATIO_VALUES.get(normalized)
+    normalized = str(aspect_ratio or "custom").strip().lower().replace(" ", "")
+    if normalized in ("free", "custom"):
+        return out_w, out_h
+    ratio = ASPECT_RATIO_PRESETS.get(aspect_ratio)
     if ratio is None:
         return out_w, out_h
     ratio_w, ratio_h = ratio
@@ -209,7 +202,7 @@ class ImageOpsComp(io.ComfyNode):
                 ),
                 _io_field("Int", "Input", "width", default=1024, min=1, max=8192, step=1),
                 _io_field("Int", "Input", "height", default=1024, min=1, max=8192, step=1),
-                _io_combo("aspect_ratio", _COMP_ASPECT_RATIOS, default="free", tooltip="Only used in Custom Format. Free keeps Width/Height independent; presets derive Height from Width."),
+                _io_combo("aspect_ratio", _COMP_ASPECT_RATIOS, default="custom", tooltip="Only used in Custom Format. Custom keeps Width/Height independent; presets derive Height from Width."),
                 _io_field("Color", "Input", "background_color", default="#000000"),
                 _io_field("String", "Input", "layers_json", default='{"version":1,"layers":[]}', socketless=True),
                 _io_field("Boolean", "Input", "invert_mask", default=False),
@@ -232,7 +225,7 @@ class ImageOpsComp(io.ComfyNode):
         auto_layering: bool = False,
         width: int = 1024,
         height: int = 1024,
-        aspect_ratio: str = "free",
+        aspect_ratio: str = "custom",
         background_color: str = "#000000",
         layers_json: str = '{"version":1,"layers":[]}',
         invert_mask: bool = False,

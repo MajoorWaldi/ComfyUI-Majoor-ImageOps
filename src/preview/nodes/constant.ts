@@ -1,7 +1,7 @@
 import type { ComfyNode } from "../../types.js";
 import { ensureState } from "../shared/state.js";
 import { resolveImageOpsClassName } from "../shared/classes.js";
-import { findWidget, hideWidgetForGood, hideWidgetsByName, setWidgetStringValuesByName, widgetNumber, widgetString } from "../shared/widgets.js";
+import { findWidget, hideWidgetForGood, hideWidgetsByName, setWidgetStringValuesByName, widgetNumber, widgetString, setWidgetValue } from "../shared/widgets.js";
 import {
   createColorSwatch,
   createContextMenuSelect,
@@ -74,23 +74,7 @@ export function createConstantControlsUi(): ConstantControlsUi {
   }
   controls.appendChild(modeRow);
 
-  const sizeRow = makeRow();
-  sizeRow.style.gridTemplateColumns = "auto minmax(70px,96px)";
-  sizeRow.appendChild(makeLabel("Ratio"));
-  const ratioSelect = document.createElement("select");
-  ratioSelect.dataset.constantRatio = "1";
-  ratioSelect.title = "Standard ratio or Free";
-  ratioSelect.style.width = "100%";
-  ratioSelect.style.minWidth = "0";
-  styleSoftField(ratioSelect);
-  for (const [value, label] of [["custom", "Free"], ["1:1", "1:1"], ["16:9", "16:9"], ["9:16", "9:16"], ["4:3", "4:3"], ["3:4", "3:4"]] as const) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    ratioSelect.appendChild(option);
-  }
-  sizeRow.appendChild(createContextMenuSelect(ratioSelect));
-  controls.appendChild(sizeRow);
+
 
   const alphaRow = makeRow();
   alphaRow.style.gridTemplateColumns = "auto minmax(0,1fr) auto";
@@ -153,7 +137,23 @@ export function getConstantInfoText(node: ComfyNode): string {
   return `${mode} preview (${width}x${height}, frames ${frameCount})`;
 }
 
-export function syncConstantWidgets(node: ComfyNode): void {
+function aspectRatioValue(value: string): number | null {
+  switch (String(value || "custom").trim().toLowerCase()) {
+    case "1/1":
+    case "1:1": return 1;
+    case "3/4":
+    case "3:4": return 3 / 4;
+    case "4/3":
+    case "4:3": return 4 / 3;
+    case "16/9":
+    case "16:9": return 16 / 9;
+    case "9/16":
+    case "9:16": return 9 / 16;
+    default: return null;
+  }
+}
+
+export function syncConstantWidgets(node: ComfyNode, changedName?: string, notify: boolean = true): void {
   if (!isNode(node)) return;
 
   hideConstantWidgets(node);
@@ -167,13 +167,29 @@ export function syncConstantWidgets(node: ComfyNode): void {
   const root = st.previewRoot;
   if (!root) return;
 
-  const mode = widgetString(node, "mode", "constant").toLowerCase() === "checkerboard" ? "checkerboard" : "constant";
-  const width = Math.max(1, Math.round(widgetNumber(node, "width", 1024)));
-  const height = Math.max(1, Math.round(widgetNumber(node, "height", 1024)));
-  const alpha = Math.max(0, Math.min(1, widgetNumber(node, "alpha", 1)));
+  // Bidirectional aspect ratio constraints
+  const widthWidget = findWidget(node, "width");
+  const heightWidget = findWidget(node, "height");
+  if (widthWidget && heightWidget) {
+    const preset = widgetString(node, "aspect_ratio", "custom");
+    if (preset !== "custom") {
+      const ratio = aspectRatioValue(preset);
+      if (ratio) {
+        let width = Math.max(1, Math.round(widgetNumber(node, "width", 1024)));
+        let height = Math.max(1, Math.round(widgetNumber(node, "height", 1024)));
+        if (changedName === "height") {
+          width = Math.max(1, Math.round(height * ratio));
+          setWidgetValue(widthWidget, width, { notify });
+        } else {
+          height = Math.max(1, Math.round(width / ratio));
+          setWidgetValue(heightWidget, height, { notify });
+        }
+      }
+    }
+  }
 
-  const ratioSelect = root.querySelector<HTMLSelectElement>('select[data-constant-ratio="1"]');
-  if (ratioSelect) ratioSelect.value = resolveConstantRatioPreset(width, height);
+  const mode = widgetString(node, "mode", "constant").toLowerCase() === "checkerboard" ? "checkerboard" : "constant";
+  const alpha = Math.max(0, Math.min(1, widgetNumber(node, "alpha", 1)));
 
   const alphaInput = root.querySelector<HTMLInputElement>('input[data-constant-field="alpha"]');
   if (alphaInput) alphaInput.value = String(Math.round(alpha * 100));

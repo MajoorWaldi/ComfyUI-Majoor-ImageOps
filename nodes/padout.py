@@ -1,10 +1,10 @@
 import torch
 
-from ._helpers import MEDIA_INPUT_TYPE, _scalar, _select_media_tensor
+from ._helpers import ASPECT_RATIO_PRESETS, MEDIA_INPUT_TYPE, _scalar, _select_media_tensor
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 
-_PADOUT_TARGET_FORMATS = ["custom", "1:1", "16:9", "9:16", "4:3", "3:4"]
+_PADOUT_TARGET_FORMATS = list(ASPECT_RATIO_PRESETS.keys())
 _TARGET_RATIOS = {
     "1:1": (1, 1),
     "square": (1, 1),
@@ -61,7 +61,7 @@ class ImageOpsPadOut:
                 "pad_top": ("INT", {"default": 128, "min": 0, "max": 4096, "step": 1}),
                 "pad_right": ("INT", {"default": 128, "min": 0, "max": 4096, "step": 1}),
                 "pad_bottom": ("INT", {"default": 128, "min": 0, "max": 4096, "step": 1}),
-                "target_format": (_PADOUT_TARGET_FORMATS, {"default": "custom", "tooltip": "Interactive preview ratio preset. The UI turns this into explicit padding; backend output uses the pad values as-is."}),
+                "aspect_ratio": (_PADOUT_TARGET_FORMATS, {"default": "custom", "tooltip": "Interactive preview ratio preset. The UI turns this into explicit padding; backend output uses the pad values as-is."}),
                 "snap_to_multiple": ("INT", {"default": 1, "min": 1, "max": 256, "step": 1, "tooltip": "Quantize padding to this multiple. Use 16 for Wan/VACE-friendly output sizes."}),
                 "invert_mask": ("BOOLEAN", {"default": False, "tooltip": "By default the output mask marks the *padded* area as 1 and the original source as 0. Toggle to invert (source=1, padding=0)."}),
             },
@@ -81,7 +81,7 @@ class ImageOpsPadOut:
         pad_top=128,
         pad_right=128,
         pad_bottom=128,
-        target_format="custom",
+        aspect_ratio="custom",
         snap_to_multiple=1,
         invert_mask=False,
         video=None,

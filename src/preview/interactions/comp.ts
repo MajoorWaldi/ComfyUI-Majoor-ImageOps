@@ -24,9 +24,11 @@ function rotatePoint(x: number, y: number, angleRad: number): { x: number; y: nu
 }
 
 function aspectRatioValue(value: string): number | null {
-  switch (String(value || "free").trim().toLowerCase()) {
+  switch (String(value || "custom").trim().toLowerCase()) {
     case "1/1":
     case "1:1": return 1;
+    case "3/4":
+    case "3:4": return 3 / 4;
     case "4/3":
     case "4:3": return 4 / 3;
     case "16/9":
@@ -119,21 +121,6 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
     ctx.markCanvasDirty();
   });
 
-  if (st.compAspectRatioSelect && !st.compAspectRatioSelect.dataset.compAspectHooked) {
-    st.compAspectRatioSelect.dataset.compAspectHooked = "1";
-    st.compAspectRatioSelect.addEventListener("change", () => {
-      const value = st.compAspectRatioSelect?.value ?? "free";
-      setWidgetStringValue(findWidget(node, "aspect_ratio"), value);
-      applyCompAspectRatio(node, value);
-      ctx.updateCompControls(node);
-      ctx.markPreviewInteraction(node);
-      ctx.markCanvasDirty();
-      ctx.schedule(node, () => {
-        ctx.startLoopIfVideo(node);
-        ctx.refreshDependents(node);
-      }, 0);
-    });
-  }
 
   st.compModeSelect?.addEventListener("change", () => {
     ctx.updateSelectedCompLayer(node, (layer: any) => {
