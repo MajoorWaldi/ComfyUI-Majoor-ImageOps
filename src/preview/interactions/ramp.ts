@@ -95,7 +95,7 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
       requestAnimationFrame(() => {
         moveRafPending = false;
         syncRampWidgets(node);
-        ctx.refreshNode(node);
+        ctx.refreshPreviewOnly(node);
       });
     }
   }, listenerOptions);

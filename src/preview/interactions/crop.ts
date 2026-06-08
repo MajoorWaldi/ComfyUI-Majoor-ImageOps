@@ -150,7 +150,10 @@ export function attachInteractions(node: ComfyNode, ctx: CropInteractionContext)
     setCropControlState(node, nextCenterX, nextCenterY, nextScale, false);
     if (!moveRafPending) {
       moveRafPending = true;
-      requestAnimationFrame(() => { moveRafPending = false; ctx.refreshNode(node); });
+      requestAnimationFrame(() => {
+        moveRafPending = false;
+        ctx.refreshPreviewOnly(node);
+      });
     }
   }, listenerOptions);
 

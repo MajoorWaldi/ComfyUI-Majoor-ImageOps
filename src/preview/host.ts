@@ -1,4 +1,4 @@
-// @ts-ignore
+﻿// @ts-ignore
 import { app } from "../../../scripts/app.js";
 // @ts-ignore
 import { api } from "../../../scripts/api.js";
@@ -21,8 +21,9 @@ import { getPreviewConfig } from "./config.js";
 import { initOpsConstants } from "./constants.js";
 import { getCompSlots } from "./comp.js";
 import { renderCompPreview } from "./ops.js";
-import { findWidget, hideCompactUiWidgets, resetNodeWidgetsToDefaults, setWidgetStringValue, widgetNumber, widgetString, deduplicateColorWidgets } from "./shared/widgets.js";
+import { findWidget, resetNodeWidgetsToDefaults, setWidgetStringValue, widgetNumber, widgetString, deduplicateColorWidgets } from "./shared/widgets.js";
 import { getProceduralFrameCount, hasProceduralAnimation, getProceduralPlaybackFps } from "./shared/animation.js";
+import { getUpstreamVideoFps } from "./shared/video.js";
 import { getInputIndexByName, getNativePreviewImage } from "./shared/media.js";
 import { isImageOpsClass, isImageOpsNativeUiClass } from "./shared/classes.js";
 import { isNode as isPreviewNode, hidePreviewWidgets, syncPreviewWidgets } from "./nodes/preview.js";
@@ -55,8 +56,7 @@ import { isNode as isJoinNode, ensureJoinInputs, hideJoinWidgets, getJoinPreview
 import { ensureState, setInfo, schedule, stopRAF, markPreviewInteraction, getRenderCanvasSize, buildPreviewRenderKey } from "./shared/state.js";
 import { markCanvasDirty } from "./shared/canvas.js";
 import { noteFrame } from "./shared/fps-monitor.js";
-import { IMAGEOPS_CLASSES } from "./shared/classes.js";
-import { ensurePreviewWidget, getNodePreviewMinHeight, getNodePreviewTargetSize, syncCompactNativeWidgetControls } from "./shared/preview-widget.js";
+import { ensurePreviewWidget } from "./shared/preview-widget.js";
 import { blit, tryRenderNativePreview } from "./shared/bounds.js";
 import { attachPreviewNavigation } from "./shared/navigation.js";
 import {
@@ -289,12 +289,19 @@ export function registerImageOpsLivePreview(): void {
   const session: DrawRenderSession = { renderer, progress, canvasSize };
 
   const nodeCtx: NodeInteractionContext = {
-    schedule,
-    markCanvasDirty,
-    startLoopIfVideo(node) { startLoopIfVideo(node); },
-    refreshDependents(node) { refreshDependents(node); },
-    refreshNode(node) {
-      const st = ensureState(node);
+      schedule,
+      markCanvasDirty,
+      startLoopIfVideo(node) { startLoopIfVideo(node); },
+      refreshDependents(node) { refreshDependents(node); },
+      refreshPreviewOnly(node, delayMs = 0) {
+        const st = ensureState(node);
+        st.nativeDirty = true;
+        markPreviewInteraction(node);
+        markCanvasDirty();
+        schedule(node, () => renderNode(node, 0), delayMs);
+      },
+      refreshNode(node) {
+        const st = ensureState(node);
       st.nativeDirty = true;
       markPreviewInteraction(node);
       markCanvasDirty();
@@ -358,7 +365,6 @@ export function registerImageOpsLivePreview(): void {
         st.drawOverlayKey = null;
         syncDrawWidgets(node);
       }
-      // Removed syncCompactNativeWidgetControls calls to support native ComfyUI widgets
       if (isCornerPinNode(node) || isPadOutNode(node) || isRampNode(node)) {
         if (st.canvas) st.canvas.style.cursor = "default";
       }
@@ -511,7 +517,10 @@ export function registerImageOpsLivePreview(): void {
 
   function isFrameSelectorFrozen(node: ComfyNode | null): boolean {
     if (!node || String(node.comfyClass ?? "") !== "ImageOpsFrameRange") return false;
-    return !!(node.widgets ?? []).find((widget) => widget?.name === "frame_hold")?.value;
+    const frameHold = !!(node.widgets ?? []).find((widget) => widget?.name === "frame_hold")?.value;
+    const repeat = !!(node.widgets ?? []).find((widget) => widget?.name === "repeat")?.value;
+    const repeatMode = String((node.widgets ?? []).find((widget) => widget?.name === "repeat_mode")?.value ?? "").toLowerCase();
+    return frameHold || (repeat && repeatMode === "freeze");
   }
 
   function findFrozenFrameSelectorUpstream(node: ComfyNode): ComfyNode | null {
@@ -727,7 +736,7 @@ export function registerImageOpsLivePreview(): void {
       setInfo(st, message);
       console.warn("[ImageOps] render error", error);
       // Commit the failed render key so the next RAF tick does not immediately
-      // retry the same state — prevents a spin-on-error loop.
+      // retry the same state â€” prevents a spin-on-error loop.
       commitRender();
       finishRender();
     };
@@ -978,10 +987,17 @@ export function registerImageOpsLivePreview(): void {
         const rawTick = Math.floor(((performance.now() - startedAt) * currentFps) / 1000);
         tick = proceduralFrameCount != null && proceduralFrameCount > 0 ? (rawTick % proceduralFrameCount) : rawTick;
       } else if (isFrameSelectorNode(node)) {
-        // FrameRange uses tick as a frame index → must advance at the source video FPS,
-        // not at the RAF rate (60fps), otherwise playback runs at 60/videoFps × speed.
+        // FrameRange uses tick as a frame index â†’ must advance at the source video FPS,
+        // not at the RAF rate (60fps), otherwise playback runs at 60/videoFps Ã— speed.
         // Re-read fps each tick so force_rate widget changes apply immediately.
         const videoFps = getFrameSelectorUpstreamFps(node);
+        const effectiveFps = videoFps > 0 ? videoFps : 24;
+        tick = Math.floor(((performance.now() - startedAt) * effectiveFps) / 1000);
+      } else if (isJoinNode(node)) {
+        const connectedSlots = getJoinSlots(node).filter((slot) => (node.inputs ?? []).some((input) => input?.name === `image_${slot}` && (input.link ?? null) != null));
+        const firstSlot = connectedSlots[0] ?? 1;
+        const firstInputIndex = (node.inputs ?? []).findIndex((input) => input?.name === `image_${firstSlot}`);
+        const videoFps = firstInputIndex >= 0 ? getUpstreamVideoFps(node, firstInputIndex) : 0;
         const effectiveFps = videoFps > 0 ? videoFps : 24;
         tick = Math.floor(((performance.now() - startedAt) * effectiveFps) / 1000);
       } else {
@@ -1014,11 +1030,11 @@ export function registerImageOpsLivePreview(): void {
         syncJoinControls(n, nodeCtx);
       }
       if (!nst.rafId) {
-        // RAF loop not running → start it (also handles image→video source type change).
+        // RAF loop not running â†’ start it (also handles imageâ†’video source type change).
         // startLoopIfVideo schedules a render internally.
         startLoopIfVideo(n);
       } else {
-        // RAF loop already running → do NOT restart (restarting resets tick and breaks
+        // RAF loop already running â†’ do NOT restart (restarting resets tick and breaks
         // animation sync for procedural nodes like Noise/Grain/CameraShake).
         // The running loop picks up upstream changes on the next frame automatically.
         // A tick-0 render is still needed to flush the cleared static cache.
@@ -1027,52 +1043,7 @@ export function registerImageOpsLivePreview(): void {
     }
   }
 
-  function refreshDependentsSoon(changedNode: ComfyNode): void {
-    refreshDependents(changedNode);
-    for (const delayMs of [50, 250]) {
-      setTimeout(() => {
-        try { refreshDependents(changedNode); } catch (e) { console.warn("[ImageOps] delayed refreshDependents threw", e); }
-      }, delayMs);
-    }
-  }
-
   function hookNode(node: ComfyNode): void {
-    // For non-ImageOps upstream nodes (e.g. LoadImage, VHS_LoadVideo, etc.):
-    // hook only onExecuted + media widget callbacks so that changing the image
-    // in the upstream node immediately invalidates downstream ImageOps previews.
-    // We wrap only the specific "media" widget (image/video/path) and onExecuted —
-    // no heavy state, no side-effects beyond calling refreshDependentsSoon.
-    if (!isImageOpsClass(node.comfyClass)) {
-      if ((node as any).__imageops_hooked_ext) return;
-      (node as any).__imageops_hooked_ext = true;
-
-      const origOnExecuted0 = node.onExecuted;
-      node.onExecuted = function (this: any, message: any) {
-        let r: any;
-        try { r = origOnExecuted0?.apply(this, arguments as any); } catch (e) { console.warn("[ImageOps] upstream onExecuted threw", e); }
-        try { refreshDependentsSoon(node); } catch (e) { console.warn("[ImageOps] refreshDependents threw", e); }
-        return r;
-      };
-
-      for (const w of (node.widgets ?? [])) {
-        // Only wrap callbacks that are functions or undefined (skip null, objects, etc.)
-        if (w.callback != null && typeof w.callback !== "function") continue;
-        const orig = w.callback as ((...args: any[]) => any) | undefined;
-        w.callback = function (this: any) {
-          const r = orig?.apply(this, arguments as any);
-          try { refreshDependentsSoon(node); } catch (e) { console.warn("[ImageOps] widget refreshDependents threw", e); }
-          return r;
-        };
-        const element = w.element as HTMLElement | null | undefined;
-        if (element && !(w as any).__imageops_dom_refresh_hooked) {
-          (w as any).__imageops_dom_refresh_hooked = true;
-          element.addEventListener?.("change", () => {
-            try { refreshDependentsSoon(node); } catch (e) { console.warn("[ImageOps] widget change refreshDependents threw", e); }
-          });
-        }
-      }
-      return;
-    }
 
     const st = ensureState(node);
     if (st.hooked) return;
@@ -1162,7 +1133,6 @@ export function registerImageOpsLivePreview(): void {
         if (isRampNode(node)) syncRampWidgets(node);
         if (isDrawNode(node)) syncDrawWidgets(node);
         if (isKeyerNode(node)) syncKeyerWidgets(node);
-        // Removed hideCompactUiWidgets & syncCompactNativeWidgetControls in favor of native ComfyUI widgets
       } catch (e) {
         console.warn("[ImageOps] late widget sync failed for", node?.comfyClass, e);
       }
@@ -1173,7 +1143,6 @@ export function registerImageOpsLivePreview(): void {
     if (isImageOpsClass(node.comfyClass)) {
       node.previewMediaType = "image";
       ensurePreviewWidget(node, progress, canvasSize, () => nodeCtx.refreshNode(node));
-      // Removed hideCompactUiWidgets & syncCompactNativeWidgetControls in favor of native ComfyUI widgets
       attachPreviewNavigation(node, canvasSize);
       if (isPreviewNode(node)) {
         attachPreviewInteractionsExt(node, nodeCtx);
@@ -1273,9 +1242,8 @@ export function registerImageOpsLivePreview(): void {
           }
           syncPadOutControls(node);
         }
-        // Removed syncCompactNativeWidgetControls calls to support native ComfyUI widgets
         // Use 0ms delay when RAF loop is stopped (frozen FrameRange, static nodes) for
-        // instant visual feedback. Use full debounce when the loop is already running —
+        // instant visual feedback. Use full debounce when the loop is already running â€”
         // it will pick up widget changes on the next tick automatically.
         const loopRunning = !!st.rafId;
         schedule(node, () => {
@@ -1321,43 +1289,7 @@ export function registerImageOpsLivePreview(): void {
           hideTextWidgets(node);
           attachTextInteractionsExt(node, nodeCtx);
           syncTextWidgets(node);
-        }
-        if (isTextNode(node) && (prop === "onConnectionsChange" || prop === "onConfigure")) {
-          // When the "text" STRING input gets connected/reconnected, hook the upstream
-          // widget's callback so typing in the upstream node (e.g. Text Multiline)
-          // triggers a live preview refresh on this ImageOpsText node.
-          const textInputs: any[] = (node as any)?.inputs ?? [];
-          const textSlotIdx = textInputs.findIndex((inp: any) => inp?.name === "text");
-          if (textSlotIdx >= 0) {
-            const textLink = textInputs[textSlotIdx]?.link;
-            if (textLink != null) {
-              const textLinkData = (node as any)?.graph?.links?.[textLink];
-              if (textLinkData) {
-                const upstreamNode = (node as any)?.graph?.getNodeById?.(textLinkData.origin_id);
-                const upstreamWidget = (upstreamNode?.widgets ?? []).find((w: any) => typeof w?.value === "string");
-                if (upstreamWidget) {
-                  // Avoid double-hooking for the same (upstreamWidget, node) pair.
-                  if (!Array.isArray((upstreamWidget as any).__imageopsTextRefreshNodes)) {
-                    (upstreamWidget as any).__imageopsTextRefreshNodes = [];
-                    const _origUpCb = typeof upstreamWidget.callback === "function"
-                      ? (upstreamWidget.callback as (...args: any[]) => any)
-                      : null;
-                    upstreamWidget.callback = function (this: any) {
-                      const r = _origUpCb?.apply(this, arguments as any);
-                      for (const dn of (upstreamWidget as any).__imageopsTextRefreshNodes as ComfyNode[]) {
-                        try { nodeCtx.refreshNode(dn); } catch { /* ignore */ }
-                      }
-                      return r;
-                    };
-                  }
-                  const refreshList = (upstreamWidget as any).__imageopsTextRefreshNodes as ComfyNode[];
-                  if (!refreshList.includes(node)) refreshList.push(node);
-                }
-              }
-            }
-          }
-        }
-        if (isRampNode(node) && prop === "onConfigure") {
+        }        if (isRampNode(node) && prop === "onConfigure") {
           hideRampWidgets(node);
           st.rampGeometry = null;
           st.rampDrag = null;
@@ -1414,26 +1346,13 @@ export function registerImageOpsLivePreview(): void {
           syncPreviewWidgets(node);
         }
         if (isFrameSelectorNode(node) && prop === "onConfigure") {
-          // Re-hide widgets that onConfigure may restore — do NOT reset frameSelectorHooked
+          // Re-hide widgets that onConfigure may restore â€” do NOT reset frameSelectorHooked
           // or re-call attachFrameSelectorControls (that would double the event listeners).
           hideFrameSelectorWidgets(node);
           syncFrameSelectorWidgets(node);
         }
-        // Removed hideCompactUiWidgets & syncCompactNativeWidgetControls calls to support native ComfyUI widgets
         if (prop === "onConfigure" && isImageOpsClass(node.comfyClass)) {
           attachPreviewNavigation(node, canvasSize);
-          const minH = getNodePreviewMinHeight(node);
-          // Defer so any post-configure size restoration by ComfyUI happens first.
-          setTimeout(() => {
-            try {
-              if (!isFrameSelectorNode(node)) {
-                const cs = (node as any).computeSize?.() ?? [360, minH];
-                const root = ensureState(node).canvas?.parentElement as HTMLElement | null;
-                (node as any).setSize?.(getNodePreviewTargetSize(node, root, Math.max(cs[0], 360)));
-                (node.graph as any)?.setDirtyCanvas(true, true);
-              }
-            } catch {}
-          }, 100);
         }
         st.nativeDirty = true;
         if (isImageOpsClass(node.comfyClass)) startLoopIfVideo(node);
@@ -1465,9 +1384,15 @@ export function registerImageOpsLivePreview(): void {
         }
       }
       if (isJoinNode(node)) {
-        const count = message?.imageops_join_frame_count?.[0];
+        const count = message?.imageops_append_frame_count?.[0] ?? message?.imageops_join_frame_count?.[0];
         if (typeof count === "number" && count > 0) {
           (st as any).joinFrameCount = Math.round(count);
+        }
+        const clipCounts = message?.imageops_append_clip_counts?.[0];
+        if (Array.isArray(clipCounts)) {
+          (st as any).joinBackendClipCounts = clipCounts;
+        }
+        if ((typeof count === "number" && count > 0) || Array.isArray(clipCounts)) {
           syncJoinControls(node, nodeCtx);
         }
       }

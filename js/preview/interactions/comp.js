@@ -259,10 +259,7 @@ function attachInteractions(node, ctx) {
       moveRafPending = true;
       requestAnimationFrame(() => {
         moveRafPending = false;
-        ctx.schedule(node, () => {
-          ctx.startLoopIfVideo(node);
-          ctx.refreshDependents(node);
-        }, 0);
+        ctx.refreshPreviewOnly(node);
       });
     }
   }, listenerOptions);

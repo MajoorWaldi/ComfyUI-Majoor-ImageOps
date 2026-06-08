@@ -584,8 +584,8 @@ Trim, freeze, and repeat image/video frame batches.
 - `frame_hold`: Output one held frame instead of the full trimmed range
 - `hold_frame`: Frame index to hold, clamped inside the trimmed range
 - `repeat`: Repeat the selected range
-- `repeat_mode`: `loop`, `bounce`, `reverse`, `input_duration`, or `custom_count`
-- `custom_frame_count`: Output length used by `custom_count`
+- `repeat_mode`: `loop`, `bounce`, `reverse`, `input_duration`, `custom_count`, or `freeze`
+- `custom_frame_count`: Output length used by repeat modes with an explicit output count
 - `bypass`: Skip processing
 
 **Outputs:** `IMAGE`, `INT` frame_count

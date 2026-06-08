@@ -3,6 +3,7 @@ import { getUpstreamNode } from "../graph.js";
 import { styleSoftButton } from "../shared/dom-styles.js";
 import { findWidget, hideWidgetForGood, setWidgetStringValue } from "../shared/widgets.js";
 import { getFrameSelectorOutputCount as getFrameSelectorEffectiveOutputCount, getUpstreamFrameCount, isNode as isFrameSelectorNode } from "./frame-range.js";
+import { getNodeVideoTiming } from "../shared/video.js";
 
 export const NODE_CLASS = "ImageOpsAppend";
 
@@ -181,17 +182,6 @@ function widgetBoolean(node: ComfyNode, name: string, fallback: boolean): boolea
   return fallback;
 }
 
-function getVhsVideoFrameCount(node: ComfyNode): number {
-  const query = (node as any)?.video_query as any;
-  const loaded = query?.loaded as any;
-  const source = query?.source as any;
-  const frames = Number(loaded?.frames ?? source?.frames ?? 0);
-  if (Number.isFinite(frames) && frames > 0) return Math.round(frames);
-
-  const cap = Number((node.widgets ?? []).find((widget) => widget?.name === "frame_load_cap")?.value ?? 0);
-  return Number.isFinite(cap) && cap > 0 ? Math.round(cap) : 0;
-}
-
 function getFrameSelectorOutputCount(node: ComfyNode): number {
   return getFrameSelectorEffectiveOutputCount(node);
 }
@@ -249,13 +239,8 @@ function getNodePreviewFrameCount(node: ComfyNode | null, seen: Set<number>): nu
     return 0;
   }
 
-  const imgs = (node as any)?.imgs;
-  if (Array.isArray(imgs) && imgs.length > 1) {
-    return imgs.length;
-  }
-
-  const vhsFrameCount = getVhsVideoFrameCount(node);
-  if (vhsFrameCount > 0) return vhsFrameCount;
+  const timing = getNodeVideoTiming(node, { allowSingleImagePreview: true });
+  if (timing.frameCount > 0) return timing.frameCount;
 
   const upstreamCount = getUpstreamFrameCount(node);
   if (upstreamCount > 0) return upstreamCount;

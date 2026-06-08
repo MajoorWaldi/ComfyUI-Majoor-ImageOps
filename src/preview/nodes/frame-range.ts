@@ -11,6 +11,7 @@ import {
 } from "../shared/widgets.js";
 import { createContextMenuSelect, styleSoftButton, styleSoftField } from "../shared/dom-styles.js";
 import { getUpstreamNode, getUpstreamNodes } from "../graph.js";
+import { getUpstreamVideoFps, getUpstreamVideoTiming } from "../shared/video.js";
 
 export const NODE_CLASS = "ImageOpsFrameRange";
 
@@ -31,6 +32,36 @@ function getVhsVideoInfo(node: ComfyNode): { fps: number; frames: number } | nul
   };
 }
 
+function estimateNodeFrameCount(node: ComfyNode): number {
+  const imgs = (node as any).imgs;
+  if (Array.isArray(imgs) && imgs.length >= 1) return imgs.length;
+
+  const videoInfo = getVhsVideoInfo(node);
+  if (videoInfo?.frames) {
+    const selectEveryNth = Math.max(1, Number((node.widgets ?? []).find(w => w?.name === "select_every_nth")?.value ?? 1));
+    const capWidget = Math.max(0, Number((node.widgets ?? []).find(w => w?.name === "frame_load_cap")?.value ?? 0));
+    let estimated = Math.max(1, Math.round(videoInfo.frames / selectEveryNth));
+    if (capWidget > 0) estimated = Math.min(estimated, capWidget);
+    return estimated;
+  }
+
+  const videoEl = (node as any).__imageops_media?.videoEl as HTMLVideoElement | undefined;
+  if (videoEl && Number.isFinite(videoEl.duration) && videoEl.duration > 0) {
+    const forceRate = Number((node.widgets ?? []).find(w => w?.name === "force_rate")?.value ?? 0);
+    const fps = forceRate > 0 ? forceRate : (videoInfo?.fps && videoInfo.fps > 0 ? videoInfo.fps : 24);
+    const selectEveryNth = Math.max(1, Number((node.widgets ?? []).find(w => w?.name === "select_every_nth")?.value ?? 1));
+    const capWidget = Math.max(0, Number((node.widgets ?? []).find(w => w?.name === "frame_load_cap")?.value ?? 0));
+    let estimated = Math.round(videoEl.duration * fps / selectEveryNth);
+    if (capWidget > 0) estimated = Math.min(estimated, capWidget);
+    if (estimated > 0) return estimated;
+  }
+
+  const capWidget = Number((node.widgets ?? []).find(w => w?.name === "frame_load_cap")?.value ?? 0);
+  if (capWidget > 0) return Math.round(capWidget);
+
+  return 0;
+}
+
 /** Walk upstream from the FrameSelector and return the best estimate of the
  *  source frame count, scanning:
  *  1. `node.imgs.length` — actual rendered batch (populated after any queue run)
@@ -38,6 +69,10 @@ function getVhsVideoInfo(node: ComfyNode): { fps: number; frames: number } | nul
  *  3. VHS `frame_load_cap` widget — explicit user cap
  */
 export function getUpstreamFrameCount(node: ComfyNode, inputIndex: number = 0): number {
+  return getUpstreamVideoTiming(node, inputIndex).frameCount;
+}
+
+function getUpstreamFrameCountLegacy(node: ComfyNode, inputIndex: number = 0): number {
   const seen = new Set<number>();
   const queue: ComfyNode[] = [];
   const up0 = getUpstreamNode(node, inputIndex);
@@ -52,6 +87,8 @@ export function getUpstreamFrameCount(node: ComfyNode, inputIndex: number = 0): 
     if (!cur || seen.has(cur.id)) continue;
     seen.add(cur.id);
     hops++;
+    const nearestCount = estimateNodeFrameCount(cur);
+    if (nearestCount > 0) return nearestCount;
 
     // 1. Batch imgs array — the most reliable source (populated after execution)
     // Use >= 1 so that single static images (LoadImage) are also counted as 1-frame sources.
@@ -126,11 +163,9 @@ type FrameSelectorTrimBounds = {
 };
 
 function frameSelectorSourceCount(node: ComfyNode): number {
-  return Math.max(
-    0,
-    Math.round(Number((node.__imageops_state as any)?.frameSelectorSourceCount ?? 0)),
-    getUpstreamFrameCount(node),
-  );
+  const upstreamCount = getUpstreamFrameCount(node);
+  if (upstreamCount > 0) return Math.max(0, Math.round(upstreamCount));
+  return Math.max(0, Math.round(Number((node.__imageops_state as any)?.frameSelectorSourceCount ?? 0)));
 }
 
 function getFrameSelectorTrimBounds(node: ComfyNode, sourceCountOverride?: number): FrameSelectorTrimBounds {
@@ -237,15 +272,7 @@ function formatFrame(frame: number): string {
 
 /** Returns the source FPS from the upstream VHS/LoadVideo node, or 0 if unknown. */
 export function getUpstreamFps(node: ComfyNode): number {
-  const up = getUpstreamNode(node, 0);
-  if (!up) return 0;
-  const videoInfo = getVhsVideoInfo(up);
-  if (videoInfo?.fps && videoInfo.fps > 0) return videoInfo.fps;
-  const forceRate = Number((up.widgets ?? []).find((w: any) => w?.name === "force_rate")?.value ?? 0);
-  if (forceRate > 0) return forceRate;
-  const videoEl = (up as any).__imageops_media?.videoEl as HTMLVideoElement | undefined;
-  if (videoEl && Number.isFinite(videoEl.duration) && videoEl.duration > 0) return 24; // fallback
-  return 0;
+  return getUpstreamVideoFps(node, 0);
 }
 
 function formatTime(frames: number, fps: number): string {
@@ -461,6 +488,8 @@ export function createFrameSelectorControlsUi(): FrameSelectorControlsUi {
     ["loop", "Loop"],
     ["bounce", "Bounce"],
     ["reverse", "Reverse"],
+    ["input_duration", "Input duration"],
+    ["custom_count", "Custom count"],
     ["freeze", "Freeze \u00d7 N"],
   ] as [FrameSelectorRepeatStyle, string][]) {
     const option = document.createElement("option");
@@ -517,7 +546,7 @@ export function syncFrameSelectorWidgets(node: ComfyNode): void {
 
   // Proactively scan upstream for source frame count (works in live preview + after queue run)
   const upstreamCount = getUpstreamFrameCount(node);
-  if (upstreamCount > 0 && upstreamCount > (st.frameSelectorSourceCount ?? 0)) {
+  if (upstreamCount > 0 && upstreamCount !== (st.frameSelectorSourceCount ?? 0)) {
     st.frameSelectorSourceCount = upstreamCount;
   }
 
@@ -578,66 +607,70 @@ export function syncFrameSelectorWidgets(node: ComfyNode): void {
     const rulerMax = (max <= 0 && isUserCountRepeat)
       ? Math.max(0, Math.round(widgetNumber(node, "custom_frame_count", 24)) - 1)
       : max;
-    st.frameSelectorRuler.innerHTML = "";
+    const rulerKey = `${rulerMax}|${Math.round(fps * 1000)}|${repeat ? repeatMode : "off"}|${widgetNumber(node, "custom_frame_count", 24)}`;
+    if ((st as any).frameSelectorRulerKey !== rulerKey) {
+      (st as any).frameSelectorRulerKey = rulerKey;
+      st.frameSelectorRuler.innerHTML = "";
 
-    // Truly static single frame (no repeat configured): show a small indicator.
-    if (rulerMax <= 0) {
-      st.frameSelectorRuler.style.height = "18px";
-      const singleLabel = document.createElement("div");
-      singleLabel.style.position = "absolute";
-      singleLabel.style.left = "0";
-      singleLabel.style.top = "6px";
-      singleLabel.textContent = "1 fr.";
-      st.frameSelectorRuler.appendChild(singleLabel);
-    } else {
-    st.frameSelectorRuler.style.height = hasFps ? "30px" : "18px";
-    const majorTicks = 5;
-    const subTicks = 4;
-    const totalTicks = (majorTicks - 1) * subTicks;
-    for (let i = 0; i <= totalTicks; i++) {
-      const pct = i / totalTicks;
-      const isMajor = i % subTicks === 0;
-      const tick = document.createElement("div");
-      tick.style.position = "absolute";
-      tick.style.left = `${pct * 100}%`;
-      tick.style.top = "0";
-      tick.style.display = "flex";
-      tick.style.flexDirection = "column";
-      tick.style.alignItems = "center";
-      tick.style.transform = "translateX(-50%)";
-      if (i === 0) {
-        tick.style.transform = "none";
-        tick.style.alignItems = "flex-start";
-      } else if (i === totalTicks) {
-        tick.style.transform = "translateX(-100%)";
-        tick.style.alignItems = "flex-end";
-      }
-      const line = document.createElement("div");
-      line.style.width = isMajor ? "2px" : "1px";
-      line.style.height = isMajor ? "6px" : "4px";
-      line.style.background = isMajor ? "rgba(255,255,255,0.62)" : "rgba(255,255,255,0.28)";
-      line.style.marginBottom = "2px";
-      line.style.borderRadius = "1px";
-      tick.appendChild(line);
-      if (isMajor) {
-        const frameNum = Math.round(rulerMax * pct);
-        const label = document.createElement("div");
-        label.textContent = formatFrame(frameNum);
-        label.style.lineHeight = "1.1";
-        tick.appendChild(label);
-        if (hasFps) {
-          const timeLabel = document.createElement("div");
-          timeLabel.textContent = formatTime(frameNum, fps);
-          timeLabel.style.fontSize = "9px";
-          timeLabel.style.opacity = "0.62";
-          timeLabel.style.lineHeight = "1.1";
-          timeLabel.style.marginTop = "1px";
-          tick.appendChild(timeLabel);
+      // Truly static single frame (no repeat configured): show a small indicator.
+      if (rulerMax <= 0) {
+        st.frameSelectorRuler.style.height = "18px";
+        const singleLabel = document.createElement("div");
+        singleLabel.style.position = "absolute";
+        singleLabel.style.left = "0";
+        singleLabel.style.top = "6px";
+        singleLabel.textContent = "1 fr.";
+        st.frameSelectorRuler.appendChild(singleLabel);
+      } else {
+        st.frameSelectorRuler.style.height = hasFps ? "30px" : "18px";
+        const majorTicks = 5;
+        const subTicks = 4;
+        const totalTicks = (majorTicks - 1) * subTicks;
+        for (let i = 0; i <= totalTicks; i++) {
+          const pct = i / totalTicks;
+          const isMajor = i % subTicks === 0;
+          const tick = document.createElement("div");
+          tick.style.position = "absolute";
+          tick.style.left = `${pct * 100}%`;
+          tick.style.top = "0";
+          tick.style.display = "flex";
+          tick.style.flexDirection = "column";
+          tick.style.alignItems = "center";
+          tick.style.transform = "translateX(-50%)";
+          if (i === 0) {
+            tick.style.transform = "none";
+            tick.style.alignItems = "flex-start";
+          } else if (i === totalTicks) {
+            tick.style.transform = "translateX(-100%)";
+            tick.style.alignItems = "flex-end";
+          }
+          const line = document.createElement("div");
+          line.style.width = isMajor ? "2px" : "1px";
+          line.style.height = isMajor ? "6px" : "4px";
+          line.style.background = isMajor ? "rgba(255,255,255,0.62)" : "rgba(255,255,255,0.28)";
+          line.style.marginBottom = "2px";
+          line.style.borderRadius = "1px";
+          tick.appendChild(line);
+          if (isMajor) {
+            const frameNum = Math.round(rulerMax * pct);
+            const label = document.createElement("div");
+            label.textContent = formatFrame(frameNum);
+            label.style.lineHeight = "1.1";
+            tick.appendChild(label);
+            if (hasFps) {
+              const timeLabel = document.createElement("div");
+              timeLabel.textContent = formatTime(frameNum, fps);
+              timeLabel.style.fontSize = "9px";
+              timeLabel.style.opacity = "0.62";
+              timeLabel.style.lineHeight = "1.1";
+              timeLabel.style.marginTop = "1px";
+              tick.appendChild(timeLabel);
+            }
+          }
+          st.frameSelectorRuler.appendChild(tick);
         }
       }
-      st.frameSelectorRuler.appendChild(tick);
     }
-    } // end else (max > 0)
   }
 
   // Hold toggle button — active styling when frame_hold is on
@@ -711,6 +744,7 @@ export function hideFrameSelectorWidgets(node: ComfyNode): void {
   }
   // Also hide any DOM element widgets (e.g. bypass toggle)
   for (const w of (node.widgets ?? [])) {
+    if (w?.name === "preview") continue;
     const el = (w as any).element as HTMLElement | null;
     if (el) el.style.display = "none";
   }
@@ -724,7 +758,20 @@ export function attachFrameSelectorControls(node: ComfyNode, ctx: NodeInteractio
 
   hideFrameSelectorWidgets(node);
 
-  const refresh = (): void => {
+  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : undefined;
+  let moveRafPending = false;
+
+  const refreshInteractive = (): void => {
+    syncFrameSelectorWidgets(node);
+    if (moveRafPending) return;
+    moveRafPending = true;
+    requestAnimationFrame(() => {
+      moveRafPending = false;
+      ctx.refreshPreviewOnly(node);
+    });
+  };
+
+  const refreshCommit = (): void => {
     syncFrameSelectorWidgets(node);
     ctx.refreshNode(node);
   };
@@ -767,10 +814,10 @@ export function attachFrameSelectorControls(node: ComfyNode, ctx: NodeInteractio
       dragging = "end";
       writeInt(node, "trim_end", Math.max(val, start));
     }
-    refresh();
+    refreshInteractive();
     st.frameSelectorSliderBox.setPointerCapture?.(event.pointerId);
     event.preventDefault();
-  });
+  }, listenerOptions);
 
   st.frameSelectorSliderBox?.addEventListener("pointermove", (event: PointerEvent) => {
     if (!dragging) return;
@@ -798,43 +845,44 @@ export function attachFrameSelectorControls(node: ComfyNode, ctx: NodeInteractio
       writeInt(node, "trim_start", nextStart);
       writeInt(node, "trim_end", nextEnd);
     }
-    refresh();
+    refreshInteractive();
     event.preventDefault();
-  });
+  }, listenerOptions);
 
   const release = (event: PointerEvent): void => {
     if (!dragging) return;
     dragging = null;
     st.frameSelectorSliderBox?.releasePointerCapture?.(event.pointerId);
+    refreshCommit();
   };
-  st.frameSelectorSliderBox?.addEventListener("pointerup", release);
-  st.frameSelectorSliderBox?.addEventListener("pointercancel", release);
+  st.frameSelectorSliderBox?.addEventListener("pointerup", release, listenerOptions);
+  st.frameSelectorSliderBox?.addEventListener("pointercancel", release, listenerOptions);
 
   st.frameSelectorTrimStart?.addEventListener("input", () => {
     const start = Math.round(Number(st.frameSelectorTrimStart.value) || 0);
     const end = Math.round(widgetNumber(node, "trim_end", -1));
     writeInt(node, "trim_start", start);
     if (end >= 0 && end < start) writeInt(node, "trim_end", start);
-    refresh();
-  });
+    refreshCommit();
+  }, listenerOptions);
 
   st.frameSelectorTrimEnd?.addEventListener("input", () => {
     const end = Math.round(Number(st.frameSelectorTrimEnd.value) || 0);
     const start = Math.round(widgetNumber(node, "trim_start", 0));
     writeInt(node, "trim_end", Math.max(start, end));
-    refresh();
-  });
+    refreshCommit();
+  }, listenerOptions);
 
   st.frameSelectorHoldFrame?.addEventListener("input", () => {
     writeInt(node, "hold_frame", Number(st.frameSelectorHoldFrame.value) || 0);
-    refresh();
-  });
+    refreshCommit();
+  }, listenerOptions);
 
   const repeatCountInput = (st as any).frameSelectorRepeatCountInput as HTMLInputElement | null;
   repeatCountInput?.addEventListener("input", () => {
     writeInt(node, "custom_frame_count", Number(repeatCountInput.value) || 1);
-    refresh();
-  });
+    refreshCommit();
+  }, listenerOptions);
 
   const repeatModeSelect = (st as any).frameSelectorRepeatModeSelect as HTMLSelectElement | null;
   repeatModeSelect?.addEventListener("change", () => {
@@ -842,8 +890,8 @@ export function attachFrameSelectorControls(node: ComfyNode, ctx: NodeInteractio
     const widget = findWidget(node, "repeat_mode");
     setWidgetStringValue(widget, value);
     (widget as any)?.callback?.(value);
-    refresh();
-  });
+    refreshCommit();
+  }, listenerOptions);
 
   // ── Hold scrubber pointer drag ────────────────────────────────────────
   const holdRow = (st as any).frameSelectorHoldRow as HTMLDivElement | null;
@@ -861,19 +909,20 @@ export function attachFrameSelectorControls(node: ComfyNode, ctx: NodeInteractio
     };
     holdScrubber.addEventListener("pointerdown", (event: PointerEvent) => {
       writeInt(node, "hold_frame", holdFrameFromPointer(event));
-      refresh();
+      refreshInteractive();
       holdScrubber.setPointerCapture?.(event.pointerId);
       event.preventDefault();
-    });
+    }, listenerOptions);
     holdScrubber.addEventListener("pointermove", (event: PointerEvent) => {
       if (event.buttons === 0) return;
       writeInt(node, "hold_frame", holdFrameFromPointer(event));
-      refresh();
+      refreshInteractive();
       event.preventDefault();
-    });
+    }, listenerOptions);
     holdScrubber.addEventListener("pointerup", (event: PointerEvent) => {
       holdScrubber.releasePointerCapture?.(event.pointerId);
-    });
+      refreshCommit();
+    }, listenerOptions);
   }
 
   st.frameSelectorHoldToggle?.addEventListener("click", (event: MouseEvent) => {
@@ -883,8 +932,8 @@ export function attachFrameSelectorControls(node: ComfyNode, ctx: NodeInteractio
     const newVal = !widgetBoolean(node, "frame_hold", false);
     setWidgetBooleanValue(w, newVal);
     (w as any).callback?.(newVal);
-    refresh();
-  });
+    refreshCommit();
+  }, listenerOptions);
 
   const repeatToggle = (st as any).frameSelectorRepeatToggle as HTMLButtonElement | null;
   repeatToggle?.addEventListener("click", (event: MouseEvent) => {
@@ -894,8 +943,8 @@ export function attachFrameSelectorControls(node: ComfyNode, ctx: NodeInteractio
     const newVal = !widgetBoolean(node, "repeat", false);
     setWidgetBooleanValue(w, newVal);
     (w as any).callback?.(newVal);
-    refresh();
-  });
+    refreshCommit();
+  }, listenerOptions);
 
   syncFrameSelectorWidgets(node);
 }

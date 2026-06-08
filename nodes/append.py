@@ -54,8 +54,10 @@ def _parse_trims(trims_json: str | dict | list | None) -> dict[int, tuple[int, i
         match = re.search(r"(\d+)$", slot)
         if not match:
             continue
-        start = int(entry.get("start", 0) or 0)
-        end = int(entry.get("end", -1) or -1)
+        start_raw = entry.get("start", 0)
+        end_raw = entry.get("end", -1)
+        start = int(0 if start_raw is None else start_raw)
+        end = int(-1 if end_raw is None else end_raw)
         trims[int(match.group(1))] = (start, end)
     return trims
 
@@ -159,10 +161,19 @@ class ImageOpsAppend:
 
         trims = _parse_trims(trims_json)
         tensors: list[torch.Tensor] = []
+        clip_metadata: list[dict[str, int]] = []
         for clip_index, value in clips:
             tensor = _select_media_tensor(value, None).float().clamp(0.0, 1.0)
             start, end = trims.get(clip_index, (0, -1))
-            tensors.append(_trim_clip(tensor, start, end))
+            trimmed = _trim_clip(tensor, start, end)
+            tensors.append(trimmed)
+            clip_metadata.append({
+                "slot": int(clip_index),
+                "source_count": int(tensor.shape[0]),
+                "trimmed_count": int(trimmed.shape[0]),
+                "start": int(start),
+                "end": int(end),
+            })
 
         # Coerce channels to the maximum channel count among connected inputs
         max_channels = max(int(t.shape[3]) for t in tensors)
@@ -187,5 +198,8 @@ class ImageOpsAppend:
             out,
             (out, frame_count, width, height),
             prefix="imageops_append",
-            metadata={"imageops_append_frame_count": [frame_count]},
+            metadata={
+                "imageops_append_frame_count": [frame_count],
+                "imageops_append_clip_counts": [clip_metadata],
+            },
         )

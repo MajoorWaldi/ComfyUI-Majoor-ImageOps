@@ -10,6 +10,7 @@ import {
 } from "../shared/widgets.js";
 import { createContextMenuSelect, styleSoftButton, styleSoftField } from "../shared/dom-styles.js";
 import { getUpstreamNode, getUpstreamNodes } from "../graph.js";
+import { getUpstreamVideoFps, getUpstreamVideoTiming } from "../shared/video.js";
 const NODE_CLASS = "ImageOpsFrameRange";
 function isNode(node) {
   return String(node?.comfyClass ?? "") === NODE_CLASS;
@@ -26,7 +27,35 @@ function getVhsVideoInfo(node) {
     fps: Number.isFinite(fps) && fps > 0 ? fps : 0
   };
 }
+function estimateNodeFrameCount(node) {
+  const imgs = node.imgs;
+  if (Array.isArray(imgs) && imgs.length >= 1) return imgs.length;
+  const videoInfo = getVhsVideoInfo(node);
+  if (videoInfo?.frames) {
+    const selectEveryNth = Math.max(1, Number((node.widgets ?? []).find((w) => w?.name === "select_every_nth")?.value ?? 1));
+    const capWidget2 = Math.max(0, Number((node.widgets ?? []).find((w) => w?.name === "frame_load_cap")?.value ?? 0));
+    let estimated = Math.max(1, Math.round(videoInfo.frames / selectEveryNth));
+    if (capWidget2 > 0) estimated = Math.min(estimated, capWidget2);
+    return estimated;
+  }
+  const videoEl = node.__imageops_media?.videoEl;
+  if (videoEl && Number.isFinite(videoEl.duration) && videoEl.duration > 0) {
+    const forceRate = Number((node.widgets ?? []).find((w) => w?.name === "force_rate")?.value ?? 0);
+    const fps = forceRate > 0 ? forceRate : videoInfo?.fps && videoInfo.fps > 0 ? videoInfo.fps : 24;
+    const selectEveryNth = Math.max(1, Number((node.widgets ?? []).find((w) => w?.name === "select_every_nth")?.value ?? 1));
+    const capWidget2 = Math.max(0, Number((node.widgets ?? []).find((w) => w?.name === "frame_load_cap")?.value ?? 0));
+    let estimated = Math.round(videoEl.duration * fps / selectEveryNth);
+    if (capWidget2 > 0) estimated = Math.min(estimated, capWidget2);
+    if (estimated > 0) return estimated;
+  }
+  const capWidget = Number((node.widgets ?? []).find((w) => w?.name === "frame_load_cap")?.value ?? 0);
+  if (capWidget > 0) return Math.round(capWidget);
+  return 0;
+}
 function getUpstreamFrameCount(node, inputIndex = 0) {
+  return getUpstreamVideoTiming(node, inputIndex).frameCount;
+}
+function getUpstreamFrameCountLegacy(node, inputIndex = 0) {
   const seen = /* @__PURE__ */ new Set();
   const queue = [];
   const up0 = getUpstreamNode(node, inputIndex);
@@ -39,6 +68,8 @@ function getUpstreamFrameCount(node, inputIndex = 0) {
     if (!cur || seen.has(cur.id)) continue;
     seen.add(cur.id);
     hops++;
+    const nearestCount = estimateNodeFrameCount(cur);
+    if (nearestCount > 0) return nearestCount;
     const imgs = cur.imgs;
     if (Array.isArray(imgs) && imgs.length >= 1) {
       bestCount = Math.max(bestCount, imgs.length);
@@ -70,11 +101,9 @@ function getUpstreamFrameCount(node, inputIndex = 0) {
   return bestCount;
 }
 function frameSelectorSourceCount(node) {
-  return Math.max(
-    0,
-    Math.round(Number(node.__imageops_state?.frameSelectorSourceCount ?? 0)),
-    getUpstreamFrameCount(node)
-  );
+  const upstreamCount = getUpstreamFrameCount(node);
+  if (upstreamCount > 0) return Math.max(0, Math.round(upstreamCount));
+  return Math.max(0, Math.round(Number(node.__imageops_state?.frameSelectorSourceCount ?? 0)));
 }
 function getFrameSelectorTrimBounds(node, sourceCountOverride) {
   const sourceCount = Math.max(0, Math.round(Number(sourceCountOverride ?? frameSelectorSourceCount(node))));
@@ -158,15 +187,7 @@ function formatFrame(frame) {
   return `${Math.max(0, Math.round(frame))}f`;
 }
 function getUpstreamFps(node) {
-  const up = getUpstreamNode(node, 0);
-  if (!up) return 0;
-  const videoInfo = getVhsVideoInfo(up);
-  if (videoInfo?.fps && videoInfo.fps > 0) return videoInfo.fps;
-  const forceRate = Number((up.widgets ?? []).find((w) => w?.name === "force_rate")?.value ?? 0);
-  if (forceRate > 0) return forceRate;
-  const videoEl = up.__imageops_media?.videoEl;
-  if (videoEl && Number.isFinite(videoEl.duration) && videoEl.duration > 0) return 24;
-  return 0;
+  return getUpstreamVideoFps(node, 0);
 }
 function formatTime(frames, fps) {
   if (fps <= 0) return "";
@@ -354,6 +375,8 @@ function createFrameSelectorControlsUi() {
     ["loop", "Loop"],
     ["bounce", "Bounce"],
     ["reverse", "Reverse"],
+    ["input_duration", "Input duration"],
+    ["custom_count", "Custom count"],
     ["freeze", "Freeze \xD7 N"]
   ]) {
     const option = document.createElement("option");
@@ -404,7 +427,7 @@ function syncFrameSelectorWidgets(node) {
   const controls = st?.frameSelectorControls;
   if (!controls) return;
   const upstreamCount = getUpstreamFrameCount(node);
-  if (upstreamCount > 0 && upstreamCount > (st.frameSelectorSourceCount ?? 0)) {
+  if (upstreamCount > 0 && upstreamCount !== (st.frameSelectorSourceCount ?? 0)) {
     st.frameSelectorSourceCount = upstreamCount;
   }
   const max = timelineMax(node);
@@ -451,62 +474,66 @@ function syncFrameSelectorWidgets(node) {
     const hasFps = fps > 0;
     const isUserCountRepeat = repeat && (repeatMode === "freeze" || repeatMode === "custom_count");
     const rulerMax = max <= 0 && isUserCountRepeat ? Math.max(0, Math.round(widgetNumber(node, "custom_frame_count", 24)) - 1) : max;
-    st.frameSelectorRuler.innerHTML = "";
-    if (rulerMax <= 0) {
-      st.frameSelectorRuler.style.height = "18px";
-      const singleLabel = document.createElement("div");
-      singleLabel.style.position = "absolute";
-      singleLabel.style.left = "0";
-      singleLabel.style.top = "6px";
-      singleLabel.textContent = "1 fr.";
-      st.frameSelectorRuler.appendChild(singleLabel);
-    } else {
-      st.frameSelectorRuler.style.height = hasFps ? "30px" : "18px";
-      const majorTicks = 5;
-      const subTicks = 4;
-      const totalTicks = (majorTicks - 1) * subTicks;
-      for (let i = 0; i <= totalTicks; i++) {
-        const pct = i / totalTicks;
-        const isMajor = i % subTicks === 0;
-        const tick = document.createElement("div");
-        tick.style.position = "absolute";
-        tick.style.left = `${pct * 100}%`;
-        tick.style.top = "0";
-        tick.style.display = "flex";
-        tick.style.flexDirection = "column";
-        tick.style.alignItems = "center";
-        tick.style.transform = "translateX(-50%)";
-        if (i === 0) {
-          tick.style.transform = "none";
-          tick.style.alignItems = "flex-start";
-        } else if (i === totalTicks) {
-          tick.style.transform = "translateX(-100%)";
-          tick.style.alignItems = "flex-end";
-        }
-        const line = document.createElement("div");
-        line.style.width = isMajor ? "2px" : "1px";
-        line.style.height = isMajor ? "6px" : "4px";
-        line.style.background = isMajor ? "rgba(255,255,255,0.62)" : "rgba(255,255,255,0.28)";
-        line.style.marginBottom = "2px";
-        line.style.borderRadius = "1px";
-        tick.appendChild(line);
-        if (isMajor) {
-          const frameNum = Math.round(rulerMax * pct);
-          const label = document.createElement("div");
-          label.textContent = formatFrame(frameNum);
-          label.style.lineHeight = "1.1";
-          tick.appendChild(label);
-          if (hasFps) {
-            const timeLabel = document.createElement("div");
-            timeLabel.textContent = formatTime(frameNum, fps);
-            timeLabel.style.fontSize = "9px";
-            timeLabel.style.opacity = "0.62";
-            timeLabel.style.lineHeight = "1.1";
-            timeLabel.style.marginTop = "1px";
-            tick.appendChild(timeLabel);
+    const rulerKey = `${rulerMax}|${Math.round(fps * 1e3)}|${repeat ? repeatMode : "off"}|${widgetNumber(node, "custom_frame_count", 24)}`;
+    if (st.frameSelectorRulerKey !== rulerKey) {
+      st.frameSelectorRulerKey = rulerKey;
+      st.frameSelectorRuler.innerHTML = "";
+      if (rulerMax <= 0) {
+        st.frameSelectorRuler.style.height = "18px";
+        const singleLabel = document.createElement("div");
+        singleLabel.style.position = "absolute";
+        singleLabel.style.left = "0";
+        singleLabel.style.top = "6px";
+        singleLabel.textContent = "1 fr.";
+        st.frameSelectorRuler.appendChild(singleLabel);
+      } else {
+        st.frameSelectorRuler.style.height = hasFps ? "30px" : "18px";
+        const majorTicks = 5;
+        const subTicks = 4;
+        const totalTicks = (majorTicks - 1) * subTicks;
+        for (let i = 0; i <= totalTicks; i++) {
+          const pct = i / totalTicks;
+          const isMajor = i % subTicks === 0;
+          const tick = document.createElement("div");
+          tick.style.position = "absolute";
+          tick.style.left = `${pct * 100}%`;
+          tick.style.top = "0";
+          tick.style.display = "flex";
+          tick.style.flexDirection = "column";
+          tick.style.alignItems = "center";
+          tick.style.transform = "translateX(-50%)";
+          if (i === 0) {
+            tick.style.transform = "none";
+            tick.style.alignItems = "flex-start";
+          } else if (i === totalTicks) {
+            tick.style.transform = "translateX(-100%)";
+            tick.style.alignItems = "flex-end";
           }
+          const line = document.createElement("div");
+          line.style.width = isMajor ? "2px" : "1px";
+          line.style.height = isMajor ? "6px" : "4px";
+          line.style.background = isMajor ? "rgba(255,255,255,0.62)" : "rgba(255,255,255,0.28)";
+          line.style.marginBottom = "2px";
+          line.style.borderRadius = "1px";
+          tick.appendChild(line);
+          if (isMajor) {
+            const frameNum = Math.round(rulerMax * pct);
+            const label = document.createElement("div");
+            label.textContent = formatFrame(frameNum);
+            label.style.lineHeight = "1.1";
+            tick.appendChild(label);
+            if (hasFps) {
+              const timeLabel = document.createElement("div");
+              timeLabel.textContent = formatTime(frameNum, fps);
+              timeLabel.style.fontSize = "9px";
+              timeLabel.style.opacity = "0.62";
+              timeLabel.style.lineHeight = "1.1";
+              timeLabel.style.marginTop = "1px";
+              tick.appendChild(timeLabel);
+            }
+          }
+          st.frameSelectorRuler.appendChild(tick);
         }
-        st.frameSelectorRuler.appendChild(tick);
       }
     }
   }
@@ -582,6 +609,7 @@ function hideFrameSelectorWidgets(node) {
     hideWidgetForGood(node, findWidget(node, name));
   }
   for (const w of node.widgets ?? []) {
+    if (w?.name === "preview") continue;
     const el = w.element;
     if (el) el.style.display = "none";
   }
@@ -592,7 +620,18 @@ function attachFrameSelectorControls(node, ctx) {
   if (!st?.frameSelectorControls || st.frameSelectorHooked) return;
   st.frameSelectorHooked = true;
   hideFrameSelectorWidgets(node);
-  const refresh = () => {
+  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : void 0;
+  let moveRafPending = false;
+  const refreshInteractive = () => {
+    syncFrameSelectorWidgets(node);
+    if (moveRafPending) return;
+    moveRafPending = true;
+    requestAnimationFrame(() => {
+      moveRafPending = false;
+      ctx.refreshPreviewOnly(node);
+    });
+  };
+  const refreshCommit = () => {
     syncFrameSelectorWidgets(node);
     ctx.refreshNode(node);
   };
@@ -631,10 +670,10 @@ function attachFrameSelectorControls(node, ctx) {
       dragging = "end";
       writeInt(node, "trim_end", Math.max(val, start));
     }
-    refresh();
+    refreshInteractive();
     st.frameSelectorSliderBox.setPointerCapture?.(event.pointerId);
     event.preventDefault();
-  });
+  }, listenerOptions);
   st.frameSelectorSliderBox?.addEventListener("pointermove", (event) => {
     if (!dragging) return;
     const max = timelineMax(node);
@@ -661,46 +700,47 @@ function attachFrameSelectorControls(node, ctx) {
       writeInt(node, "trim_start", nextStart);
       writeInt(node, "trim_end", nextEnd);
     }
-    refresh();
+    refreshInteractive();
     event.preventDefault();
-  });
+  }, listenerOptions);
   const release = (event) => {
     if (!dragging) return;
     dragging = null;
     st.frameSelectorSliderBox?.releasePointerCapture?.(event.pointerId);
+    refreshCommit();
   };
-  st.frameSelectorSliderBox?.addEventListener("pointerup", release);
-  st.frameSelectorSliderBox?.addEventListener("pointercancel", release);
+  st.frameSelectorSliderBox?.addEventListener("pointerup", release, listenerOptions);
+  st.frameSelectorSliderBox?.addEventListener("pointercancel", release, listenerOptions);
   st.frameSelectorTrimStart?.addEventListener("input", () => {
     const start = Math.round(Number(st.frameSelectorTrimStart.value) || 0);
     const end = Math.round(widgetNumber(node, "trim_end", -1));
     writeInt(node, "trim_start", start);
     if (end >= 0 && end < start) writeInt(node, "trim_end", start);
-    refresh();
-  });
+    refreshCommit();
+  }, listenerOptions);
   st.frameSelectorTrimEnd?.addEventListener("input", () => {
     const end = Math.round(Number(st.frameSelectorTrimEnd.value) || 0);
     const start = Math.round(widgetNumber(node, "trim_start", 0));
     writeInt(node, "trim_end", Math.max(start, end));
-    refresh();
-  });
+    refreshCommit();
+  }, listenerOptions);
   st.frameSelectorHoldFrame?.addEventListener("input", () => {
     writeInt(node, "hold_frame", Number(st.frameSelectorHoldFrame.value) || 0);
-    refresh();
-  });
+    refreshCommit();
+  }, listenerOptions);
   const repeatCountInput = st.frameSelectorRepeatCountInput;
   repeatCountInput?.addEventListener("input", () => {
     writeInt(node, "custom_frame_count", Number(repeatCountInput.value) || 1);
-    refresh();
-  });
+    refreshCommit();
+  }, listenerOptions);
   const repeatModeSelect = st.frameSelectorRepeatModeSelect;
   repeatModeSelect?.addEventListener("change", () => {
     const value = normalizeFrameSelectorRepeatStyle(repeatModeSelect.value);
     const widget = findWidget(node, "repeat_mode");
     setWidgetStringValue(widget, value);
     widget?.callback?.(value);
-    refresh();
-  });
+    refreshCommit();
+  }, listenerOptions);
   const holdRow = st.frameSelectorHoldRow;
   const holdScrubber = holdRow ? holdRow._holdScrubber : null;
   if (holdScrubber) {
@@ -716,19 +756,20 @@ function attachFrameSelectorControls(node, ctx) {
     };
     holdScrubber.addEventListener("pointerdown", (event) => {
       writeInt(node, "hold_frame", holdFrameFromPointer(event));
-      refresh();
+      refreshInteractive();
       holdScrubber.setPointerCapture?.(event.pointerId);
       event.preventDefault();
-    });
+    }, listenerOptions);
     holdScrubber.addEventListener("pointermove", (event) => {
       if (event.buttons === 0) return;
       writeInt(node, "hold_frame", holdFrameFromPointer(event));
-      refresh();
+      refreshInteractive();
       event.preventDefault();
-    });
+    }, listenerOptions);
     holdScrubber.addEventListener("pointerup", (event) => {
       holdScrubber.releasePointerCapture?.(event.pointerId);
-    });
+      refreshCommit();
+    }, listenerOptions);
   }
   st.frameSelectorHoldToggle?.addEventListener("click", (event) => {
     event.preventDefault();
@@ -737,8 +778,8 @@ function attachFrameSelectorControls(node, ctx) {
     const newVal = !widgetBoolean(node, "frame_hold", false);
     setWidgetBooleanValue(w, newVal);
     w.callback?.(newVal);
-    refresh();
-  });
+    refreshCommit();
+  }, listenerOptions);
   const repeatToggle = st.frameSelectorRepeatToggle;
   repeatToggle?.addEventListener("click", (event) => {
     event.preventDefault();
@@ -747,8 +788,8 @@ function attachFrameSelectorControls(node, ctx) {
     const newVal = !widgetBoolean(node, "repeat", false);
     setWidgetBooleanValue(w, newVal);
     w.callback?.(newVal);
-    refresh();
-  });
+    refreshCommit();
+  }, listenerOptions);
   syncFrameSelectorWidgets(node);
 }
 export {

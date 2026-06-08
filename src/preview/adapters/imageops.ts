@@ -7,19 +7,7 @@ import { getFrameSelectorOutputCount, getFrameSelectorSourceFrame, getUpstreamFr
 import { getJoinConnectedInputFrameCounts, getJoinSlots, readJoinTrims } from "../nodes/append.js";
 import { getUpstreamNode } from "../graph.js";
 import { isImageOpsClass, resolveImageOpsClassName } from "../shared/classes.js";
-
-function getVhsVideoInfo(node: ComfyNode): { fps: number; frames: number } | null {
-  const query = (node as any)?.video_query as any;
-  const loaded = query?.loaded as any;
-  const source = query?.source as any;
-  const frames = Number(loaded?.frames ?? source?.frames ?? 0);
-  const fps = Number(loaded?.fps ?? source?.fps ?? 0);
-  if (!Number.isFinite(frames) || frames <= 0) return null;
-  return {
-    frames: Math.round(frames),
-    fps: Number.isFinite(fps) && fps > 0 ? fps : 0,
-  };
-}
+import { getVhsVideoInfo } from "../shared/video.js";
 
 function getConnectedCompInputIndexes(node: ComfyNode): number[] {
   const indexes: number[] = [];
@@ -62,6 +50,7 @@ function collectBranchVideos(node: ComfyNode | null, seen: Set<number> = new Set
 }
 
 async function seekAppendBranchFrame(node: ComfyNode | null, sourceFrame: number, fallbackFrameCount: number): Promise<void> {
+  if (String(node?.comfyClass ?? "") === "ImageOpsFrameRange") return;
   const videos = collectBranchVideos(node);
   for (const { node: videoNode, videoEl } of videos) {
     if (!Number.isFinite(videoEl.duration) || videoEl.duration <= 0) continue;

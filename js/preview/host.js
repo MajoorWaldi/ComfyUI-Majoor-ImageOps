@@ -12,6 +12,7 @@ import { getCompSlots } from "./comp.js";
 import { renderCompPreview } from "./ops.js";
 import { findWidget, resetNodeWidgetsToDefaults, setWidgetStringValue, widgetNumber, widgetString, deduplicateColorWidgets } from "./shared/widgets.js";
 import { getProceduralFrameCount, hasProceduralAnimation, getProceduralPlaybackFps } from "./shared/animation.js";
+import { getUpstreamVideoFps } from "./shared/video.js";
 import { getInputIndexByName, getNativePreviewImage } from "./shared/media.js";
 import { isImageOpsClass } from "./shared/classes.js";
 import { isNode as isPreviewNode, hidePreviewWidgets, syncPreviewWidgets } from "./nodes/preview.js";
@@ -44,7 +45,7 @@ import { isNode as isJoinNode, ensureJoinInputs, hideJoinWidgets, getJoinPreview
 import { ensureState, setInfo, schedule, stopRAF, markPreviewInteraction, getRenderCanvasSize, buildPreviewRenderKey } from "./shared/state.js";
 import { markCanvasDirty } from "./shared/canvas.js";
 import { noteFrame } from "./shared/fps-monitor.js";
-import { ensurePreviewWidget, getNodePreviewMinHeight, getNodePreviewTargetSize } from "./shared/preview-widget.js";
+import { ensurePreviewWidget } from "./shared/preview-widget.js";
 import { blit, tryRenderNativePreview } from "./shared/bounds.js";
 import { attachPreviewNavigation } from "./shared/navigation.js";
 import {
@@ -272,6 +273,13 @@ function registerImageOpsLivePreview() {
     refreshDependents(node) {
       refreshDependents(node);
     },
+    refreshPreviewOnly(node, delayMs = 0) {
+      const st = ensureState(node);
+      st.nativeDirty = true;
+      markPreviewInteraction(node);
+      markCanvasDirty();
+      schedule(node, () => renderNode(node, 0), delayMs);
+    },
     refreshNode(node) {
       const st = ensureState(node);
       st.nativeDirty = true;
@@ -468,7 +476,10 @@ function registerImageOpsLivePreview() {
   }
   function isFrameSelectorFrozen(node) {
     if (!node || String(node.comfyClass ?? "") !== "ImageOpsFrameRange") return false;
-    return !!(node.widgets ?? []).find((widget) => widget?.name === "frame_hold")?.value;
+    const frameHold = !!(node.widgets ?? []).find((widget) => widget?.name === "frame_hold")?.value;
+    const repeat = !!(node.widgets ?? []).find((widget) => widget?.name === "repeat")?.value;
+    const repeatMode = String((node.widgets ?? []).find((widget) => widget?.name === "repeat_mode")?.value ?? "").toLowerCase();
+    return frameHold || repeat && repeatMode === "freeze";
   }
   function findFrozenFrameSelectorUpstream(node) {
     const seen = /* @__PURE__ */ new Set();
@@ -872,6 +883,13 @@ function registerImageOpsLivePreview() {
         const videoFps = getFrameSelectorUpstreamFps(node);
         const effectiveFps = videoFps > 0 ? videoFps : 24;
         tick = Math.floor((performance.now() - startedAt) * effectiveFps / 1e3);
+      } else if (isJoinNode(node)) {
+        const connectedSlots = getJoinSlots(node).filter((slot) => (node.inputs ?? []).some((input) => input?.name === `image_${slot}` && (input.link ?? null) != null));
+        const firstSlot = connectedSlots[0] ?? 1;
+        const firstInputIndex = (node.inputs ?? []).findIndex((input) => input?.name === `image_${firstSlot}`);
+        const videoFps = firstInputIndex >= 0 ? getUpstreamVideoFps(node, firstInputIndex) : 0;
+        const effectiveFps = videoFps > 0 ? videoFps : 24;
+        tick = Math.floor((performance.now() - startedAt) * effectiveFps / 1e3);
       } else {
         tick++;
       }
@@ -905,63 +923,7 @@ function registerImageOpsLivePreview() {
       }
     }
   }
-  function refreshDependentsSoon(changedNode) {
-    refreshDependents(changedNode);
-    for (const delayMs of [50, 250]) {
-      setTimeout(() => {
-        try {
-          refreshDependents(changedNode);
-        } catch (e) {
-          console.warn("[ImageOps] delayed refreshDependents threw", e);
-        }
-      }, delayMs);
-    }
-  }
   function hookNode(node) {
-    if (!isImageOpsClass(node.comfyClass)) {
-      if (node.__imageops_hooked_ext) return;
-      node.__imageops_hooked_ext = true;
-      const origOnExecuted0 = node.onExecuted;
-      node.onExecuted = function(message) {
-        let r;
-        try {
-          r = origOnExecuted0?.apply(this, arguments);
-        } catch (e) {
-          console.warn("[ImageOps] upstream onExecuted threw", e);
-        }
-        try {
-          refreshDependentsSoon(node);
-        } catch (e) {
-          console.warn("[ImageOps] refreshDependents threw", e);
-        }
-        return r;
-      };
-      for (const w of node.widgets ?? []) {
-        if (w.callback != null && typeof w.callback !== "function") continue;
-        const orig = w.callback;
-        w.callback = function() {
-          const r = orig?.apply(this, arguments);
-          try {
-            refreshDependentsSoon(node);
-          } catch (e) {
-            console.warn("[ImageOps] widget refreshDependents threw", e);
-          }
-          return r;
-        };
-        const element = w.element;
-        if (element && !w.__imageops_dom_refresh_hooked) {
-          w.__imageops_dom_refresh_hooked = true;
-          element.addEventListener?.("change", () => {
-            try {
-              refreshDependentsSoon(node);
-            } catch (e) {
-              console.warn("[ImageOps] widget change refreshDependents threw", e);
-            }
-          });
-        }
-      }
-      return;
-    }
     const st = ensureState(node);
     if (st.hooked) return;
     st.hooked = true;
@@ -1226,38 +1188,6 @@ function registerImageOpsLivePreview() {
           attachTextInteractionsExt(node, nodeCtx);
           syncTextWidgets(node);
         }
-        if (isTextNode(node) && (prop === "onConnectionsChange" || prop === "onConfigure")) {
-          const textInputs = node?.inputs ?? [];
-          const textSlotIdx = textInputs.findIndex((inp) => inp?.name === "text");
-          if (textSlotIdx >= 0) {
-            const textLink = textInputs[textSlotIdx]?.link;
-            if (textLink != null) {
-              const textLinkData = node?.graph?.links?.[textLink];
-              if (textLinkData) {
-                const upstreamNode = node?.graph?.getNodeById?.(textLinkData.origin_id);
-                const upstreamWidget = (upstreamNode?.widgets ?? []).find((w) => typeof w?.value === "string");
-                if (upstreamWidget) {
-                  if (!Array.isArray(upstreamWidget.__imageopsTextRefreshNodes)) {
-                    upstreamWidget.__imageopsTextRefreshNodes = [];
-                    const _origUpCb = typeof upstreamWidget.callback === "function" ? upstreamWidget.callback : null;
-                    upstreamWidget.callback = function() {
-                      const r2 = _origUpCb?.apply(this, arguments);
-                      for (const dn of upstreamWidget.__imageopsTextRefreshNodes) {
-                        try {
-                          nodeCtx.refreshNode(dn);
-                        } catch {
-                        }
-                      }
-                      return r2;
-                    };
-                  }
-                  const refreshList = upstreamWidget.__imageopsTextRefreshNodes;
-                  if (!refreshList.includes(node)) refreshList.push(node);
-                }
-              }
-            }
-          }
-        }
         if (isRampNode(node) && prop === "onConfigure") {
           hideRampWidgets(node);
           st.rampGeometry = null;
@@ -1320,18 +1250,6 @@ function registerImageOpsLivePreview() {
         }
         if (prop === "onConfigure" && isImageOpsClass(node.comfyClass)) {
           attachPreviewNavigation(node, canvasSize);
-          const minH = getNodePreviewMinHeight(node);
-          setTimeout(() => {
-            try {
-              if (!isFrameSelectorNode(node)) {
-                const cs = node.computeSize?.() ?? [360, minH];
-                const root = ensureState(node).canvas?.parentElement;
-                node.setSize?.(getNodePreviewTargetSize(node, root, Math.max(cs[0], 360)));
-                node.graph?.setDirtyCanvas(true, true);
-              }
-            } catch {
-            }
-          }, 100);
         }
         st.nativeDirty = true;
         if (isImageOpsClass(node.comfyClass)) startLoopIfVideo(node);
@@ -1362,9 +1280,15 @@ function registerImageOpsLivePreview() {
         }
       }
       if (isJoinNode(node)) {
-        const count = message?.imageops_join_frame_count?.[0];
+        const count = message?.imageops_append_frame_count?.[0] ?? message?.imageops_join_frame_count?.[0];
         if (typeof count === "number" && count > 0) {
           st.joinFrameCount = Math.round(count);
+        }
+        const clipCounts = message?.imageops_append_clip_counts?.[0];
+        if (Array.isArray(clipCounts)) {
+          st.joinBackendClipCounts = clipCounts;
+        }
+        if (typeof count === "number" && count > 0 || Array.isArray(clipCounts)) {
           syncJoinControls(node, nodeCtx);
         }
       }

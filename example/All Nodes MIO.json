@@ -1,0 +1,1629 @@
+{
+  "id": "8e54fba7-0bce-4afd-9936-e44d169cdf29",
+  "revision": 0,
+  "last_node_id": 33,
+  "last_link_id": 9,
+  "nodes": [
+    {
+      "id": 4,
+      "type": "ImageOpsCrop",
+      "pos": [
+        10295.238149916466,
+        -3820.6235421561555
+      ],
+      "size": [
+        464.71875,
+        942
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsCrop"
+      },
+      "widgets_values": [
+        "",
+        false,
+        "1:1",
+        1024,
+        1024,
+        true,
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "id": 3,
+      "type": "ImageOpsBlur",
+      "pos": [
+        7544.329052878524,
+        -3825.8597102318236
+      ],
+      "size": [
+        464.71875,
+        942
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsBlur"
+      },
+      "widgets_values": [
+        "",
+        false,
+        "gaussian",
+        3,
+        0,
+        false
+      ]
+    },
+    {
+      "id": 9,
+      "type": "ImageOpsGrain",
+      "pos": [
+        8039.047802878524,
+        -3825.8597102318236
+      ],
+      "size": [
+        464.71875,
+        942
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsGrain"
+      },
+      "widgets_values": [
+        "",
+        false,
+        0.08,
+        "add",
+        true,
+        true,
+        1,
+        12,
+        12345,
+        "randomize",
+        false
+      ]
+    },
+    {
+      "id": 17,
+      "type": "ImageOpsChannel",
+      "pos": [
+        5070.268942399954,
+        -3800.228918754557
+      ],
+      "size": [
+        464.71875,
+        942
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsChannel"
+      },
+      "widgets_values": [
+        "",
+        false,
+        "Red"
+      ]
+    },
+    {
+      "id": 22,
+      "type": "ImageOpsTransform",
+      "pos": [
+        11284.675649916466,
+        -3820.6235421561555
+      ],
+      "size": [
+        464.71875,
+        942
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsTransform"
+      },
+      "widgets_values": [
+        "",
+        false,
+        0,
+        0,
+        0,
+        1,
+        "none",
+        "nearest",
+        false,
+        "transparent",
+        "#000000",
+        false,
+        "#000000"
+      ]
+    },
+    {
+      "id": 18,
+      "type": "ImageOpsDistort",
+      "pos": [
+        11779.394399916466,
+        -3820.6235421561555
+      ],
+      "size": [
+        464.71875,
+        942
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "label": "Displacement",
+          "name": "displacement",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsDistort"
+      },
+      "widgets_values": [
+        "",
+        false,
+        "source_channel",
+        "Red",
+        "Green",
+        40,
+        40,
+        0,
+        true,
+        false,
+        "bilinear",
+        "border",
+        false
+      ]
+    },
+    {
+      "id": 21,
+      "type": "ImageOpsSpherize",
+      "pos": [
+        10789.956899916466,
+        -3820.6235421561555
+      ],
+      "size": [
+        464.71875,
+        942
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsSpherize"
+      },
+      "widgets_values": [
+        "",
+        false,
+        "spherize",
+        1,
+        false,
+        "bilinear",
+        "border",
+        "from_input",
+        512,
+        512
+      ]
+    },
+    {
+      "id": 12,
+      "type": "ImageOpsMerge",
+      "pos": [
+        14332.147375569613,
+        -2045.7974550747197
+      ],
+      "size": [
+        554.984375,
+        1011.875
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Background",
+          "name": "A",
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "label": "Foreground",
+          "name": "B",
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "label": "Mask",
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsMerge"
+      },
+      "widgets_values": [
+        "",
+        false,
+        "over",
+        1,
+        "stretch",
+        "linear",
+        false
+      ]
+    },
+    {
+      "id": 16,
+      "type": "ImageOpsPadOut",
+      "pos": [
+        13162.178625569613,
+        -2045.7974550747197
+      ],
+      "size": [
+        554.984375,
+        1011.875
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsPadOut"
+      },
+      "widgets_values": [
+        "",
+        false,
+        128,
+        128,
+        128,
+        128,
+        "custom",
+        1,
+        false
+      ]
+    },
+    {
+      "id": 25,
+      "type": "ImageOpsColorAjust",
+      "pos": [
+        8533.766552878524,
+        -3825.8597102318236
+      ],
+      "size": [
+        464.71875,
+        942
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsColorAjust"
+      },
+      "widgets_values": [
+        "",
+        false,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        false
+      ]
+    },
+    {
+      "id": 11,
+      "type": "ImageOpsClamp",
+      "pos": [
+        9523.204052878524,
+        -3825.8597102318236
+      ],
+      "size": [
+        464.71875,
+        942
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsClamp"
+      },
+      "widgets_values": [
+        "",
+        false,
+        0,
+        1,
+        false
+      ]
+    },
+    {
+      "id": 28,
+      "type": "ImageOpsMaskConvert",
+      "pos": [
+        5564.987692399954,
+        -3800.228918754557
+      ],
+      "size": [
+        464.71875,
+        942
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsMaskConvert"
+      },
+      "widgets_values": [
+        "",
+        false,
+        "auto",
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "id": 10,
+      "type": "ImageOpsKeyer",
+      "pos": [
+        6059.706442399954,
+        -3800.228918754557
+      ],
+      "size": [
+        464.71875,
+        942
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsKeyer"
+      },
+      "widgets_values": [
+        "",
+        false,
+        "color",
+        "#00ff00",
+        "",
+        0.25,
+        0.1,
+        1,
+        0,
+        false,
+        false,
+        "#00ff00"
+      ]
+    },
+    {
+      "id": 23,
+      "type": "ImageOpsCornerPin",
+      "pos": [
+        12274.113149916466,
+        -3820.6235421561555
+      ],
+      "size": [
+        464.71875,
+        942
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsCornerPin"
+      },
+      "widgets_values": [
+        "",
+        false,
+        0,
+        0,
+        1,
+        0,
+        0,
+        1,
+        1,
+        1,
+        "bilinear",
+        1,
+        "transparent",
+        "#000000",
+        false,
+        "#000000"
+      ]
+    },
+    {
+      "id": 15,
+      "type": "ImageOpsAppend",
+      "pos": [
+        5628.152813143438,
+        -2028.5132778044097
+      ],
+      "size": [
+        464.71875,
+        942
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video 1",
+          "name": "image_1",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "label": "Images/Video 2",
+          "name": "image_2",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "frame_count",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsAppend"
+      },
+      "widgets_values": [
+        "",
+        false,
+        "strict",
+        "{\"version\":1,\"clips\":[]}"
+      ]
+    },
+    {
+      "id": 27,
+      "type": "ImageOpsCameraShake",
+      "pos": [
+        10950.885150357404,
+        -2079.196553992237
+      ],
+      "size": [
+        457.28656859879266,
+        1048.302117096824
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsCameraShake"
+      },
+      "widgets_values": [
+        "",
+        false,
+        12,
+        1.5,
+        0.03,
+        0.65,
+        1,
+        24,
+        12,
+        12345,
+        "randomize",
+        "bilinear",
+        "mirror",
+        "#000000",
+        false,
+        "#000000"
+      ]
+    },
+    {
+      "id": 14,
+      "type": "ImageOpsInvert",
+      "pos": [
+        9028.485302878524,
+        -3825.8597102318236
+      ],
+      "size": [
+        464.71875,
+        942
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsInvert"
+      },
+      "widgets_values": [
+        "",
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "id": 5,
+      "type": "ImageOpsDraw",
+      "pos": [
+        8342.470921061275,
+        -2071.042045149791
+      ],
+      "size": [
+        463.49029026426433,
+        1046
+      ],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "source_image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsDraw"
+      },
+      "widgets_values": [
+        "",
+        false,
+        "#FFFFFF",
+        16,
+        1024,
+        1024,
+        true,
+        "#000000",
+        "brush",
+        "hard",
+        0.5,
+        1,
+        true,
+        true,
+        false,
+        "png",
+        "{\"version\":2,\"width\":1024,\"height\":1024,\"bounds\":{\"x\":146,\"y\":160,\"width\":544,\"height\":404},\"data\":\"data:image/png;base64,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\"}",
+        "{\"version\":1,\"active\":0,\"layers\":[{\"name\":\"Layer 1\",\"enabled\":true,\"opacity\":1,\"data\":\"{\\\"version\\\":2,\\\"width\\\":1024,\\\"height\\\":1024,\\\"bounds\\\":{\\\"x\\\":146,\\\"y\\\":160,\\\"width\\\":544,\\\"height\\\":404},\\\"data\\\":\\\"data:image/png;base64,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\\\"}\"}]}",
+        false,
+        "",
+        "#FFFFFF",
+        "#000000"
+      ]
+    },
+    {
+      "id": 24,
+      "type": "ImageOpsFrameRange",
+      "pos": [
+        6132.447245118205,
+        -2026.1193573107178
+      ],
+      "size": [
+        464.71875,
+        942
+      ],
+      "flags": {},
+      "order": 18,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Image/Video",
+          "name": "image",
+          "type": "IMAGE,VIDEO",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "frame_count",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsFrameRange"
+      },
+      "widgets_values": [
+        "",
+        false,
+        0,
+        -1,
+        false,
+        0,
+        false,
+        "loop",
+        24
+      ]
+    },
+    {
+      "id": 32,
+      "type": "ImageOpsInvert",
+      "pos": [
+        6576.402041834263,
+        -3793.6942813003907
+      ],
+      "size": [
+        475.1238039616901,
+        932.0553678005447
+      ],
+      "flags": {},
+      "order": 19,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsInvert"
+      },
+      "widgets_values": [
+        "",
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "id": 13,
+      "type": "ImageOpsNoise",
+      "pos": [
+        13171.679735116822,
+        -3828.623179891097
+      ],
+      "size": [
+        485.7882921279288,
+        1042
+      ],
+      "flags": {},
+      "order": 20,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsNoise"
+      },
+      "widgets_values": [
+        "",
+        1024,
+        1024,
+        1,
+        12,
+        0,
+        "randomize",
+        "perlin",
+        "fbm",
+        160,
+        5,
+        0.5,
+        0,
+        1,
+        false,
+        1,
+        false,
+        "#FFFFFF",
+        "#000000",
+        "#FFFFFF",
+        "#000000"
+      ]
+    },
+    {
+      "id": 6,
+      "type": "ImageOpsRamp",
+      "pos": [
+        13715.110104419124,
+        -3826.833152910999
+      ],
+      "size": [
+        510.11179489551796,
+        1030.6304318365492
+      ],
+      "flags": {},
+      "order": 21,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "frame_count",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsRamp"
+      },
+      "widgets_values": [
+        "",
+        1024,
+        1024,
+        1,
+        "#ffffff",
+        "#000000",
+        1,
+        0,
+        0.5,
+        1,
+        0.5,
+        "linear",
+        "linear",
+        false,
+        "#ffffff",
+        "#000000"
+      ]
+    },
+    {
+      "id": 8,
+      "type": "ImageOpsComp",
+      "pos": [
+        13747.163000569613,
+        -2045.7974550747197
+      ],
+      "size": [
+        554.984375,
+        1011.875
+      ],
+      "flags": {},
+      "order": 22,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image_1",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "name": "mask_1",
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsComp"
+      },
+      "widgets_values": [
+        "",
+        false,
+        true,
+        false,
+        1024,
+        1024,
+        "custom",
+        "#000000",
+        "{\"version\":1,\"layers\":[{\"slot\":\"image_1\",\"center_x\":0.5,\"center_y\":0.5,\"scale\":1,\"rotate_deg\":0,\"opacity\":1,\"mode\":\"over\",\"enabled\":true}]}",
+        false,
+        "#000000"
+      ]
+    },
+    {
+      "id": 7,
+      "type": "ImageOpsText",
+      "pos": [
+        8835.961211325539,
+        -2071.042045149791
+      ],
+      "size": [
+        457.28656859879266,
+        1048.302117096824
+      ],
+      "flags": {},
+      "order": 23,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsText"
+      },
+      "widgets_values": [
+        "",
+        false,
+        "ImageOps Text",
+        0.5,
+        0.5,
+        90,
+        "#ffffff",
+        1,
+        "center",
+        4,
+        0,
+        "#000000",
+        false,
+        "",
+        "#ffffff",
+        "#000000"
+      ]
+    },
+    {
+      "id": 19,
+      "type": "ImageOpsPreview",
+      "pos": [
+        11438.171718956197,
+        -2079.196553992237
+      ],
+      "size": [
+        457.28656859879266,
+        1048.302117096824
+      ],
+      "flags": {},
+      "order": 24,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "Images/Video",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE,VIDEO",
+          "link": null
+        },
+        {
+          "name": "mask",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "majoor-imageops",
+        "ver": "e9183f86a2bed88fc6aa908584b169b0d3b6806f",
+        "Node name for S&R": "ImageOpsPreview"
+      },
+      "widgets_values": [
+        "",
+        "auto",
+        "images"
+      ]
+    }
+  ],
+  "links": [],
+  "groups": [
+    {
+      "id": 1,
+      "title": "IMAGE TRANSFORMATION            ( MOVE / ROTATE / SCALE / DISTORT )",
+      "bounding": [
+        10225.260222478362,
+        -4227.230323241408,
+        2548.920674910103,
+        1623.670555544334
+      ],
+      "color": "#4fa769",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "IMAGE MASK AND CHANNEL",
+      "bounding": [
+        4798.201025952755,
+        -4246.204287507339,
+        2548.920674910103,
+        1623.670555544334
+      ],
+      "color": "#8ec296",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "IMAGE UTILITY",
+      "bounding": [
+        10228.349362983641,
+        -2417.7247099805577,
+        2548.920674910103,
+        1623.670555544334
+      ],
+      "color": "#5e8254",
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "IMAGE  COMPOSITION",
+      "bounding": [
+        12958.772357430125,
+        -2408.6827489007323,
+        2548.920674910103,
+        1623.670555544334
+      ],
+      "color": "#8ea794",
+      "flags": {}
+    },
+    {
+      "id": 5,
+      "title": "IMAGE EFFECT",
+      "bounding": [
+        7482.332975633715,
+        -4233.652271199727,
+        2548.920674910103,
+        1623.670555544334
+      ],
+      "color": "#3d8b5e",
+      "flags": {}
+    },
+    {
+      "id": 6,
+      "title": "IMAGE  SOURCE",
+      "bounding": [
+        12962.455944146146,
+        -4228.208214892225,
+        2548.920674910103,
+        1623.670555544334
+      ],
+      "color": "#8ec296",
+      "flags": {}
+    },
+    {
+      "id": 7,
+      "title": "IMAGE TEMPORAL AND TIMELINE",
+      "bounding": [
+        4812.317978298369,
+        -2426.9855738435053,
+        2548.920674910103,
+        1623.670555544334
+      ],
+      "color": "#408d44",
+      "flags": {}
+    },
+    {
+      "id": 8,
+      "title": "IMAGE TEXT AND DRAW",
+      "bounding": [
+        7477.929763893949,
+        -2425.7153075785977,
+        2548.920674910103,
+        1623.670555544334
+      ],
+      "color": "#507326",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.1100000000000022,
+      "offset": [
+        1785.7351548255467,
+        8652.617881158847
+      ]
+    },
+    "frontendVersion": "1.45.15",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
+  },
+  "version": 0.4
+}

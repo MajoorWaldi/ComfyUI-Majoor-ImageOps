@@ -82,7 +82,7 @@ function attachInteractions(node, ctx) {
       requestAnimationFrame(() => {
         moveRafPending = false;
         syncRampWidgets(node);
-        ctx.refreshNode(node);
+        ctx.refreshPreviewOnly(node);
       });
     }
   }, listenerOptions);

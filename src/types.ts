@@ -276,6 +276,7 @@ export interface NodeState {
   padOutBackendSourceH: number;
   padOutBackendPadL: number;
   padOutBackendPadT: number;
+  joinBackendClipCounts?: Array<{ slot: number; source_count: number; trimmed_count: number; start: number; end: number }>;
   frameSelectorControls: HTMLDivElement | null;
   frameSelectorLabel: HTMLDivElement | null;
   frameSelectorTrimStart: HTMLInputElement | null;
@@ -511,6 +512,8 @@ export interface NodeInteractionContext {
   startLoopIfVideo(node: ComfyNode): void;
   /** Schedules a re-render of all downstream dependents. */
   refreshDependents(node: ComfyNode): void;
+  /** Refreshes only this node's live preview during high-frequency pointer interaction. */
+  refreshPreviewOnly(node: ComfyNode, delayMs?: number): void;
   /**
    * Convenience: sets nativeDirty, extends the interaction hold window,
    * marks canvas dirty, and schedules startLoopIfVideo + refreshDependents.

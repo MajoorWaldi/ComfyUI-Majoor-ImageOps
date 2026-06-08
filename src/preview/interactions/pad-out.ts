@@ -7,6 +7,7 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
   const st = node.__imageops_state ?? null;
   if (!st?.canvas || st.padOutInteractiveHooked) return;
   st.padOutInteractiveHooked = true;
+  let moveRafPending = false;
   const canvas = st.canvas;
   const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : undefined;
 
@@ -87,7 +88,13 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
 
     void snap;
     syncPadOutControls(node);
-    ctx.refreshNode(node);
+    if (!moveRafPending) {
+      moveRafPending = true;
+      requestAnimationFrame(() => {
+        moveRafPending = false;
+        ctx.refreshPreviewOnly(node);
+      });
+    }
     canvas.style.cursor = getPadOutCursor(drag.mode);
   }, listenerOptions);
 

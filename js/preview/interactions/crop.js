@@ -140,7 +140,7 @@ function attachInteractions(node, ctx) {
       moveRafPending = true;
       requestAnimationFrame(() => {
         moveRafPending = false;
-        ctx.refreshNode(node);
+        ctx.refreshPreviewOnly(node);
       });
     }
   }, listenerOptions);

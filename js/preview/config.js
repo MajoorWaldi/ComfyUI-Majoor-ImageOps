@@ -1,3 +1,4 @@
+import { PREVIEW_DEFAULTS, PREVIEW_STORAGE_KEYS } from "./shared/preview-defaults.js";
 function clampInt(v, minV, maxV, fallback) {
   const n = typeof v === "number" ? v : parseInt(String(v ?? ""), 10);
   if (!Number.isFinite(n)) return fallback;
@@ -5,15 +6,30 @@ function clampInt(v, minV, maxV, fallback) {
 }
 let _cachedConfig = null;
 function buildPreviewConfig() {
-  const canvasSize = clampInt(localStorage.getItem("imageops.preview.canvasSize"), 128, 2048, 512);
-  const playbackCanvasSize = clampInt(localStorage.getItem("imageops.preview.playbackCanvasSize"), 128, canvasSize, Math.min(canvasSize, 384));
-  const interactionCanvasSize = clampInt(localStorage.getItem("imageops.preview.interactionCanvasSize"), 128, playbackCanvasSize, Math.min(playbackCanvasSize, 320));
+  const canvasSize = clampInt(
+    localStorage.getItem(PREVIEW_STORAGE_KEYS.canvasSize),
+    PREVIEW_DEFAULTS.minCanvasSize,
+    PREVIEW_DEFAULTS.maxCanvasSize,
+    PREVIEW_DEFAULTS.canvasSize
+  );
+  const playbackCanvasSize = clampInt(
+    localStorage.getItem(PREVIEW_STORAGE_KEYS.playbackCanvasSize),
+    PREVIEW_DEFAULTS.minCanvasSize,
+    canvasSize,
+    Math.min(canvasSize, PREVIEW_DEFAULTS.playbackCanvasSize)
+  );
+  const interactionCanvasSize = clampInt(
+    localStorage.getItem(PREVIEW_STORAGE_KEYS.interactionCanvasSize),
+    PREVIEW_DEFAULTS.minCanvasSize,
+    playbackCanvasSize,
+    Math.min(playbackCanvasSize, PREVIEW_DEFAULTS.interactionCanvasSize)
+  );
   return {
     canvasSize,
     playbackCanvasSize,
     interactionCanvasSize,
-    debounceMs: 120,
-    maxGraphNodes: 140
+    debounceMs: clampInt(localStorage.getItem(PREVIEW_STORAGE_KEYS.debounceMs), 0, 2e3, PREVIEW_DEFAULTS.debounceMs),
+    maxGraphNodes: clampInt(localStorage.getItem(PREVIEW_STORAGE_KEYS.maxGraphNodes), 1, 1e4, PREVIEW_DEFAULTS.maxGraphNodes)
   };
 }
 function getPreviewConfig() {

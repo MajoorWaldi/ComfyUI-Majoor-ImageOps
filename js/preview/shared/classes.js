@@ -1,64 +1,11 @@
-const IMAGEOPS_CLASSES = /* @__PURE__ */ new Set([
-  "ImageOpsColorAjust",
-  "ImageOpsBlur",
-  "ImageOpsCameraShake",
-  "ImageOpsChannel",
-  "ImageOpsCornerPin",
-  "ImageOpsComp",
-  "ImageOpsConstant",
-  "ImageOpsCrop",
-  "ImageOpsDistort",
-  "ImageOpsDraw",
-  "ImageOpsFrameRange",
-  "ImageOpsGrain",
-  "ImageOpsTransform",
-  "ImageOpsInvert",
-  "ImageOpsAppend",
-  "ImageOpsKeyer",
-  "ImageOpsClamp",
-  "ImageOpsMerge",
-  "ImageOpsMaskConvert",
-  "ImageOpsNoise",
-  "ImageOpsPadOut",
-  "ImageOpsPreview",
-  "ImageOpsRamp",
-  "ImageOpsSpherize",
-  "ImageOpsText"
-]);
-const IMAGEOPS_CUSTOM_UI_CLASSES = /* @__PURE__ */ new Set([
-  "ImageOpsColorAjust",
-  "ImageOpsComp",
-  "ImageOpsConstant",
-  "ImageOpsCrop",
-  "ImageOpsDraw",
-  "ImageOpsFrameRange",
-  "ImageOpsGrain",
-  "ImageOpsAppend",
-  "ImageOpsKeyer",
-  "ImageOpsPadOut",
-  "ImageOpsPreview",
-  "ImageOpsRamp",
-  "ImageOpsText"
-]);
-const IMAGEOPS_NATIVE_UI_CLASSES = /* @__PURE__ */ new Set([
-  "ImageOpsBlur",
-  "ImageOpsCameraShake",
-  "ImageOpsChannel",
-  "ImageOpsClamp",
-  "ImageOpsCornerPin",
-  "ImageOpsDistort",
-  "ImageOpsInvert",
-  "ImageOpsMaskConvert",
-  "ImageOpsMerge",
-  "ImageOpsNoise",
-  "ImageOpsSpherize",
-  "ImageOpsTransform"
-]);
-const IMAGEOPS_CLASS_ALIASES = /* @__PURE__ */ new Map([
-  ["checker", "ImageOpsConstant"],
-  ["checkerboard", "ImageOpsConstant"],
-  ["radial", "ImageOpsRamp"]
-]);
+import { IMAGEOPS_CLASS_ALIASES, IMAGEOPS_NODE_METADATA } from "./imageops-metadata.js";
+const IMAGEOPS_CLASSES = new Set(IMAGEOPS_NODE_METADATA.map((entry) => entry.className));
+const IMAGEOPS_CUSTOM_UI_CLASSES = new Set(
+  IMAGEOPS_NODE_METADATA.filter((entry) => entry.ui === "custom").map((entry) => entry.className)
+);
+const IMAGEOPS_NATIVE_UI_CLASSES = new Set(
+  IMAGEOPS_NODE_METADATA.filter((entry) => entry.ui === "native").map((entry) => entry.className)
+);
 function normalizeClassName(value) {
   return String(value ?? "").trim().toLowerCase();
 }

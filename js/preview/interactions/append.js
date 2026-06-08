@@ -7,6 +7,14 @@ function inputIndexForSlot(node, slot) {
 function getDirectInputFrameCount(node, inputIndex) {
   return getPreviewNodeFrameCount(getUpstreamNode(node, inputIndex));
 }
+function getBackendClipFrameCount(st, slot) {
+  const slotNumber = Number(String(slot).split("_")[1] ?? 0);
+  const clips = st?.joinBackendClipCounts;
+  if (!Array.isArray(clips)) return 0;
+  const clip = clips.find((entry) => Number(entry?.slot) === slotNumber);
+  const count = Number(clip?.source_count ?? 0);
+  return Number.isFinite(count) && count > 0 ? Math.round(count) : 0;
+}
 function selectionCount(start, end, frameCount) {
   const max = Math.max(0, frameCount - 1);
   const s = Math.max(0, Math.min(max, Math.round(start)));
@@ -45,6 +53,15 @@ function buildRuler(max) {
   ruler.style.color = "rgba(255,255,255,0.52)";
   ruler.style.userSelect = "none";
   ruler.style.pointerEvents = "none";
+  if (!Number.isFinite(max) || max <= 0) {
+    const label = document.createElement("div");
+    label.textContent = max === 0 ? "1 fr." : "not queued";
+    label.style.position = "absolute";
+    label.style.left = "0";
+    label.style.top = "6px";
+    ruler.appendChild(label);
+    return ruler;
+  }
   const majorTicks = 5;
   const subTicks = 4;
   const totalTicks = (majorTicks - 1) * subTicks;
@@ -200,6 +217,7 @@ function buildJoinTrimRow(node, ctx, st, slot, index) {
     removeButton,
     maxFrame: 0,
     frameCount: 1,
+    rulerKey: "",
     endIsAuto: true,
     dragging: null,
     dragOffset: 0,
@@ -330,9 +348,13 @@ function syncJoinTrimRow(row, index, frameCount, startValue, endValue, maxFrame,
   row.removeButton.title = `Remove clip ${index}`;
   row.removeButton.disabled = !canRemove;
   row.removeButton.style.opacity = row.removeButton.disabled ? "0.35" : "0.85";
-  const nextRuler = buildRuler(maxFrame);
-  row.ruler.replaceWith(nextRuler);
-  row.ruler = nextRuler;
+  const nextRulerKey = `${maxFrame}|${frameCount}`;
+  if (row.rulerKey !== nextRulerKey) {
+    row.rulerKey = nextRulerKey;
+    const nextRuler = buildRuler(frameCount > 0 ? maxFrame : -1);
+    row.ruler.replaceWith(nextRuler);
+    row.ruler = nextRuler;
+  }
   row.syncTimeline();
 }
 function renderJoinTrimControls(node, ctx) {
@@ -355,8 +377,9 @@ function renderJoinTrimControls(node, ctx) {
     liveSlots.add(slot);
     const trim = bySlot.get(slot) ?? { slot, start: 0, end: -1 };
     const inputIndex = inputIndexForSlot(node, slot);
-    const frameCount = inputIndex >= 0 ? getDirectInputFrameCount(node, inputIndex) : 0;
-    const maxFrame = Math.max(0, (frameCount > 0 ? frameCount : 1001) - 1);
+    const backendFrameCount = getBackendClipFrameCount(st, slot);
+    const frameCount = backendFrameCount > 0 ? backendFrameCount : inputIndex >= 0 ? getDirectInputFrameCount(node, inputIndex) : 0;
+    const maxFrame = Math.max(0, (frameCount > 0 ? frameCount : 1) - 1);
     const startValue = Math.max(0, Math.min(maxFrame, trim.start));
     const endValue = trim.end < 0 ? maxFrame : Math.max(0, Math.min(maxFrame, trim.end));
     let row = rows.get(slot);

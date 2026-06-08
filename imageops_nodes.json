@@ -1,0 +1,34 @@
+{
+  "nodes": [
+    {"className":"ImageOpsColorAjust","module":"color_ajust","classExport":"ImageOpsColorAjust","displayName":"ImageOps Color Correct","ui":"custom","minPreviewHeight":490,"aliases":["color correct","color","grade","grading","hue","saturation","brightness","contrast","gamma","temperature"]},
+    {"className":"ImageOpsBlur","module":"blur","classExport":"ImageOpsBlur","displayName":"ImageOps Blur","ui":"native","aliases":["blur","defocus"]},
+    {"className":"ImageOpsCameraShake","module":"camera_shake","classExport":"ImageOpsCameraShake","displayName":"ImageOps CameraShake","ui":"native","aliases":["camera shake","shake","jitter","handheld","camera"]},
+    {"className":"ImageOpsChannel","module":"channel","classExport":"ImageOpsChannel","displayName":"ImageOps Channels","ui":"native","aliases":["channel","channels","rgb","alpha","red","green","blue"]},
+    {"className":"ImageOpsCornerPin","module":"corner_pin","classExport":"ImageOpsCornerPin","displayName":"ImageOps Corner Pin","ui":"native","aliases":["corner pin","cornerpin","pin","perspective","quad","screen replacement"]},
+    {"className":"ImageOpsComp","module":"comp","classExport":"ImageOpsComp","displayName":"ImageOps Comp","ui":"custom","minPreviewHeight":400,"aliases":["comp","combine","merge","blend","compose"]},
+    {"className":"ImageOpsConstant","module":"constant","classExport":"ImageOpsConstant","displayName":"ImageOps Constant","ui":"custom","minPreviewHeight":390,"aliases":["constant","color","source","checker"]},
+    {"className":"ImageOpsCrop","module":"crop","classExport":"ImageOpsCrop","displayName":"ImageOps Resize/Crop","ui":"custom","aliases":["crop","resize","reformat","format","recadrer","taille"]},
+    {"className":"ImageOpsDistort","module":"distort","classExport":"ImageOpsDistort","displayName":"ImageOps Distort","ui":"native","aliases":["distort","displace","displacement","warp","deform","noise warp"]},
+    {"className":"ImageOpsDraw","module":"draw","classExport":"ImageOpsDraw","displayName":"ImageOps Paint","ui":"custom","minPreviewHeight":220,"aliases":["paint","draw","brush","eraser","sketch","mask paint"]},
+    {"className":"ImageOpsFrameRange","module":"frame_range","classExport":"ImageOpsFrameRange","displayName":"ImageOps FrameRange","ui":"custom","minPreviewHeight":390,"aliases":["frame range","frames","trim","hold","freeze","loop","repeat","timeline"]},
+    {"className":"ImageOpsGrain","module":"grain","classExport":"ImageOpsGrain","displayName":"ImageOps Grain","ui":"custom","minPreviewHeight":390,"aliases":["grain","film grain","noise grain","texture"]},
+    {"className":"ImageOpsTransform","module":"transform","classExport":"ImageOpsTransform","displayName":"ImageOps Transform","ui":"native","aliases":["transform","move","translate","rotate","scale","position"]},
+    {"className":"ImageOpsInvert","module":"invert","classExport":"ImageOpsInvert","displayName":"ImageOps Invert","ui":"native","aliases":["invert","negative","alpha invert","reverse"]},
+    {"className":"ImageOpsAppend","module":"append","classExport":"ImageOpsAppend","displayName":"ImageOps Append","ui":"custom","minPreviewHeight":430,"aliases":["append","join","concat","concatenate","clips","sequence"]},
+    {"className":"ImageOpsKeyer","module":"keyer","classExport":"ImageOpsKeyer","displayName":"ImageOps Keyer","ui":"custom","minPreviewHeight":420,"aliases":["keyer","key","chroma","green screen","luma key","matte"]},
+    {"className":"ImageOpsClamp","module":"clamp","classExport":"ImageOpsClamp","displayName":"ImageOps Clamp","ui":"native","aliases":["clamp","clip","limit","range"]},
+    {"className":"ImageOpsMerge","module":"merge","classExport":"ImageOpsMerge","displayName":"ImageOps Merge","ui":"native","aliases":["merge","blend","mix","combine","over","composite"]},
+    {"className":"ImageOpsMaskConvert","module":"mask_convert","classExport":"ImageOpsMaskConvert","displayName":"ImageOps Mask Convert","ui":"native","aliases":["mask convert","mask","matte","alpha","luma matte","image to mask","mask to image"]},
+    {"className":"ImageOpsNoise","module":"noise","classExport":"ImageOpsNoise","displayName":"ImageOps Noise","ui":"native","aliases":["noise","perlin","value noise","procedural","texture"]},
+    {"className":"ImageOpsPadOut","module":"padout","classExport":"ImageOpsPadOut","displayName":"ImageOps PadOut","ui":"custom","minPreviewHeight":430,"aliases":["pad","pad out","padding","border","expand canvas","outpaint"]},
+    {"className":"ImageOpsPreview","module":"preview","classExport":"ImageOpsPreview","displayName":"ImageOps Preview","ui":"custom","minPreviewHeight":360,"aliases":["preview","viewer","view","monitor","scope","histogram","waveform"]},
+    {"className":"ImageOpsRamp","module":"ramp","classExport":"ImageOpsRamp","displayName":"ImageOps Ramp","ui":"custom","minPreviewHeight":430,"aliases":["ramp","gradient","linear gradient","radial gradient"]},
+    {"className":"ImageOpsSpherize","module":"spherize","classExport":"ImageOpsSpherize","displayName":"ImageOps Spherize","ui":"native","aliases":["spherize","sphere","fisheye","defisheye","latlong","lens"]},
+    {"className":"ImageOpsText","module":"text","classExport":"ImageOpsText","displayName":"ImageOps Text","ui":"custom","minPreviewHeight":470,"aliases":["text","title","caption","label","type","font"]}
+  ],
+  "aliases": {
+    "checker": "ImageOpsConstant",
+    "checkerboard": "ImageOpsConstant",
+    "radial": "ImageOpsRamp"
+  }
+}

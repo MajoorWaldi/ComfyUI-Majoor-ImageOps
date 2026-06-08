@@ -90,7 +90,7 @@ class ImageOpsFrameRange:
         frame_hold=False,
         hold_frame=0,
         repeat=False,
-        repeat_mode="input_duration",
+        repeat_mode="loop",
         custom_frame_count=24,
         unique_id=None,
     ):

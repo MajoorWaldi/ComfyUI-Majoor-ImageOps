@@ -14,20 +14,13 @@ import { createFrameSelectorControlsUi, isNode as isFrameRangeNode } from "../no
 import { createKeyerControlsUi, isNode as isKeyerNode } from "../nodes/keyer.js";
 import { createPadOutControlsUi, isNode as isPadOutNode } from "../nodes/pad-out.js";
 import { styleInlineAction } from "./dom-styles.js";
+import {
+  IMAGEOPS_DEFAULT_PREVIEW_MIN_HEIGHT,
+  IMAGEOPS_NODE_METADATA
+} from "./imageops-metadata.js";
 function getNodePreviewMinHeight(node) {
-  if (isDrawNode(node)) return 220;
-  if (isConstantNode(node)) return 390;
-  if (isGrainNode(node)) return 390;
-  if (isTextNode(node)) return 470;
-  if (isRampNode(node)) return 430;
-  if (isColorCorrectNode(node)) return 490;
-  if (isCompNode(node)) return 400;
-  if (isAppendNode(node)) return 430;
-  if (isPreviewNode(node)) return 360;
-  if (isFrameRangeNode(node)) return 390;
-  if (isKeyerNode(node)) return 420;
-  if (isPadOutNode(node)) return 430;
-  return 320;
+  const className = String(node?.comfyClass ?? "");
+  return IMAGEOPS_NODE_METADATA.find((entry) => entry.className === className)?.minPreviewHeight ?? IMAGEOPS_DEFAULT_PREVIEW_MIN_HEIGHT;
 }
 function getMeasuredBlockHeight(element, extra = 0) {
   if (!element || element.style.display === "none") return 0;
@@ -42,15 +35,6 @@ function getCanvasDisplayHeight(canvas, container) {
   const innerWidth = Math.max(0, Math.round((container?.clientWidth ?? container?.offsetWidth ?? 0) - 12));
   if (innerWidth <= 0) return 0;
   return Math.round(innerWidth * aspectHeight / aspectWidth);
-}
-function getNodeSizeSnapshot(node, fallbackHeight) {
-  const rawSize = node.size;
-  const width = Number(rawSize?.[0]);
-  const height = Number(rawSize?.[1]);
-  return [
-    Number.isFinite(width) && width > 0 ? width : 360,
-    Number.isFinite(height) && height > 0 ? height : Math.max(320, Math.round(fallbackHeight ?? getNodePreviewMinHeight(node)))
-  ];
 }
 function getNodePreviewContentHeight(node, root) {
   const st = ensureState(node);
@@ -76,69 +60,6 @@ function buildCompactNativeWidgetControls(node, onWidgetChange) {
   return null;
 }
 function syncCompactNativeWidgetControls(node) {
-}
-function getNodePreviewTargetSize(node, root, fallbackWidth = 360) {
-  const minWidth = 360;
-  const width = Math.max(minWidth, Math.round(fallbackWidth));
-  const contentHeight = getNodePreviewContentHeight(node, root);
-  try {
-    const computed = node.computeSize?.([width, contentHeight]);
-    if (Array.isArray(computed)) {
-      const computedWidth = Number(computed[0]);
-      const computedHeight = Number(computed[1]);
-      return [
-        Number.isFinite(computedWidth) ? Math.max(width, Math.round(computedWidth)) : width,
-        Number.isFinite(computedHeight) ? Math.max(contentHeight, Math.round(computedHeight)) : contentHeight
-      ];
-    }
-  } catch {
-  }
-  return [width, contentHeight];
-}
-function attachPreviewLayoutObserver(node, root) {
-  const st = ensureState(node);
-  if (st._layoutObserverCleanup) return;
-  let rafId = null;
-  const syncSize = () => {
-    if (rafId != null) return;
-    rafId = requestAnimationFrame(() => {
-      rafId = null;
-      try {
-        const currentSize = getNodeSizeSnapshot(node);
-        const target = getNodePreviewTargetSize(node, root, Math.max(360, Math.round(currentSize?.[0] ?? 360)));
-        const widthChanged = Math.abs(Math.round(currentSize?.[0] ?? 0) - target[0]) > 1;
-        const heightChanged = Math.abs(Math.round(currentSize?.[1] ?? 0) - target[1]) > 1;
-        if (widthChanged || heightChanged) {
-          node.setSize?.(target);
-          node.graph?.setDirtyCanvas?.(true, true);
-        }
-      } catch {
-      }
-    });
-  };
-  if (typeof ResizeObserver !== "function") {
-    st._layoutObserverCleanup = () => {
-      if (rafId != null) cancelAnimationFrame(rafId);
-    };
-    syncSize();
-    return;
-  }
-  const observer = new ResizeObserver(() => syncSize());
-  for (const element of [
-    root,
-    st.canvas,
-    st.mediaWrap,
-    st.previewMetaRow,
-    st.previewControls,
-    st.progressWrap
-  ]) {
-    if (element instanceof HTMLElement) observer.observe(element);
-  }
-  st._layoutObserverCleanup = () => {
-    if (rafId != null) cancelAnimationFrame(rafId);
-    observer.disconnect();
-  };
-  syncSize();
 }
 function ensurePreviewWidget(node, progress, canvasSize, onNativeWidgetChange) {
   if (!isImageOpsClass(node.comfyClass)) return null;
@@ -476,7 +397,6 @@ function ensurePreviewWidget(node, progress, canvasSize, onNativeWidgetChange) {
   root.appendChild(progressWrap);
   const activeControls = previewControls ?? colorControls ?? drawControls ?? compControls ?? joinControls ?? frameSelectorControls ?? keyerControls ?? compactNativeControls;
   root.style.pointerEvents = "auto";
-  const domMinHeight = getNodePreviewMinHeight(node);
   if (typeof node.addDOMWidget === "function") {
     node.addDOMWidget("preview", "ImageOpsPreview", root, {
       serialize: false,
@@ -489,16 +409,6 @@ function ensurePreviewWidget(node, progress, canvasSize, onNativeWidgetChange) {
     if (domWidget?.hidden !== false) {
       domWidget.hidden = false;
     }
-    requestAnimationFrame(() => {
-      const state = ensureState(node);
-      if (state._displayObserverCleanup) return;
-      if (root.style.display === "none") root.style.display = "";
-      const obs = new MutationObserver(() => {
-        if (root.style.display === "none") root.style.display = "";
-      });
-      obs.observe(root, { attributes: true, attributeFilter: ["style"] });
-      state._displayObserverCleanup = () => obs.disconnect();
-    });
     if (drawNode && drawClearButton) {
       const clearWrap = document.createElement("div");
       clearWrap.style.display = "flex";
@@ -648,14 +558,9 @@ function ensurePreviewWidget(node, progress, canvasSize, onNativeWidgetChange) {
   st.keyerGainInput = keyerGainInput;
   st.keyerBlurInput = keyerBlurInput;
   try {
-    if (!frameSelectorNode) {
-      const cs = node.computeSize?.() ?? [360, domMinHeight];
-      node.setSize?.(getNodePreviewTargetSize(node, root, Math.max(cs[0], 360)));
-    }
     node.resizable = true;
   } catch {
   }
-  attachPreviewLayoutObserver(node, root);
   if (progress) {
     progress.registerNodeWidget(node, progressWrap, progressBar);
   }
@@ -664,6 +569,5 @@ function ensurePreviewWidget(node, progress, canvasSize, onNativeWidgetChange) {
 export {
   ensurePreviewWidget,
   getNodePreviewMinHeight,
-  getNodePreviewTargetSize,
   syncCompactNativeWidgetControls
 };

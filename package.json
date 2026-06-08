@@ -3,7 +3,7 @@
   "version": "0.1.5",
   "description": "WORK IN PROGRESS",
   "scripts": {
-    "build": "node esbuild.mjs",
+    "build": "node scripts/generate-imageops-metadata.mjs && node esbuild.mjs",
     "check": "tsc --noEmit",
     "dev": "node esbuild.mjs --watch",
     "test:py": "python -m unittest discover -s tests -v",

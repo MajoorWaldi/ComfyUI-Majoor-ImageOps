@@ -270,10 +270,7 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
       moveRafPending = true;
       requestAnimationFrame(() => {
         moveRafPending = false;
-        ctx.schedule(node, () => {
-          ctx.startLoopIfVideo(node);
-          ctx.refreshDependents(node);
-        }, 0);
+        ctx.refreshPreviewOnly(node);
       });
     }
   }, listenerOptions);

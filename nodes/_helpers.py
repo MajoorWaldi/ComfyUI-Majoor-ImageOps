@@ -89,11 +89,7 @@ def _has_list_param(*args) -> bool:
     return any(isinstance(a, (list, tuple)) for a in args)
 
 
-# Constants shared across ImageOps nodes
 logger = logging.getLogger(__name__)
-
-MAX_IMAGE_DIMENSION = 16384
-MAX_SCALE_DIMENSION = 8192
 
 def _get_int_env(name: str, default: int) -> int:
     try:
@@ -101,6 +97,8 @@ def _get_int_env(name: str, default: int) -> int:
     except (TypeError, ValueError):
         return int(default)
 
+MAX_IMAGE_DIMENSION = _get_int_env("IMAGEOPS_MAX_IMAGE_DIMENSION", 16384)
+MAX_SCALE_DIMENSION = _get_int_env("IMAGEOPS_MAX_SCALE_DIMENSION", 8192)
 LARGE_IMAGE_WARN_MB = _get_int_env("IMAGEOPS_LARGE_IMAGE_WARN_MB", 2048)
 
 ALLOWED_EXTENSIONS = {

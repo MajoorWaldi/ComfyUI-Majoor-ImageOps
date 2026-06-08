@@ -5,18 +5,7 @@ import { getFrameSelectorOutputCount, getFrameSelectorSourceFrame, getUpstreamFr
 import { getJoinConnectedInputFrameCounts, getJoinSlots, readJoinTrims } from "../nodes/append.js";
 import { getUpstreamNode } from "../graph.js";
 import { isImageOpsClass, resolveImageOpsClassName } from "../shared/classes.js";
-function getVhsVideoInfo(node) {
-  const query = node?.video_query;
-  const loaded = query?.loaded;
-  const source = query?.source;
-  const frames = Number(loaded?.frames ?? source?.frames ?? 0);
-  const fps = Number(loaded?.fps ?? source?.fps ?? 0);
-  if (!Number.isFinite(frames) || frames <= 0) return null;
-  return {
-    frames: Math.round(frames),
-    fps: Number.isFinite(fps) && fps > 0 ? fps : 0
-  };
-}
+import { getVhsVideoInfo } from "../shared/video.js";
 function getConnectedCompInputIndexes(node) {
   const indexes = [];
   for (const slot of getCompSlots(node)) {
@@ -51,6 +40,7 @@ function collectBranchVideos(node, seen = /* @__PURE__ */ new Set()) {
   return videos;
 }
 async function seekAppendBranchFrame(node, sourceFrame, fallbackFrameCount) {
+  if (String(node?.comfyClass ?? "") === "ImageOpsFrameRange") return;
   const videos = collectBranchVideos(node);
   for (const { node: videoNode, videoEl } of videos) {
     if (!Number.isFinite(videoEl.duration) || videoEl.duration <= 0) continue;
