@@ -22,6 +22,7 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
   st.cornerPinInteractiveHooked = true;
   let moveRafPending = false;
   const canvas = st.canvas;
+  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : undefined;
 
   const worldPt = (event: PointerEvent) => {
     const raw = getCanvasPointer(canvas, event);
@@ -40,7 +41,7 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     safeSetPointerCapture(canvas, event.pointerId);
     st.cornerPinDrag = { pointerId: event.pointerId, handle: hit };
     canvas.style.cursor = "grabbing";
-  });
+  }, listenerOptions);
 
   // Snap to source-frame corners (0 or 1) when the pointer is within SNAP_THRESHOLD
   // unless Alt is held. Tightens precision of edge-aligned setups.
@@ -70,7 +71,7 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
       moveRafPending = true;
       requestAnimationFrame(() => { moveRafPending = false; ctx.refreshNode(node); });
     }
-  });
+  }, listenerOptions);
 
   const releaseDrag = (event: PointerEvent) => {
     if (!st.cornerPinDrag || st.cornerPinDrag.pointerId !== event.pointerId) return;
@@ -88,11 +89,11 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     ctx.refreshNode(node);
   };
 
-  canvas.addEventListener("pointerup", releaseDrag);
-  canvas.addEventListener("pointercancel", releaseDrag);
+  canvas.addEventListener("pointerup", releaseDrag, listenerOptions);
+  canvas.addEventListener("pointercancel", releaseDrag, listenerOptions);
   canvas.addEventListener("pointerleave", () => {
     if (!st.cornerPinDrag) {
       canvas.style.cursor = "default";
     }
-  });
+  }, listenerOptions);
 }

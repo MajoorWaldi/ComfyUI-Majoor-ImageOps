@@ -100,6 +100,18 @@ export function hideWidgetsByName(node: ComfyNode, name: string): void {
   }
 }
 
+export function deduplicateColorWidgets(node: ComfyNode): void {
+  if (!node?.widgets) return;
+  const seen = new Set<string>();
+  for (const widget of node.widgets) {
+    if (!widget?.name) continue;
+    if (seen.has(widget.name)) {
+      hideWidgetForGood(node, widget);
+    } else {
+      seen.add(widget.name);
+    }
+  }
+}
 
 export function setWidgetValue(widget: ComfyWidget | null, value: number, options: WidgetSetOptions = {}): void {
   if (!widget) return;

@@ -33,8 +33,9 @@ function bindZoneRange(
   param: string,
   parser: (value: string) => number = (value) => Number(value),
 ): void {
-  if (!input || input.dataset.bound === "1") return;
-  input.dataset.bound = "1";
+  if (!input) return;
+  const st = node.__imageops_state ?? null;
+  const listenerOptions = st?._abortController?.signal ? { signal: st._abortController.signal } : undefined;
   input.addEventListener("input", () => {
     const st = node.__imageops_state ?? null;
     const zone = st?.colorActiveZone ?? "global";
@@ -46,7 +47,7 @@ function bindZoneRange(
     setWidgetValue(findWidget(node, colorWidgetNameForZone(param, zone)), value);
     syncColorCorrectWidgets(node);
     markDirty(node, ctx);
-  });
+  }, listenerOptions);
 }
 
 function bindZoneWheel(
@@ -54,8 +55,9 @@ function bindZoneWheel(
   ctx: NodeInteractionContext,
   canvas: HTMLCanvasElement | null,
 ): void {
-  if (!canvas || canvas.dataset.bound === "1") return;
-  canvas.dataset.bound = "1";
+  if (!canvas) return;
+  const st0 = node.__imageops_state ?? null;
+  const listenerOptions = st0?._abortController?.signal ? { signal: st0._abortController.signal } : undefined;
 
   let activePointerId: number | null = null;
   let moveRafPending = false;
@@ -83,12 +85,12 @@ function bindZoneWheel(
     activePointerId = event.pointerId;
     canvas.setPointerCapture?.(event.pointerId);
     commitWheelPoint(event, false);
-  });
+  }, listenerOptions);
 
   canvas.addEventListener("pointermove", (event: PointerEvent) => {
     if (activePointerId !== event.pointerId) return;
     commitWheelPoint(event, false);
-  });
+  }, listenerOptions);
 
   const release = (event: PointerEvent): void => {
     if (activePointerId !== event.pointerId) return;
@@ -97,8 +99,8 @@ function bindZoneWheel(
     commitWheelPoint(event, true);
   };
 
-  canvas.addEventListener("pointerup", release);
-  canvas.addEventListener("pointercancel", release);
+  canvas.addEventListener("pointerup", release, listenerOptions);
+  canvas.addEventListener("pointercancel", release, listenerOptions);
 }
 
 function bindZoneTab(
@@ -107,8 +109,9 @@ function bindZoneTab(
   btn: HTMLButtonElement | null,
   zone: "global" | "shadows" | "midtones" | "highlights",
 ): void {
-  if (!btn || btn.dataset.bound === "1") return;
-  btn.dataset.bound = "1";
+  if (!btn) return;
+  const st0 = node.__imageops_state ?? null;
+  const listenerOptions = st0?._abortController?.signal ? { signal: st0._abortController.signal } : undefined;
   btn.addEventListener("click", () => {
     const st = node.__imageops_state ?? null;
     if (!st) return;
@@ -116,7 +119,7 @@ function bindZoneTab(
     st.colorActiveZone = zone;
     syncColorCorrectWidgets(node);
     markDirty(node, ctx);
-  });
+  }, listenerOptions);
 }
 
 export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext): void {
@@ -150,8 +153,9 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     markDirty(node, ctx);
   };
 
-  st.colorWheelCanvas?.addEventListener("dblclick", resetAll);
-  st.colorResetButton?.addEventListener("click", resetAll);
+  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : undefined;
+  st.colorWheelCanvas?.addEventListener("dblclick", resetAll, listenerOptions);
+  st.colorResetButton?.addEventListener("click", resetAll, listenerOptions);
 
   syncColorCorrectWidgets(node);
 }

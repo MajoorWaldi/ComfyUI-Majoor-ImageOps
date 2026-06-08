@@ -24,6 +24,7 @@ function attachInteractions(node, ctx) {
   const canvas = st?.canvas;
   if (!st || !root || !canvas || st.rampInteractiveHooked) return;
   st.rampInteractiveHooked = true;
+  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : void 0;
   let moveRafPending = false;
   const worldPt = (event) => {
     const raw = getCanvasPointer(canvas, event);
@@ -63,7 +64,7 @@ function attachInteractions(node, ctx) {
     }
     st.rampDrag = { pointerId: event.pointerId, handle: hit };
     canvas.style.cursor = "grabbing";
-  });
+  }, listenerOptions);
   canvas.addEventListener("pointermove", (event) => {
     const point = worldPt(event);
     const drag = st.rampDrag;
@@ -84,7 +85,7 @@ function attachInteractions(node, ctx) {
         ctx.refreshNode(node);
       });
     }
-  });
+  }, listenerOptions);
   const releaseDrag = (event) => {
     if (!st.rampDrag || st.rampDrag.pointerId !== event.pointerId) return;
     const drag = st.rampDrag;
@@ -102,11 +103,11 @@ function attachInteractions(node, ctx) {
     syncRampWidgets(node);
     ctx.refreshNode(node);
   };
-  canvas.addEventListener("pointerup", releaseDrag);
-  canvas.addEventListener("pointercancel", releaseDrag);
+  canvas.addEventListener("pointerup", releaseDrag, listenerOptions);
+  canvas.addEventListener("pointercancel", releaseDrag, listenerOptions);
   canvas.addEventListener("pointerleave", () => {
     if (!st.rampDrag) canvas.style.cursor = "default";
-  });
+  }, listenerOptions);
   for (const input of Array.from(root.querySelectorAll("input[data-ramp-field]"))) {
     const field = String(input.dataset.rampField ?? "");
     if (field === "alpha") {
@@ -114,7 +115,7 @@ function attachInteractions(node, ctx) {
         const value = Math.max(0, Math.min(100, Number(input.value)));
         setWidgetValue(findWidget(node, "alpha"), value / 100);
         refresh();
-      });
+      }, listenerOptions);
       continue;
     }
     input.addEventListener("change", () => {
@@ -128,7 +129,7 @@ function attachInteractions(node, ctx) {
         setWidgetValue(findWidget(node, field), clampFloat(numeric, field.endsWith("y") ? 0.5 : field.startsWith("end") ? 1 : 0, -2, 3));
       }
       refresh();
-    });
+    }, listenerOptions);
   }
   for (const input of Array.from(root.querySelectorAll("input[data-ramp-color]"))) {
     input.addEventListener("input", () => {
@@ -138,7 +139,7 @@ function attachInteractions(node, ctx) {
       setWidgetStringValuesByName(node, widgetName, normalized);
       syncDarkColorInputUI(input, normalized);
       refresh();
-    });
+    }, listenerOptions);
   }
   for (const select of Array.from(root.querySelectorAll("select[data-ramp-select]"))) {
     select.addEventListener("change", () => {
@@ -146,7 +147,7 @@ function attachInteractions(node, ctx) {
       const widgetName = kind === "shape" ? "ramp_shape" : "ramp_mode";
       setWidgetStringValue(findWidget(node, widgetName), select.value);
       refresh();
-    });
+    }, listenerOptions);
   }
   const invertButton = root.querySelector('button[data-ramp-toggle="invert"]');
   invertButton?.addEventListener("click", (event) => {
@@ -154,14 +155,14 @@ function attachInteractions(node, ctx) {
     const next = !Boolean(findWidget(node, "invert")?.value);
     setWidgetBooleanValue(findWidget(node, "invert"), next);
     refresh();
-  });
+  }, listenerOptions);
   ratioSelect?.addEventListener("change", () => {
     const preset = String(ratioSelect.value ?? "custom");
     if (preset !== "custom") {
       applyRatioPreset("width");
     }
     refresh();
-  });
+  }, listenerOptions);
   syncRampWidgets(node);
 }
 export {

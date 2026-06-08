@@ -98,25 +98,7 @@ export function createConstantControlsUi(): ConstantControlsUi {
   alphaRow.appendChild(alphaValue);
   controls.appendChild(alphaRow);
 
-  const colorsRow = makeRow();
-  colorsRow.style.gridTemplateColumns = "auto minmax(0,1fr) minmax(0,1fr)";
-  colorsRow.appendChild(makeLabel("Colors"));
-  const colorA = createColorSwatch("#ffffff");
-  colorA.input.dataset.constantColor = "a";
-  colorsRow.appendChild(colorA.host);
-  const colorBWrap = document.createElement("div");
-  colorBWrap.dataset.constantColorWrap = "b";
-  colorBWrap.style.display = "grid";
-  colorBWrap.style.gridTemplateColumns = "auto minmax(0,1fr)";
-  colorBWrap.style.gap = "6px";
-  colorBWrap.style.alignItems = "center";
-  const colorBLabel = makeLabel("Alt");
-  const colorB = createColorSwatch("#000000");
-  colorB.input.dataset.constantColor = "b";
-  colorBWrap.appendChild(colorBLabel);
-  colorBWrap.appendChild(colorB.host);
-  colorsRow.appendChild(colorBWrap);
-  controls.appendChild(colorsRow);
+
 
   return { controls };
 }
@@ -124,7 +106,7 @@ export function createConstantControlsUi(): ConstantControlsUi {
 export function hideConstantWidgets(node: ComfyNode): void {
   // hideWidgetsByName covers ComfyUI's auto-added duplicates (e.g. an uppercase
   // COLOR widget paired with each `color` widget).
-  for (const name of ["mode", "color", "color_b", "alpha", "frame_length", "batch_size"]) {
+  for (const name of ["mode", "alpha", "frame_length", "batch_size"]) {
     hideWidgetsByName(node, name);
   }
 }
@@ -197,23 +179,7 @@ export function syncConstantWidgets(node: ComfyNode, changedName?: string, notif
   const alphaLabel = root.querySelector<HTMLElement>('[data-constant-alpha-label]');
   if (alphaLabel) alphaLabel.textContent = `${Math.round(alpha * 100)}%`;
 
-  const colorAInput = root.querySelector<HTMLInputElement>('input[data-constant-color="a"]');
-  if (colorAInput) {
-    colorAInput.value = colorA;
-    syncDarkColorInputUI(colorAInput, colorA);
-  }
-
-  const colorBInput = root.querySelector<HTMLInputElement>('input[data-constant-color="b"]');
-  if (colorBInput) {
-    colorBInput.value = colorB;
-    syncDarkColorInputUI(colorBInput, colorB);
-  }
-
   for (const button of Array.from(root.querySelectorAll<HTMLButtonElement>('button[data-constant-mode]'))) {
     styleSoftButton(button, button.dataset.constantMode === mode);
   }
-
-  const secondaryColorWrap = root.querySelector<HTMLElement>('[data-constant-color-wrap="b"]');
-  if (secondaryColorWrap) secondaryColorWrap.style.display = mode === "checkerboard" ? "grid" : "none";
-  setDarkColorInputState(colorBInput, false, mode !== "checkerboard");
 }

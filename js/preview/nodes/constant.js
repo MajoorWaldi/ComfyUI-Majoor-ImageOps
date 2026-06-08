@@ -2,11 +2,8 @@ import { ensureState } from "../shared/state.js";
 import { resolveImageOpsClassName } from "../shared/classes.js";
 import { findWidget, hideWidgetsByName, setWidgetStringValuesByName, widgetNumber, widgetString, setWidgetValue } from "../shared/widgets.js";
 import {
-  createColorSwatch,
-  setDarkColorInputState,
   styleSoftButton,
-  styleSoftRange,
-  syncDarkColorInputUI
+  styleSoftRange
 } from "../shared/dom-styles.js";
 const CONSTANT_RATIO_PRESETS = {
   "1:1": 1,
@@ -79,29 +76,10 @@ function createConstantControlsUi() {
   alphaValue.style.textAlign = "right";
   alphaRow.appendChild(alphaValue);
   controls.appendChild(alphaRow);
-  const colorsRow = makeRow();
-  colorsRow.style.gridTemplateColumns = "auto minmax(0,1fr) minmax(0,1fr)";
-  colorsRow.appendChild(makeLabel("Colors"));
-  const colorA = createColorSwatch("#ffffff");
-  colorA.input.dataset.constantColor = "a";
-  colorsRow.appendChild(colorA.host);
-  const colorBWrap = document.createElement("div");
-  colorBWrap.dataset.constantColorWrap = "b";
-  colorBWrap.style.display = "grid";
-  colorBWrap.style.gridTemplateColumns = "auto minmax(0,1fr)";
-  colorBWrap.style.gap = "6px";
-  colorBWrap.style.alignItems = "center";
-  const colorBLabel = makeLabel("Alt");
-  const colorB = createColorSwatch("#000000");
-  colorB.input.dataset.constantColor = "b";
-  colorBWrap.appendChild(colorBLabel);
-  colorBWrap.appendChild(colorB.host);
-  colorsRow.appendChild(colorBWrap);
-  controls.appendChild(colorsRow);
   return { controls };
 }
 function hideConstantWidgets(node) {
-  for (const name of ["mode", "color", "color_b", "alpha", "frame_length", "batch_size"]) {
+  for (const name of ["mode", "alpha", "frame_length", "batch_size"]) {
     hideWidgetsByName(node, name);
   }
 }
@@ -168,22 +146,9 @@ function syncConstantWidgets(node, changedName, notify = true) {
   if (alphaInput) alphaInput.value = String(Math.round(alpha * 100));
   const alphaLabel = root.querySelector("[data-constant-alpha-label]");
   if (alphaLabel) alphaLabel.textContent = `${Math.round(alpha * 100)}%`;
-  const colorAInput = root.querySelector('input[data-constant-color="a"]');
-  if (colorAInput) {
-    colorAInput.value = colorA;
-    syncDarkColorInputUI(colorAInput, colorA);
-  }
-  const colorBInput = root.querySelector('input[data-constant-color="b"]');
-  if (colorBInput) {
-    colorBInput.value = colorB;
-    syncDarkColorInputUI(colorBInput, colorB);
-  }
   for (const button of Array.from(root.querySelectorAll("button[data-constant-mode]"))) {
     styleSoftButton(button, button.dataset.constantMode === mode);
   }
-  const secondaryColorWrap = root.querySelector('[data-constant-color-wrap="b"]');
-  if (secondaryColorWrap) secondaryColorWrap.style.display = mode === "checkerboard" ? "grid" : "none";
-  setDarkColorInputState(colorBInput, false, mode !== "checkerboard");
 }
 export {
   NODE_CLASS,

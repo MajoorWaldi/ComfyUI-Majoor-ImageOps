@@ -83,6 +83,7 @@ function attachInteractions(node, ctx) {
     canvas.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
       event.preventDefault();
+      event.stopPropagation();
       try {
         canvas.setPointerCapture(event.pointerId);
       } catch {
@@ -98,6 +99,8 @@ function attachInteractions(node, ctx) {
     });
     canvas.addEventListener("pointermove", (event) => {
       if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      event.stopPropagation();
       const rect = canvas.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) return;
       const dx = (event.clientX - drag.startClientX) / rect.width;
@@ -122,6 +125,7 @@ function attachInteractions(node, ctx) {
     canvas.addEventListener("pointercancel", endDrag);
     canvas.addEventListener("wheel", (event) => {
       event.preventDefault();
+      event.stopPropagation();
       const step = event.shiftKey ? 10 : 2;
       const delta = event.deltaY > 0 ? -step : step;
       const current = Math.max(1, Math.round(widgetNumber(node, "font_size", 64)));

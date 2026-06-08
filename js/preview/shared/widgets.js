@@ -82,6 +82,18 @@ function hideWidgetsByName(node, name) {
     }
   }
 }
+function deduplicateColorWidgets(node) {
+  if (!node?.widgets) return;
+  const seen = /* @__PURE__ */ new Set();
+  for (const widget of node.widgets) {
+    if (!widget?.name) continue;
+    if (seen.has(widget.name)) {
+      hideWidgetForGood(node, widget);
+    } else {
+      seen.add(widget.name);
+    }
+  }
+}
 function setWidgetValue(widget, value, options = {}) {
   if (!widget) return;
   const notify = options.notify !== false;
@@ -207,6 +219,7 @@ function resetNodeWidgetsToDefaults(node) {
   return resetNames;
 }
 export {
+  deduplicateColorWidgets,
   findWidget,
   getWidgetDefaultValue,
   getWidgetInputSpec,

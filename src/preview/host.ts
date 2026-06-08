@@ -21,7 +21,7 @@ import { getPreviewConfig } from "./config.js";
 import { initOpsConstants } from "./constants.js";
 import { getCompSlots } from "./comp.js";
 import { renderCompPreview } from "./ops.js";
-import { findWidget, hideCompactUiWidgets, resetNodeWidgetsToDefaults, setWidgetStringValue, widgetNumber, widgetString } from "./shared/widgets.js";
+import { findWidget, hideCompactUiWidgets, resetNodeWidgetsToDefaults, setWidgetStringValue, widgetNumber, widgetString, deduplicateColorWidgets } from "./shared/widgets.js";
 import { getProceduralFrameCount, hasProceduralAnimation, getProceduralPlaybackFps } from "./shared/animation.js";
 import { getInputIndexByName, getNativePreviewImage } from "./shared/media.js";
 import { isImageOpsClass, isImageOpsNativeUiClass } from "./shared/classes.js";
@@ -1100,6 +1100,8 @@ export function registerImageOpsLivePreview(): void {
       return r;
     };
 
+    deduplicateColorWidgets(node);
+
     if (isCropNode(node)) {
       hideCropGeometryWidgets(node);
       syncCropWidgets(node);
@@ -1290,6 +1292,8 @@ export function registerImageOpsLivePreview(): void {
         if (prop === "onConfigure") {
           try { st._abortController?.abort(); } catch {}
           st._abortController = new AbortController();
+          st.previewNavigationHooked = false;
+          (st as any).previewNavigationCanvas = null;
         }
         const r = orig?.apply(this, arguments as any);
         if (isCropNode(node) && prop === "onConfigure") {
@@ -1417,6 +1421,7 @@ export function registerImageOpsLivePreview(): void {
         }
         // Removed hideCompactUiWidgets & syncCompactNativeWidgetControls calls to support native ComfyUI widgets
         if (prop === "onConfigure" && isImageOpsClass(node.comfyClass)) {
+          attachPreviewNavigation(node, canvasSize);
           const minH = getNodePreviewMinHeight(node);
           // Defer so any post-configure size restoration by ComfyUI happens first.
           setTimeout(() => {

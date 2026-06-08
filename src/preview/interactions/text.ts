@@ -101,6 +101,7 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     canvas.addEventListener("pointerdown", (event: PointerEvent) => {
       if (event.button !== 0) return;
       event.preventDefault();
+      event.stopPropagation();
       try { canvas.setPointerCapture(event.pointerId); } catch { /* ignore */ }
       drag = {
         pointerId: event.pointerId,
@@ -114,6 +115,8 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
 
     canvas.addEventListener("pointermove", (event: PointerEvent) => {
       if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      event.stopPropagation();
       const rect = canvas.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) return;
       const dx = (event.clientX - drag.startClientX) / rect.width;
@@ -139,9 +142,9 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     canvas.addEventListener("pointerup", endDrag);
     canvas.addEventListener("pointercancel", endDrag);
 
-    // Scroll → resize font_size (±2, or ±10 with Shift)
     canvas.addEventListener("wheel", (event: WheelEvent) => {
       event.preventDefault();
+      event.stopPropagation();
       const step = event.shiftKey ? 10 : 2;
       const delta = event.deltaY > 0 ? -step : step;
       const current = Math.max(1, Math.round(widgetNumber(node, "font_size", 64)));

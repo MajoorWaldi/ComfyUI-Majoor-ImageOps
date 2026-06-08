@@ -12,10 +12,12 @@ function isInteractiveNode(node: ComfyNode): boolean {
 
 export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): void {
   const st = ensureState(node);
-  if (st.previewNavigationHooked) return;
-  st.previewNavigationHooked = true;
   const canvas = st.canvas;
   if (!canvas) return;
+  if (st.previewNavigationHooked && (st as any).previewNavigationCanvas === canvas) return;
+  st.previewNavigationHooked = true;
+  (st as any).previewNavigationCanvas = canvas;
+  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : undefined;
 
   const reblitNow = (): void => {
     if (!st.previewLastSource) return;
@@ -31,7 +33,7 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
 
   // ── Left-drag pan ──
   canvas.addEventListener("pointerdown", (event: PointerEvent) => {
-    if (event.button !== 0 || isInteractiveNode(node)) return;
+    if (event.button !== 0 || !(event.ctrlKey || event.metaKey) || isInteractiveNode(node)) return;
     event.preventDefault();
     event.stopPropagation();
     try { canvas.setPointerCapture(event.pointerId); } catch {}
@@ -45,7 +47,7 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
       startPanY: st.previewPanY,
     };
     canvas.style.cursor = "grabbing";
-  });
+  }, listenerOptions);
 
   let panRafPending = false;
   canvas.addEventListener("pointermove", (event: PointerEvent) => {
@@ -61,7 +63,7 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
       panRafPending = true;
       requestAnimationFrame(() => { panRafPending = false; reblitNow(); });
     }
-  });
+  }, listenerOptions);
 
   canvas.addEventListener("pointerup", (event: PointerEvent) => {
     if (st.previewPanDrag?.pointerId === event.pointerId) {
@@ -69,14 +71,14 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
       canvas.style.cursor = "";
       try { canvas.releasePointerCapture(event.pointerId); } catch {}
     }
-  });
+  }, listenerOptions);
 
   canvas.addEventListener("pointercancel", (event: PointerEvent) => {
     if (st.previewPanDrag?.pointerId === event.pointerId) {
       st.previewPanDrag = null;
       canvas.style.cursor = "";
     }
-  });
+  }, listenerOptions);
 
   // ── Wheel: zoom toward cursor (disabled for interactive nodes — they handle wheel themselves) ──
   // In Node 2.0, graph-canvas-container intercepts wheel events in capture phase
@@ -120,6 +122,5 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
     st.previewPanX = 0;
     st.previewPanY = 0;
     reblitNow();
-  });
+  }, listenerOptions);
 }
-

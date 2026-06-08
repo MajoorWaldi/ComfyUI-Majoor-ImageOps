@@ -15,6 +15,7 @@ function attachInteractions(node, ctx) {
   if (!st?.canvas || st.drawInteractiveHooked) return;
   st.drawInteractiveHooked = true;
   const canvas = st.canvas;
+  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : void 0;
   const worldPointer = (x, y) => {
     const zoom = st.previewZoom ?? 1;
     const panX = st.previewPanX ?? 0;
@@ -84,11 +85,11 @@ function attachInteractions(node, ctx) {
   st.drawBrushButton?.addEventListener("click", (event) => {
     event.preventDefault();
     ctx.setDrawTool(node, "brush");
-  });
+  }, listenerOptions);
   st.drawEraserButton?.addEventListener("click", (event) => {
     event.preventDefault();
     ctx.setDrawTool(node, "eraser");
-  });
+  }, listenerOptions);
   st.drawClearButton?.addEventListener("click", (event) => {
     event.preventDefault();
     ctx.ensureDrawCanvasSize(node, st.drawCanvas?.width ?? widgetNumber(node, "width", 1024), st.drawCanvas?.height ?? widgetNumber(node, "height", 1024), false);
@@ -97,7 +98,7 @@ function attachInteractions(node, ctx) {
     st.drawUndoStack = [];
     ctx.updateDrawOverlayWidget(node);
     ctx.refreshNode(node);
-  });
+  }, listenerOptions);
   st.drawColorInput?.addEventListener("input", () => {
     const color = normalizeDrawColor(st.drawColorInput?.value ?? "#FFFFFF", "#FFFFFF");
     setWidgetStringValuesByName(node, "brush_color", color);
@@ -106,31 +107,31 @@ function attachInteractions(node, ctx) {
       ctx.syncDarkColorInputUI(st.drawColorInput, color);
     }
     void ctx.renderDrawNode(node, 0);
-  });
+  }, listenerOptions);
   st.drawEdgeSelect?.addEventListener("change", () => {
     const edge = normalizeDrawEdge(st.drawEdgeSelect?.value ?? "hard");
     setWidgetStringValue(findWidget(node, "brush_edge"), edge);
     if (st.drawEdgeSelect) st.drawEdgeSelect.value = edge;
     ctx.syncDrawWidgets(node);
     void ctx.renderDrawNode(node, 0);
-  });
+  }, listenerOptions);
   st.drawSoftnessInput?.addEventListener("input", () => {
     const softness = clampDrawSoftness(Number(st.drawSoftnessInput?.value ?? 50) / 100, 0.5);
     setWidgetValue(findWidget(node, "brush_softness"), softness);
     if (st.drawSoftnessLabel) st.drawSoftnessLabel.textContent = `${Math.round(softness * 100)}%`;
     void ctx.renderDrawNode(node, 0);
-  });
+  }, listenerOptions);
   st.drawOpacityInput?.addEventListener("input", () => {
     const opacity = clampDrawOpacity(Number(st.drawOpacityInput?.value ?? 100) / 100, 1);
     setWidgetValue(findWidget(node, "brush_opacity"), opacity);
     if (st.drawOpacityLabel) st.drawOpacityLabel.textContent = `${Math.round(opacity * 100)}%`;
     void ctx.renderDrawNode(node, 0);
-  });
+  }, listenerOptions);
   st.drawSizeInput?.addEventListener("input", () => {
     const size = clampDrawSize(Number(st.drawSizeInput?.value ?? 10), 10);
     ctx.setDrawBrushSize(node, size);
     void ctx.renderDrawNode(node, 0);
-  });
+  }, listenerOptions);
   st.drawWidthInput?.addEventListener("change", () => {
     if ((node.inputs?.[0]?.link ?? null) != null) return;
     const width = clampDrawDimension(Number(st.drawWidthInput?.value ?? widgetNumber(node, "width", 1024)), widgetNumber(node, "width", 1024));
@@ -138,7 +139,7 @@ function attachInteractions(node, ctx) {
     ctx.syncDrawWidgets(node, "width");
     ctx.ensureDrawCanvasSize(node, widgetNumber(node, "width", width), widgetNumber(node, "height", 1024), true);
     ctx.refreshNode(node);
-  });
+  }, listenerOptions);
   st.drawHeightInput?.addEventListener("change", () => {
     if ((node.inputs?.[0]?.link ?? null) != null) return;
     const height = clampDrawDimension(Number(st.drawHeightInput?.value ?? widgetNumber(node, "height", 1024)), widgetNumber(node, "height", 1024));
@@ -146,7 +147,7 @@ function attachInteractions(node, ctx) {
     ctx.syncDrawWidgets(node, "height");
     ctx.ensureDrawCanvasSize(node, widgetNumber(node, "width", 1024), widgetNumber(node, "height", height), true);
     ctx.refreshNode(node);
-  });
+  }, listenerOptions);
   st.drawLinkButton?.addEventListener("click", (event) => {
     event.preventDefault();
     if ((node.inputs?.[0]?.link ?? null) != null) return;
@@ -154,7 +155,7 @@ function attachInteractions(node, ctx) {
     setWidgetBooleanValue(findWidget(node, "sync_dimensions"), linked);
     ctx.syncDrawWidgets(node, "sync_dimensions");
     ctx.refreshNode(node);
-  });
+  }, listenerOptions);
   st.drawBgColorInput?.addEventListener("input", () => {
     if ((node.inputs?.[0]?.link ?? null) != null) return;
     const color = normalizeDrawColor(st.drawBgColorInput?.value ?? "#000000", "#000000");
@@ -164,7 +165,7 @@ function attachInteractions(node, ctx) {
       ctx.syncDarkColorInputUI(st.drawBgColorInput, color);
     }
     ctx.refreshNode(node);
-  });
+  }, listenerOptions);
   st.drawOverlayFormatSelect?.addEventListener("change", () => {
     const format = normalizeDrawOverlayFormat(st.drawOverlayFormatSelect?.value ?? "png");
     setWidgetStringValue(findWidget(node, "overlay_format"), format);
@@ -178,16 +179,16 @@ function attachInteractions(node, ctx) {
     }
     ctx.updateDrawOverlayWidget(node);
     ctx.refreshNode(node);
-  });
+  }, listenerOptions);
   const syncDrawDynamics = () => {
     setWidgetBooleanValue(findWidget(node, "brush_pressure_size"), !!st.drawPressureSizeInput?.checked);
     setWidgetBooleanValue(findWidget(node, "brush_pressure_opacity"), !!st.drawPressureOpacityInput?.checked);
     setWidgetBooleanValue(findWidget(node, "brush_tilt_size"), !!st.drawTiltSizeInput?.checked);
     void ctx.renderDrawNode(node, 0);
   };
-  st.drawPressureSizeInput?.addEventListener("change", syncDrawDynamics);
-  st.drawPressureOpacityInput?.addEventListener("change", syncDrawDynamics);
-  st.drawTiltSizeInput?.addEventListener("change", syncDrawDynamics);
+  st.drawPressureSizeInput?.addEventListener("change", syncDrawDynamics, listenerOptions);
+  st.drawPressureOpacityInput?.addEventListener("change", syncDrawDynamics, listenerOptions);
+  st.drawTiltSizeInput?.addEventListener("change", syncDrawDynamics, listenerOptions);
   const handleDrawWheel = (event) => {
     const target = event.target;
     if (target !== canvas && !canvas.contains(target)) return;
@@ -242,14 +243,14 @@ function attachInteractions(node, ctx) {
     ctx.restoreCanvas(st.drawCanvas, snapshot);
     ctx.updateDrawOverlayWidget(node);
     ctx.refreshNode(node);
-  });
+  }, listenerOptions);
   canvas.addEventListener("dblclick", () => {
     if ((st.previewZoom ?? 1) === 1 && (st.previewPanX ?? 0) === 0 && (st.previewPanY ?? 0) === 0) return;
     st.previewZoom = 1;
     st.previewPanX = 0;
     st.previewPanY = 0;
     void ctx.renderDrawNode(node, 0);
-  });
+  }, listenerOptions);
   canvas.addEventListener("pointerdown", async (event) => {
     if ((event.ctrlKey || event.metaKey) && event.button === 0) {
       event.preventDefault();
@@ -263,6 +264,7 @@ function attachInteractions(node, ctx) {
       if (!canvasToSource(point0.x, point0.y).inside) return;
     }
     event.preventDefault();
+    event.stopPropagation();
     canvas.focus();
     const ready = await ctx.ensureDrawInteractionReady(node);
     if (!ready || !st.drawGeometry) return;
@@ -291,7 +293,7 @@ function attachInteractions(node, ctx) {
     ctx.markPreviewInteraction(node);
     ctx.markCanvasDirty();
     void ctx.renderDrawNode(node, 0);
-  });
+  }, listenerOptions);
   canvas.addEventListener("pointermove", (event) => {
     if (updatePreviewPan(event)) {
       event.preventDefault();
@@ -331,7 +333,7 @@ function attachInteractions(node, ctx) {
     drag.lastY = mapped.y;
     ctx.markPreviewInteraction(node);
     void ctx.renderDrawNode(node, 0);
-  });
+  }, listenerOptions);
   const releaseStroke = (event) => {
     if (!st.drawStroke || st.drawStroke.pointerId !== event.pointerId) return;
     st.drawStroke = null;
@@ -345,21 +347,21 @@ function attachInteractions(node, ctx) {
   canvas.addEventListener("pointerup", (event) => {
     if (releasePreviewPan(event)) return;
     releaseStroke(event);
-  });
+  }, listenerOptions);
   canvas.addEventListener("pointercancel", (event) => {
     if (releasePreviewPan(event)) return;
     releaseStroke(event);
-  });
+  }, listenerOptions);
   canvas.addEventListener("pointerleave", () => {
     if (!st.drawStroke && !st.previewPanDrag) {
       st.drawHover = null;
       canvas.style.cursor = "";
       void ctx.renderDrawNode(node, 0);
     }
-  });
+  }, listenerOptions);
   canvas.addEventListener("pointerenter", () => {
     canvas.focus();
-  });
+  }, listenerOptions);
 }
 export {
   attachInteractions

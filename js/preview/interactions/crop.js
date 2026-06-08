@@ -18,6 +18,7 @@ function attachInteractions(node, ctx) {
   st.cropInteractiveHooked = true;
   let moveRafPending = false;
   const canvas = st.canvas;
+  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : void 0;
   const worldPt = (event) => {
     const raw = getCanvasPointer(canvas, event);
     return screenToWorld(raw.x, raw.y, st.previewZoom ?? 1, st.previewPanX ?? 0, st.previewPanY ?? 0, canvas.width);
@@ -33,7 +34,7 @@ function attachInteractions(node, ctx) {
       ctx.refreshDependents(node);
     }, 0);
     ctx.refreshNode(node);
-  });
+  }, listenerOptions);
   canvas.addEventListener("pointerdown", (event) => {
     const geometry = st.cropGeometry;
     if (!geometry) return;
@@ -63,7 +64,7 @@ function attachInteractions(node, ctx) {
       startOutputHeight: Math.max(1, Math.round(widgetNumber(node, "height", geometry.cropHeight)))
     };
     canvas.style.cursor = getCropCursor(mode);
-  });
+  }, listenerOptions);
   canvas.addEventListener("pointermove", (event) => {
     const point = worldPt(event);
     const drag = st.cropDrag;
@@ -142,7 +143,7 @@ function attachInteractions(node, ctx) {
         ctx.refreshNode(node);
       });
     }
-  });
+  }, listenerOptions);
   const releaseDrag = (event) => {
     if (!st.cropDrag || st.cropDrag.pointerId !== event.pointerId) return;
     st.cropDrag = null;
@@ -164,11 +165,11 @@ function attachInteractions(node, ctx) {
     }
     ctx.refreshNode(node);
   };
-  canvas.addEventListener("pointerup", releaseDrag);
-  canvas.addEventListener("pointercancel", releaseDrag);
+  canvas.addEventListener("pointerup", releaseDrag, listenerOptions);
+  canvas.addEventListener("pointercancel", releaseDrag, listenerOptions);
   canvas.addEventListener("pointerleave", () => {
     if (!st.cropDrag) canvas.style.cursor = "default";
-  });
+  }, listenerOptions);
 }
 export {
   attachInteractions

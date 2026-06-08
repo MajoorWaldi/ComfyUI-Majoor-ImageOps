@@ -21,6 +21,7 @@ export function attachInteractions(node: ComfyNode, ctx: CropInteractionContext)
   let moveRafPending = false;
 
   const canvas: HTMLCanvasElement = st.canvas;
+  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : undefined;
 
   // Convert a screen-space pointer event to world-space (pre-zoom/pan) canvas coordinates.
   // Geometry objects store world-space positions, so all pointer comparisons must use these.
@@ -40,7 +41,7 @@ export function attachInteractions(node: ComfyNode, ctx: CropInteractionContext)
       ctx.refreshDependents(node);
     }, 0);
     ctx.refreshNode(node);
-  });
+  }, listenerOptions);
 
   canvas.addEventListener("pointerdown", (event: PointerEvent) => {
     const geometry = st.cropGeometry;
@@ -69,7 +70,7 @@ export function attachInteractions(node: ComfyNode, ctx: CropInteractionContext)
       startOutputHeight: Math.max(1, Math.round(widgetNumber(node, "height", geometry.cropHeight))),
     };
     canvas.style.cursor = getCropCursor(mode);
-  });
+  }, listenerOptions);
 
   canvas.addEventListener("pointermove", (event: PointerEvent) => {
     const point = worldPt(event);
@@ -151,7 +152,7 @@ export function attachInteractions(node: ComfyNode, ctx: CropInteractionContext)
       moveRafPending = true;
       requestAnimationFrame(() => { moveRafPending = false; ctx.refreshNode(node); });
     }
-  });
+  }, listenerOptions);
 
   const releaseDrag = (event: PointerEvent) => {
     if (!st.cropDrag || st.cropDrag.pointerId !== event.pointerId) return;
@@ -172,9 +173,9 @@ export function attachInteractions(node: ComfyNode, ctx: CropInteractionContext)
     ctx.refreshNode(node);
   };
 
-  canvas.addEventListener("pointerup", releaseDrag);
-  canvas.addEventListener("pointercancel", releaseDrag);
+  canvas.addEventListener("pointerup", releaseDrag, listenerOptions);
+  canvas.addEventListener("pointercancel", releaseDrag, listenerOptions);
   canvas.addEventListener("pointerleave", () => {
     if (!st.cropDrag) canvas.style.cursor = "default";
-  });
+  }, listenerOptions);
 }

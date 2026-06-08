@@ -24,6 +24,7 @@ function attachInteractions(node, ctx) {
   st.cornerPinInteractiveHooked = true;
   let moveRafPending = false;
   const canvas = st.canvas;
+  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : void 0;
   const worldPt = (event) => {
     const raw = getCanvasPointer(canvas, event);
     return screenToWorld(raw.x, raw.y, st.previewZoom ?? 1, st.previewPanX ?? 0, st.previewPanY ?? 0, canvas.width);
@@ -40,7 +41,7 @@ function attachInteractions(node, ctx) {
     safeSetPointerCapture(canvas, event.pointerId);
     st.cornerPinDrag = { pointerId: event.pointerId, handle: hit };
     canvas.style.cursor = "grabbing";
-  });
+  }, listenerOptions);
   const SNAP_THRESHOLD = 0.015;
   const maybeSnap = (n, altKey) => {
     if (altKey) return n;
@@ -69,7 +70,7 @@ function attachInteractions(node, ctx) {
         ctx.refreshNode(node);
       });
     }
-  });
+  }, listenerOptions);
   const releaseDrag = (event) => {
     if (!st.cornerPinDrag || st.cornerPinDrag.pointerId !== event.pointerId) return;
     const drag = st.cornerPinDrag;
@@ -85,13 +86,13 @@ function attachInteractions(node, ctx) {
     }
     ctx.refreshNode(node);
   };
-  canvas.addEventListener("pointerup", releaseDrag);
-  canvas.addEventListener("pointercancel", releaseDrag);
+  canvas.addEventListener("pointerup", releaseDrag, listenerOptions);
+  canvas.addEventListener("pointercancel", releaseDrag, listenerOptions);
   canvas.addEventListener("pointerleave", () => {
     if (!st.cornerPinDrag) {
       canvas.style.cursor = "default";
     }
-  });
+  }, listenerOptions);
 }
 export {
   attachInteractions

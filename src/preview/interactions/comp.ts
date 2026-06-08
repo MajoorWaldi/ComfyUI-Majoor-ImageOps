@@ -54,14 +54,14 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
   let moveRafPending = false;
 
   const canvas: HTMLCanvasElement = st.canvas;
+  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : undefined;
 
   const worldPt = (event: PointerEvent) => {
     const raw = getCanvasPointer(canvas, event);
     return screenToWorld(raw.x, raw.y, st.previewZoom ?? 1, st.previewPanX ?? 0, st.previewPanY ?? 0, canvas.width);
   };
 
-  if (st.compAddButton && !st.compAddButton.dataset.compAddHooked) {
-    st.compAddButton.dataset.compAddHooked = "1";
+  if (st.compAddButton) {
     st.compAddButton.addEventListener("click", (event: MouseEvent) => {
       event.preventDefault();
       ensureCompInputs(node, Math.max(1, getCompSlots(node).length + 1));
@@ -74,11 +74,10 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
         ctx.startLoopIfVideo(node);
         ctx.refreshDependents(node);
       }, 0);
-    });
+    }, listenerOptions);
   }
 
-  if (st.compRemoveButton && !st.compRemoveButton.dataset.compRemoveHooked) {
-    st.compRemoveButton.dataset.compRemoveHooked = "1";
+  if (st.compRemoveButton) {
     st.compRemoveButton.addEventListener("click", (event: MouseEvent) => {
       event.preventDefault();
       if (!removeSelectedCompLayer(node)) return;
@@ -89,7 +88,7 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
         ctx.startLoopIfVideo(node);
         ctx.refreshDependents(node);
       }, 0);
-    });
+    }, listenerOptions);
   }
 
   st.compResetButton?.addEventListener("click", (event: MouseEvent) => {
@@ -103,7 +102,7 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
       ctx.startLoopIfVideo(node);
       ctx.refreshDependents(node);
     }, 0);
-  });
+  }, listenerOptions);
 
   st.compResizeButton?.addEventListener("click", (event: MouseEvent) => {
     event.preventDefault();
@@ -111,7 +110,7 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
     ctx.updateCompControls(node);
     ctx.markPreviewInteraction(node);
     ctx.markCanvasDirty();
-  });
+  }, listenerOptions);
 
   st.compCornerPinButton?.addEventListener("click", (event: MouseEvent) => {
     event.preventDefault();
@@ -119,7 +118,7 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
     ctx.updateCompControls(node);
     ctx.markPreviewInteraction(node);
     ctx.markCanvasDirty();
-  });
+  }, listenerOptions);
 
 
   st.compModeSelect?.addEventListener("change", () => {
@@ -132,7 +131,7 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
       ctx.startLoopIfVideo(node);
       ctx.refreshDependents(node);
     }, 0);
-  });
+  }, listenerOptions);
 
   st.compOpacityInput?.addEventListener("input", () => {
     ctx.updateSelectedCompLayer(node, (layer: any) => {
@@ -144,7 +143,7 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
       ctx.startLoopIfVideo(node);
       ctx.refreshDependents(node);
     }, 0);
-  });
+  }, listenerOptions);
 
   canvas.addEventListener("pointerdown", (event: PointerEvent) => {
     const point = worldPt(event);
@@ -187,7 +186,7 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
     canvas.style.cursor = getCompCursor(hit.mode);
     ctx.markPreviewInteraction(node);
     ctx.markCanvasDirty();
-  });
+  }, listenerOptions);
 
   canvas.addEventListener("pointermove", (event: PointerEvent) => {
     const point = worldPt(event);
@@ -277,7 +276,7 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
         }, 0);
       });
     }
-  });
+  }, listenerOptions);
 
   const releaseDrag = (event: PointerEvent) => {
     if (!st.compDrag || st.compDrag.pointerId !== event.pointerId) return;
@@ -294,11 +293,11 @@ export function attachInteractions(node: ComfyNode, ctx: CompInteractionContext)
     }, 0);
   };
 
-  canvas.addEventListener("pointerup", releaseDrag);
-  canvas.addEventListener("pointercancel", releaseDrag);
+  canvas.addEventListener("pointerup", releaseDrag, listenerOptions);
+  canvas.addEventListener("pointercancel", releaseDrag, listenerOptions);
   canvas.addEventListener("pointerleave", () => {
     if (!st.compDrag) canvas.style.cursor = "default";
-  });
+  }, listenerOptions);
 
   // Keyboard shortcuts (only when canvas has focus or pointer is over it)
   if (!st.compKeyboardHooked) {

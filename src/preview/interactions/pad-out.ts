@@ -8,6 +8,7 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
   if (!st?.canvas || st.padOutInteractiveHooked) return;
   st.padOutInteractiveHooked = true;
   const canvas = st.canvas;
+  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : undefined;
 
   const worldPt = (event: PointerEvent) => {
     const raw = getCanvasPointer(canvas, event);
@@ -34,7 +35,7 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
       startPadBottom: geometry.padBottom,
     };
     canvas.style.cursor = getPadOutCursor(mode);
-  });
+  }, listenerOptions);
 
   canvas.addEventListener("pointermove", (event: PointerEvent) => {
     const point = worldPt(event);
@@ -88,7 +89,7 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     syncPadOutControls(node);
     ctx.refreshNode(node);
     canvas.style.cursor = getPadOutCursor(drag.mode);
-  });
+  }, listenerOptions);
 
   const releaseDrag = (event: PointerEvent) => {
     if (!st.padOutDrag || st.padOutDrag.pointerId !== event.pointerId) return;
@@ -101,13 +102,13 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     ctx.refreshNode(node);
   };
 
-  canvas.addEventListener("pointerup", releaseDrag);
-  canvas.addEventListener("pointercancel", releaseDrag);
+  canvas.addEventListener("pointerup", releaseDrag, listenerOptions);
+  canvas.addEventListener("pointercancel", releaseDrag, listenerOptions);
   canvas.addEventListener("pointerleave", () => {
     if (!st.padOutDrag) {
       canvas.style.cursor = "default";
     }
-  });
+  }, listenerOptions);
 
   canvas.addEventListener("keydown", (event: KeyboardEvent) => {
     if (["INPUT", "SELECT", "TEXTAREA"].includes((event.target as HTMLElement | null)?.tagName ?? "")) return;
@@ -125,5 +126,5 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
     setPadOutOutputRect(node, frame.sourceWidth, frame.sourceHeight, x1, y1, frame.outWidth, frame.outHeight);
     syncPadOutControls(node);
     ctx.refreshNode(node);
-  });
+  }, listenerOptions);
 }

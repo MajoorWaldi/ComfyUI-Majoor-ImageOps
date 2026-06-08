@@ -10,7 +10,7 @@ import { getPreviewConfig } from "./config.js";
 import { initOpsConstants } from "./constants.js";
 import { getCompSlots } from "./comp.js";
 import { renderCompPreview } from "./ops.js";
-import { findWidget, resetNodeWidgetsToDefaults, setWidgetStringValue, widgetNumber, widgetString } from "./shared/widgets.js";
+import { findWidget, resetNodeWidgetsToDefaults, setWidgetStringValue, widgetNumber, widgetString, deduplicateColorWidgets } from "./shared/widgets.js";
 import { getProceduralFrameCount, hasProceduralAnimation, getProceduralPlaybackFps } from "./shared/animation.js";
 import { getInputIndexByName, getNativePreviewImage } from "./shared/media.js";
 import { isImageOpsClass } from "./shared/classes.js";
@@ -1012,6 +1012,7 @@ function registerImageOpsLivePreview() {
       }
       return r;
     };
+    deduplicateColorWidgets(node);
     if (isCropNode(node)) {
       hideCropGeometryWidgets(node);
       syncCropWidgets(node);
@@ -1195,6 +1196,8 @@ function registerImageOpsLivePreview() {
           } catch {
           }
           st._abortController = new AbortController();
+          st.previewNavigationHooked = false;
+          st.previewNavigationCanvas = null;
         }
         const r = orig?.apply(this, arguments);
         if (isCropNode(node) && prop === "onConfigure") {
@@ -1316,6 +1319,7 @@ function registerImageOpsLivePreview() {
           syncFrameSelectorWidgets(node);
         }
         if (prop === "onConfigure" && isImageOpsClass(node.comfyClass)) {
+          attachPreviewNavigation(node, canvasSize);
           const minH = getNodePreviewMinHeight(node);
           setTimeout(() => {
             try {

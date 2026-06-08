@@ -31,7 +31,7 @@ function createPadOutControlsUi() {
   controls.style.width = "100%";
   const fitButton = document.createElement("button");
   fitButton.type = "button";
-  fitButton.textContent = "Fit All";
+  fitButton.textContent = "Reset View";
   fitButton.dataset.padout = "fit_all";
   styleSoftButton(fitButton, false);
   fitButton.style.padding = "4px 16px";
@@ -146,14 +146,20 @@ function applyPadOutTargetFormat(node, targetFormat) {
   const ratio = TARGET_RATIO_MAP[normalizeTargetFormat(targetFormat)] ?? null;
   if (ratio == null) return;
   const frame = getPadOutFrame(node);
-  let outWidth = frame.outWidth;
-  let outHeight = frame.outHeight;
-  if (outWidth / Math.max(1, outHeight) < ratio) {
-    outWidth = outHeight * ratio;
-  } else if (outWidth / Math.max(1, outHeight) > ratio) {
-    outHeight = outWidth / ratio;
+  const sw = frame.sourceWidth;
+  const sh = frame.sourceHeight;
+  let outWidth;
+  let outHeight;
+  if (sw / Math.max(1, sh) >= ratio) {
+    outWidth = sw;
+    outHeight = sw / ratio;
+  } else {
+    outHeight = sh;
+    outWidth = sh * ratio;
   }
-  setPadOutOutputRect(node, frame.sourceWidth, frame.sourceHeight, frame.centerX - outWidth / 2, frame.centerY - outHeight / 2, outWidth, outHeight);
+  const x1 = (sw - outWidth) / 2;
+  const y1 = (sh - outHeight) / 2;
+  setPadOutOutputRect(node, sw, sh, x1, y1, outWidth, outHeight);
 }
 function hydratePadOutTargetFormat(node) {
   if (!isNode(node)) return;
@@ -266,7 +272,7 @@ function getPadOutInteractionMode(geometry, x, y) {
   if (Math.abs(x - oRight) <= T && y > oTop + T && y < oBottom - T) return "e";
   if (Math.abs(y - oBottom) <= T && x > oLeft + T && x < oRight - T) return "s";
   if (Math.abs(x - oLeft) <= T && y > oTop + T && y < oBottom - T) return "w";
-  if (x >= iLeft && x <= iRight && y >= iTop && y <= iBottom) return "move";
+  if (x >= oLeft + T && x <= oRight - T && y >= oTop + T && y <= oBottom - T) return "move";
   return null;
 }
 function getPadOutCursor(mode) {
