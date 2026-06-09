@@ -64,7 +64,17 @@ function getNodePreviewContentHeight(node: ComfyNode, root: HTMLElement | null):
   const progressH = getMeasuredBlockHeight(st.progressWrap, 0);
   const compactPanelH = getMeasuredBlockHeight(st.compactNativePanel, 0);
   const chromeH = metaH + controlsH + progressH + compactPanelH + 12;
-  return Math.max(minHeight, imageH + chromeH, chromeH);
+  const measured = Math.max(minHeight, imageH + chromeH, chromeH);
+
+  // LiteGraph/ComfyUI may ask DOM widgets for their min height while the node is
+  // mid-layout or briefly detached. In that window offset/scroll measurements can
+  // collapse, which makes the node compress and the graph canvas jump on the next
+  // layout pass. Keep the last plausible height as a floor once the widget has
+  // been measured at least once.
+  const lastHeight = Math.max(0, Math.round(Number(st.previewWidgetHeight) || 0));
+  const nextHeight = lastHeight > 0 ? Math.max(measured, Math.round(lastHeight * 0.92)) : measured;
+  st.previewWidgetHeight = nextHeight;
+  return nextHeight;
 }
 
 function prettifyWidgetLabel(value: string): string {

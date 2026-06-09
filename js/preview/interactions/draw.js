@@ -352,6 +352,10 @@ function attachInteractions(node, ctx) {
     if (releasePreviewPan(event)) return;
     releaseStroke(event);
   }, listenerOptions);
+  canvas.addEventListener("lostpointercapture", (event) => {
+    if (releasePreviewPan(event)) return;
+    releaseStroke(event);
+  }, listenerOptions);
   canvas.addEventListener("pointerleave", () => {
     if (!st.drawStroke && !st.previewPanDrag) {
       st.drawHover = null;

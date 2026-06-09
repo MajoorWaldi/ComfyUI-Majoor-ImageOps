@@ -65,20 +65,17 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
     }
   }, listenerOptions);
 
-  canvas.addEventListener("pointerup", (event: PointerEvent) => {
+  const releasePanDrag = (event: PointerEvent): void => {
     if (st.previewPanDrag?.pointerId === event.pointerId) {
       st.previewPanDrag = null;
       canvas.style.cursor = "";
       try { canvas.releasePointerCapture(event.pointerId); } catch {}
     }
-  }, listenerOptions);
+  };
 
-  canvas.addEventListener("pointercancel", (event: PointerEvent) => {
-    if (st.previewPanDrag?.pointerId === event.pointerId) {
-      st.previewPanDrag = null;
-      canvas.style.cursor = "";
-    }
-  }, listenerOptions);
+  canvas.addEventListener("pointerup", releasePanDrag, listenerOptions);
+  canvas.addEventListener("pointercancel", releasePanDrag, listenerOptions);
+  canvas.addEventListener("lostpointercapture", releasePanDrag, listenerOptions);
 
   // ── Wheel: zoom toward cursor (disabled for interactive nodes — they handle wheel themselves) ──
   // In Node 2.0, graph-canvas-container intercepts wheel events in capture phase

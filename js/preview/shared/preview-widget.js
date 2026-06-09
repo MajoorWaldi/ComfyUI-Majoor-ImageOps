@@ -47,7 +47,11 @@ function getNodePreviewContentHeight(node, root) {
   const progressH = getMeasuredBlockHeight(st.progressWrap, 0);
   const compactPanelH = getMeasuredBlockHeight(st.compactNativePanel, 0);
   const chromeH = metaH + controlsH + progressH + compactPanelH + 12;
-  return Math.max(minHeight, imageH + chromeH, chromeH);
+  const measured = Math.max(minHeight, imageH + chromeH, chromeH);
+  const lastHeight = Math.max(0, Math.round(Number(st.previewWidgetHeight) || 0));
+  const nextHeight = lastHeight > 0 ? Math.max(measured, Math.round(lastHeight * 0.92)) : measured;
+  st.previewWidgetHeight = nextHeight;
+  return nextHeight;
 }
 function prettifyWidgetLabel(value) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());

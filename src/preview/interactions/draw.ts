@@ -410,6 +410,10 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     if (releasePreviewPan(event)) return;
     releaseStroke(event);
   }, listenerOptions);
+  canvas.addEventListener("lostpointercapture", (event: PointerEvent) => {
+    if (releasePreviewPan(event)) return;
+    releaseStroke(event);
+  }, listenerOptions);
   canvas.addEventListener("pointerleave", () => {
     if (!st.drawStroke && !st.previewPanDrag) {
       st.drawHover = null;

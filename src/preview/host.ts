@@ -1143,6 +1143,7 @@ export function registerImageOpsLivePreview(): void {
     if (isImageOpsClass(node.comfyClass)) {
       node.previewMediaType = "image";
       ensurePreviewWidget(node, progress, canvasSize, () => nodeCtx.refreshNode(node));
+      bindDefaultResetButton(node);
       attachPreviewNavigation(node, canvasSize);
       if (isPreviewNode(node)) {
         attachPreviewInteractionsExt(node, nodeCtx);
@@ -1289,7 +1290,8 @@ export function registerImageOpsLivePreview(): void {
           hideTextWidgets(node);
           attachTextInteractionsExt(node, nodeCtx);
           syncTextWidgets(node);
-        }        if (isRampNode(node) && prop === "onConfigure") {
+        }
+        if (isRampNode(node) && prop === "onConfigure") {
           hideRampWidgets(node);
           st.rampGeometry = null;
           st.rampDrag = null;

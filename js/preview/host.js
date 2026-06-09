@@ -1043,6 +1043,7 @@ function registerImageOpsLivePreview() {
     if (isImageOpsClass(node.comfyClass)) {
       node.previewMediaType = "image";
       ensurePreviewWidget(node, progress, canvasSize, () => nodeCtx.refreshNode(node));
+      bindDefaultResetButton(node);
       attachPreviewNavigation(node, canvasSize);
       if (isPreviewNode(node)) {
         attachPreviewInteractionsExt(node, nodeCtx);

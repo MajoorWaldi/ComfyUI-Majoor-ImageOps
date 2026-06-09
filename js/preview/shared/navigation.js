@@ -60,7 +60,7 @@ function attachPreviewNavigation(node, canvasSize) {
       });
     }
   }, listenerOptions);
-  canvas.addEventListener("pointerup", (event) => {
+  const releasePanDrag = (event) => {
     if (st.previewPanDrag?.pointerId === event.pointerId) {
       st.previewPanDrag = null;
       canvas.style.cursor = "";
@@ -69,13 +69,10 @@ function attachPreviewNavigation(node, canvasSize) {
       } catch {
       }
     }
-  }, listenerOptions);
-  canvas.addEventListener("pointercancel", (event) => {
-    if (st.previewPanDrag?.pointerId === event.pointerId) {
-      st.previewPanDrag = null;
-      canvas.style.cursor = "";
-    }
-  }, listenerOptions);
+  };
+  canvas.addEventListener("pointerup", releasePanDrag, listenerOptions);
+  canvas.addEventListener("pointercancel", releasePanDrag, listenerOptions);
+  canvas.addEventListener("lostpointercapture", releasePanDrag, listenerOptions);
   const handleWheel = (event) => {
     const target = event.target;
     if (target !== canvas && !canvas.contains(target)) return;

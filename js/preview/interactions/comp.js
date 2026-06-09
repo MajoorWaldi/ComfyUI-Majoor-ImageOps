@@ -280,6 +280,7 @@ function attachInteractions(node, ctx) {
   };
   canvas.addEventListener("pointerup", releaseDrag, listenerOptions);
   canvas.addEventListener("pointercancel", releaseDrag, listenerOptions);
+  canvas.addEventListener("lostpointercapture", releaseDrag, listenerOptions);
   canvas.addEventListener("pointerleave", () => {
     if (!st.compDrag) canvas.style.cursor = "default";
   }, listenerOptions);
