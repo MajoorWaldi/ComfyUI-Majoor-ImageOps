@@ -43,6 +43,10 @@ export const IMAGEOPS_NODE_METADATA: readonly ImageOpsNodeMeta[] = [
     "ui": "custom"
   },
   {
+    "className": "ImageOpsCropStitch",
+    "ui": "native"
+  },
+  {
     "className": "ImageOpsDistort",
     "ui": "native"
   },

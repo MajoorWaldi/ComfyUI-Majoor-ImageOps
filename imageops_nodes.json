@@ -8,6 +8,7 @@
     {"className":"ImageOpsComp","module":"comp","classExport":"ImageOpsComp","displayName":"ImageOps Comp","ui":"custom","minPreviewHeight":400,"aliases":["comp","combine","merge","blend","compose"]},
     {"className":"ImageOpsConstant","module":"constant","classExport":"ImageOpsConstant","displayName":"ImageOps Constant","ui":"custom","minPreviewHeight":390,"aliases":["constant","color","source","checker"]},
     {"className":"ImageOpsCrop","module":"crop","classExport":"ImageOpsCrop","displayName":"ImageOps Resize/Crop","ui":"custom","aliases":["crop","resize","reformat","format","recadrer","taille"]},
+    {"className":"ImageOpsCropStitch","module":"crop_stitch","classExport":"ImageOpsCropStitch","displayName":"ImageOps Crop Stitch","ui":"native","aliases":["crop stitch","stitch","restitch","reassemble","recoller","paste crop"]},
     {"className":"ImageOpsDistort","module":"distort","classExport":"ImageOpsDistort","displayName":"ImageOps Distort","ui":"native","aliases":["distort","displace","displacement","warp","deform","noise warp"]},
     {"className":"ImageOpsDraw","module":"draw","classExport":"ImageOpsDraw","displayName":"ImageOps Paint","ui":"custom","minPreviewHeight":220,"aliases":["paint","draw","brush","eraser","sketch","mask paint"]},
     {"className":"ImageOpsFrameRange","module":"frame_range","classExport":"ImageOpsFrameRange","displayName":"ImageOps FrameRange","ui":"custom","minPreviewHeight":390,"aliases":["frame range","frames","trim","hold","freeze","loop","repeat","timeline"]},

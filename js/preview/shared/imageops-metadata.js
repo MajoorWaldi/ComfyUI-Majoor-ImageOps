@@ -35,6 +35,10 @@ const IMAGEOPS_NODE_METADATA = [
     "ui": "custom"
   },
   {
+    "className": "ImageOpsCropStitch",
+    "ui": "native"
+  },
+  {
     "className": "ImageOpsDistort",
     "ui": "native"
   },

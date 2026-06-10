@@ -4,6 +4,7 @@ from .channel import ImageOpsChannel
 from .comp import ImageOpsComp
 from .constant import ImageOpsConstant
 from .crop import ImageOpsCrop
+from .crop_stitch import ImageOpsCropStitch
 from .distort import ImageOpsDistort
 from .draw import ImageOpsDraw
 from .frame_range import ImageOpsFrameRange
@@ -32,6 +33,7 @@ __all__ = [
     "ImageOpsComp",
     "ImageOpsConstant",
     "ImageOpsCrop",
+    "ImageOpsCropStitch",
     "ImageOpsDistort",
     "ImageOpsDraw",
     "ImageOpsFrameRange",

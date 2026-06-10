@@ -48,17 +48,30 @@ function hideWidgetForGood(node, widget, suffix = "") {
   if (!widget) return;
   widget.origType = widget.origType ?? widget.type;
   widget.origComputeSize = widget.origComputeSize ?? widget.computeSize;
+  widget.origSerializeValue ?? (widget.origSerializeValue = widget.serializeValue);
   widget.origHidden ?? (widget.origHidden = widget.hidden);
   widget.hidden = true;
   widget.visible = false;
   widget.last_y = -4096;
   widget.draw = () => {
   };
+  widget.serialize = true;
+  widget.serializeValue = function() {
+    const original = widget.origSerializeValue;
+    if (typeof original === "function") {
+      try {
+        return original.call(widget);
+      } catch {
+      }
+    }
+    return widget.value;
+  };
   try {
     widget.options = {
       ...widget.options ?? {},
       hidden: true,
-      canvasOnly: true
+      canvasOnly: true,
+      serialize: true
     };
   } catch {
   }

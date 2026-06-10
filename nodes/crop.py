@@ -12,6 +12,8 @@ from ._helpers import (
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 
+import torch
+
 
 def _list_param_length(*values):
     lengths = [len(value) for value in values if isinstance(value, (list, tuple))]
@@ -85,10 +87,34 @@ def _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop
     }
 
 
+def _crop_region_mask(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale):
+    if source is None or source.dim() != 4:
+        return None
+    batch = int(source.shape[0])
+    source_h = int(source.shape[1])
+    source_w = int(source.shape[2])
+    mask = torch.zeros((batch, source_h, source_w), device=source.device, dtype=source.dtype)
+    for index in range(batch):
+        target_w = max(1, _scalar(width, int, index=index))
+        target_h = max(1, _scalar(height, int, index=index))
+        crop_x, crop_y, crop_w, crop_h = _compute_crop_box(
+            source_w,
+            source_h,
+            _scalar(aspect_ratio, str, index=index),
+            target_w,
+            target_h,
+            center_x=_scalar(crop_center_x, index=index),
+            center_y=_scalar(crop_center_y, index=index),
+            scale=_scalar(crop_scale, index=index),
+        )
+        mask[index, crop_y:crop_y + crop_h, crop_x:crop_x + crop_w] = 1.0
+    return mask
+
+
 class ImageOpsCrop:
     CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT")
-    RETURN_NAMES = ("image", "mask", "width", "height")
+    RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT", "MASK")
+    RETURN_NAMES = ("image", "mask", "width", "height", "crop_mask")
     FUNCTION = "apply"
 
     @classmethod
@@ -120,18 +146,19 @@ class ImageOpsCrop:
         input_mask = _prepare_effect_mask(mask, source)
         output_mask_source = _resolve_mask_output_source(mask, source)
         progress = start_progress(unique_id=unique_id)
+        crop_mask = _crop_region_mask(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
 
         if _scalar(bypass, bool):
             progress.finish()
             final_height = int(source.shape[1])
             final_width = int(source.shape[2])
-            return build_node_preview_result(source, (source, output_mask_source, final_width, final_height), prefix="imageops_crop")
+            return build_node_preview_result(source, (source, output_mask_source, final_width, final_height, torch.ones_like(output_mask_source)), prefix="imageops_crop")
         if _is_noop_crop(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale):
             progress.finish()
             metadata = _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
             final_height = int(source.shape[1])
             final_width = int(source.shape[2])
-            return build_node_preview_result(source, (source, output_mask_source, final_width, final_height), prefix="imageops_crop", metadata=metadata)
+            return build_node_preview_result(source, (source, output_mask_source, final_width, final_height, crop_mask), prefix="imageops_crop", metadata=metadata)
 
         if input_mask is not None:
             result, output_mask = _apply_interactive_crop_resize_with_mask_pair(
@@ -169,4 +196,4 @@ class ImageOpsCrop:
         metadata = _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
         final_height = int(result.shape[1])
         final_width = int(result.shape[2])
-        return build_node_preview_result(result, (result, output_mask, final_width, final_height), prefix="imageops_crop", metadata=metadata)
+        return build_node_preview_result(result, (result, output_mask, final_width, final_height, crop_mask), prefix="imageops_crop", metadata=metadata)

@@ -62,16 +62,28 @@ export function hideWidgetForGood(node: ComfyNode, widget: ComfyWidget | null, s
   if (!widget) return;
   widget.origType = widget.origType ?? widget.type;
   widget.origComputeSize = widget.origComputeSize ?? widget.computeSize;
+  (widget as any).origSerializeValue ??= (widget as any).serializeValue;
   (widget as any).origHidden ??= (widget as any).hidden;
   (widget as any).hidden = true;
   (widget as any).visible = false;
   (widget as any).last_y = -4096;
   (widget as any).draw = () => {};
+  (widget as any).serialize = true;
+  (widget as any).serializeValue = function () {
+    const original = (widget as any).origSerializeValue;
+    if (typeof original === "function") {
+      try {
+        return original.call(widget);
+      } catch {}
+    }
+    return widget.value;
+  };
   try {
     (widget as any).options = {
       ...((widget as any).options ?? {}),
       hidden: true,
       canvasOnly: true,
+      serialize: true,
     };
   } catch {}
   widget.computeSize = () => [0, -4];
