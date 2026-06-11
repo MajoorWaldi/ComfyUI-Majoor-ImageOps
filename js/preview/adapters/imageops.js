@@ -108,6 +108,10 @@ function imageOpsAdapter() {
         return 1 + Number(displacementConnected) + Number(effectMaskConnected);
       }
       if (cls === "ImageOpsMerge") return bypass ? 1 : maskConnected ? 3 : 2;
+      if (cls === "ImageOpsCropStitch") {
+        const cropMaskConnected = (node.inputs ?? []).some((input) => String(input?.name ?? "").toLowerCase() === "crop_mask" && (input?.link ?? null) != null);
+        return 2 + Number(cropMaskConnected);
+      }
       if (cls === "ImageOpsAppend") return getJoinSlots(node).filter((slot) => (node.inputs ?? []).some((input) => input?.name === `image_${slot}` && (input.link ?? null) != null)).length;
       if (cls === "ImageOpsComp") return getConnectedCompInputIndexes(node).length;
       if (cls === "ImageOpsDraw") return (node.inputs?.[0]?.link ?? null) != null ? 1 : 0;
@@ -138,6 +142,14 @@ function imageOpsAdapter() {
         const indexes = [];
         if ((node.inputs?.[0]?.link ?? null) != null) indexes.push(0);
         if ((node.inputs?.[1]?.link ?? null) != null) indexes.push(1);
+        return indexes;
+      }
+      if (cls === "ImageOpsCropStitch") {
+        const indexes = [];
+        if ((node.inputs?.[0]?.link ?? null) != null) indexes.push(0);
+        if ((node.inputs?.[1]?.link ?? null) != null) indexes.push(1);
+        const cropMaskIndex = (node.inputs ?? []).findIndex((input) => String(input?.name ?? "").toLowerCase() === "crop_mask");
+        if (cropMaskIndex >= 0 && (node.inputs?.[cropMaskIndex]?.link ?? null) != null) indexes.push(cropMaskIndex);
         return indexes;
       }
       if (cls === "ImageOpsAppend") {
@@ -176,6 +188,8 @@ function imageOpsAdapter() {
         return ops.channel(ctx, canvasSize, node, outputSlot, inputs, tick ?? 0);
       } else if (cls === "ImageOpsCrop") {
         return ops.crop(ctx, canvasSize, node, inputs, tick ?? 0);
+      } else if (cls === "ImageOpsCropStitch") {
+        return ops.cropStitch(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsPadOut") {
         return ops.padOut(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsCornerPin") {

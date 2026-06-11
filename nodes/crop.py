@@ -147,18 +147,28 @@ class ImageOpsCrop:
         output_mask_source = _resolve_mask_output_source(mask, source)
         progress = start_progress(unique_id=unique_id)
         crop_mask = _crop_region_mask(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
+        metadata = _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
 
         if _scalar(bypass, bool):
             progress.finish()
             final_height = int(source.shape[1])
             final_width = int(source.shape[2])
-            return build_node_preview_result(source, (source, output_mask_source, final_width, final_height, torch.ones_like(output_mask_source)), prefix="imageops_crop")
+            return build_node_preview_result(
+                source,
+                (source, output_mask_source, final_width, final_height, torch.ones_like(output_mask_source)),
+                prefix="imageops_crop",
+                metadata=metadata,
+            )
         if _is_noop_crop(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale):
             progress.finish()
-            metadata = _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
             final_height = int(source.shape[1])
             final_width = int(source.shape[2])
-            return build_node_preview_result(source, (source, output_mask_source, final_width, final_height, crop_mask), prefix="imageops_crop", metadata=metadata)
+            return build_node_preview_result(
+                source,
+                (source, output_mask_source, final_width, final_height, crop_mask),
+                prefix="imageops_crop",
+                metadata=metadata,
+            )
 
         if input_mask is not None:
             result, output_mask = _apply_interactive_crop_resize_with_mask_pair(
@@ -193,7 +203,11 @@ class ImageOpsCrop:
                 antialias=True,
             )[..., 0]
         progress.finish()
-        metadata = _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
         final_height = int(result.shape[1])
         final_width = int(result.shape[2])
-        return build_node_preview_result(result, (result, output_mask, final_width, final_height, crop_mask), prefix="imageops_crop", metadata=metadata)
+        return build_node_preview_result(
+            result,
+            (result, output_mask, final_width, final_height, crop_mask),
+            prefix="imageops_crop",
+            metadata=metadata,
+        )

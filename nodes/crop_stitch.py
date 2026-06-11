@@ -105,7 +105,6 @@ class ImageOpsCropStitch:
             },
             "optional": {
                 "crop_mask": ("MASK", {"tooltip": "Source-space mask from ImageOps Resize/Crop.", "display_name": "Crop Mask"}),
-                "crop_bbox": ("STRING", {"forceInput": True, "tooltip": "BBox JSON from ImageOps Resize/Crop for exact placement.", "display_name": "Crop BBox"}),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",

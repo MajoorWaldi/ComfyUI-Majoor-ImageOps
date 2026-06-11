@@ -1,9 +1,11 @@
 import { isNode as isPreviewNode } from "../nodes/preview.js";
 import { getPreviewConfig } from "../config.js";
 import { isStressed } from "./fps-monitor.js";
-function ensureState(node) {
-  node.__imageops_state ?? (node.__imageops_state = {
+function createInitialState(node) {
+  return {
     hooked: false,
+    _ownerNode: node,
+    _ownerNodeId: node.id,
     _abortController: null,
     previewRoot: null,
     previewMetaRow: null,
@@ -163,7 +165,18 @@ function ensureState(node) {
     keyerBlurInput: null,
     keyerPicking: false,
     keyerHooked: false
-  });
+  };
+}
+function ensureState(node) {
+  const existing = node.__imageops_state;
+  if (!existing) {
+    node.__imageops_state = createInitialState(node);
+  } else if (existing._ownerNode && existing._ownerNode !== node) {
+    node.__imageops_state = createInitialState(node);
+  } else {
+    existing._ownerNode = node;
+    existing._ownerNodeId = node.id;
+  }
   return node.__imageops_state;
 }
 function setInfo(st, text) {

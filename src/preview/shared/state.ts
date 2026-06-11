@@ -3,9 +3,11 @@ import { isNode as isPreviewNode } from "../nodes/preview.js";
 import { getPreviewConfig } from "../config.js";
 import { isStressed } from "./fps-monitor.js";
 
-export function ensureState(node: ComfyNode): NodeState {
-  node.__imageops_state ??= {
+function createInitialState(node: ComfyNode): NodeState {
+  return {
     hooked: false,
+    _ownerNode: node,
+    _ownerNodeId: node.id,
     _abortController: null,
     previewRoot: null,
     previewMetaRow: null,
@@ -166,6 +168,18 @@ export function ensureState(node: ComfyNode): NodeState {
     keyerPicking: false,
     keyerHooked: false,
   };
+}
+
+export function ensureState(node: ComfyNode): NodeState {
+  const existing = node.__imageops_state as (NodeState & { _ownerNode?: ComfyNode; _ownerNodeId?: number }) | undefined;
+  if (!existing) {
+    node.__imageops_state = createInitialState(node);
+  } else if (existing._ownerNode && existing._ownerNode !== node) {
+    node.__imageops_state = createInitialState(node);
+  } else {
+    existing._ownerNode = node;
+    existing._ownerNodeId = node.id;
+  }
   return node.__imageops_state!;
 }
 
