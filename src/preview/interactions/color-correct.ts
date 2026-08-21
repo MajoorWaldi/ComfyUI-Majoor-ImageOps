@@ -1,7 +1,7 @@
 import type { ComfyNode, NodeInteractionContext } from "../../types.js";
 import { colorWheelPointToValues } from "../color.js";
 import { getCanvasPointer } from "../shared/geometry.js";
-import { findWidget, setWidgetValue } from "../shared/widgets.js";
+import { findWidget, resetNodeWidgetsToDefaults, setWidgetValue } from "../shared/widgets.js";
 import { colorWidgetDefaultFor, colorWidgetNameForZone, isNode, syncColorCorrectWidgets } from "../nodes/color-correct.js";
 
 function markDirty(node: ComfyNode, ctx: NodeInteractionContext): void {
@@ -15,6 +15,14 @@ function markDirty(node: ComfyNode, ctx: NodeInteractionContext): void {
   }, 0);
 }
 
+function refreshDirty(node: ComfyNode, ctx: NodeInteractionContext): void {
+  const st = node.__imageops_state ?? null;
+  if (!st) return;
+  st.nativeDirty = true;
+  ctx.markCanvasDirty();
+  ctx.refreshNode(node);
+}
+
 // Bind a slider input to a primary param. The widget name is resolved on every
 // edit from `st.colorActiveZone`, so a single DOM input can drive Global,
 // Shadows, Midtones or Highlights values without rewiring listeners.
@@ -25,8 +33,9 @@ function bindZoneRange(
   param: string,
   parser: (value: string) => number = (value) => Number(value),
 ): void {
-  if (!input || input.dataset.bound === "1") return;
-  input.dataset.bound = "1";
+  if (!input) return;
+  const st = node.__imageops_state ?? null;
+  const listenerOptions = st?._abortController?.signal ? { signal: st._abortController.signal } : undefined;
   input.addEventListener("input", () => {
     const st = node.__imageops_state ?? null;
     const zone = st?.colorActiveZone ?? "global";
@@ -38,7 +47,7 @@ function bindZoneRange(
     setWidgetValue(findWidget(node, colorWidgetNameForZone(param, zone)), value);
     syncColorCorrectWidgets(node);
     markDirty(node, ctx);
-  });
+  }, listenerOptions);
 }
 
 function bindZoneWheel(
@@ -46,41 +55,52 @@ function bindZoneWheel(
   ctx: NodeInteractionContext,
   canvas: HTMLCanvasElement | null,
 ): void {
-  if (!canvas || canvas.dataset.bound === "1") return;
-  canvas.dataset.bound = "1";
+  if (!canvas) return;
+  const st0 = node.__imageops_state ?? null;
+  const listenerOptions = st0?._abortController?.signal ? { signal: st0._abortController.signal } : undefined;
 
   let activePointerId: number | null = null;
+  let moveRafPending = false;
 
-  const commitWheelPoint = (event: PointerEvent): void => {
+  const commitWheelPoint = (event: PointerEvent, notify: boolean): void => {
     const st = node.__imageops_state ?? null;
     const zone = st?.colorActiveZone ?? "global";
     const point = getCanvasPointer(canvas, event);
     const values = colorWheelPointToValues(point.x, point.y, canvas);
-    setWidgetValue(findWidget(node, colorWidgetNameForZone("hue", zone)), values.hueDeg);
-    setWidgetValue(findWidget(node, colorWidgetNameForZone("saturation", zone)), values.saturation);
+    setWidgetValue(findWidget(node, colorWidgetNameForZone("hue", zone)), values.hueDeg, { notify });
+    setWidgetValue(findWidget(node, colorWidgetNameForZone("saturation", zone)), values.saturation, { notify });
     syncColorCorrectWidgets(node);
-    markDirty(node, ctx);
+    if (notify) {
+      markDirty(node, ctx);
+    } else if (!moveRafPending) {
+      moveRafPending = true;
+      requestAnimationFrame(() => {
+        moveRafPending = false;
+        refreshDirty(node, ctx);
+      });
+    }
   };
 
   canvas.addEventListener("pointerdown", (event: PointerEvent) => {
     activePointerId = event.pointerId;
     canvas.setPointerCapture?.(event.pointerId);
-    commitWheelPoint(event);
-  });
+    commitWheelPoint(event, false);
+  }, listenerOptions);
 
   canvas.addEventListener("pointermove", (event: PointerEvent) => {
     if (activePointerId !== event.pointerId) return;
-    commitWheelPoint(event);
-  });
+    commitWheelPoint(event, false);
+  }, listenerOptions);
 
   const release = (event: PointerEvent): void => {
     if (activePointerId !== event.pointerId) return;
     activePointerId = null;
     canvas.releasePointerCapture?.(event.pointerId);
+    commitWheelPoint(event, true);
   };
 
-  canvas.addEventListener("pointerup", release);
-  canvas.addEventListener("pointercancel", release);
+  canvas.addEventListener("pointerup", release, listenerOptions);
+  canvas.addEventListener("pointercancel", release, listenerOptions);
 }
 
 function bindZoneTab(
@@ -89,8 +109,9 @@ function bindZoneTab(
   btn: HTMLButtonElement | null,
   zone: "global" | "shadows" | "midtones" | "highlights",
 ): void {
-  if (!btn || btn.dataset.bound === "1") return;
-  btn.dataset.bound = "1";
+  if (!btn) return;
+  const st0 = node.__imageops_state ?? null;
+  const listenerOptions = st0?._abortController?.signal ? { signal: st0._abortController.signal } : undefined;
   btn.addEventListener("click", () => {
     const st = node.__imageops_state ?? null;
     if (!st) return;
@@ -98,7 +119,7 @@ function bindZoneTab(
     st.colorActiveZone = zone;
     syncColorCorrectWidgets(node);
     markDirty(node, ctx);
-  });
+  }, listenerOptions);
 }
 
 export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext): void {
@@ -126,20 +147,15 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
   bindZoneTab(node, ctx, st.colorZoneTabHighlights, "highlights");
 
   const resetAll = (): void => {
-    // Reset every primary across every zone (global + 3 zones). The wheel
-    // amount lives at `<zone>_amount` for the per-zone tabs and `saturation`
-    // for the global one — both already covered by `colorWidgetNameForZone`.
-    for (const zone of ["global", "shadows", "midtones", "highlights"]) {
-      for (const param of ["temperature", "hue", "contrast", "saturation", "vibrance", "gamma", "brightness"]) {
-        setWidgetValue(findWidget(node, colorWidgetNameForZone(param, zone)), colorWidgetDefaultFor(param));
-      }
-    }
+    resetNodeWidgetsToDefaults(node);
+    st.colorActiveZone = "global";
     syncColorCorrectWidgets(node);
     markDirty(node, ctx);
   };
 
-  st.colorWheelCanvas?.addEventListener("dblclick", resetAll);
-  st.colorResetButton?.addEventListener("click", resetAll);
+  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : undefined;
+  st.colorWheelCanvas?.addEventListener("dblclick", resetAll, listenerOptions);
+  st.colorResetButton?.addEventListener("click", resetAll, listenerOptions);
 
   syncColorCorrectWidgets(node);
 }

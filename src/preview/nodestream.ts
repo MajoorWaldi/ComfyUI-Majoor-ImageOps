@@ -120,7 +120,7 @@ async function mediaToCanvas(media: HTMLImageElement | HTMLVideoElement | HTMLCa
     const canvas = document.createElement("canvas");
     canvas.width = dims.width;
     canvas.height = dims.height;
-    canvas.getContext("2d")?.drawImage(media, 0, 0, dims.width, dims.height);
+    canvas.getContext("2d", { willReadFrequently: true })?.drawImage(media, 0, 0, dims.width, dims.height);
     return canvas;
   }
   if (isVideoElement(media)) {
@@ -132,14 +132,14 @@ async function mediaToCanvas(media: HTMLImageElement | HTMLVideoElement | HTMLCa
     const canvas = document.createElement("canvas");
     canvas.width = dims.width;
     canvas.height = dims.height;
-    canvas.getContext("2d")?.drawImage(media, 0, 0, dims.width, dims.height);
+    canvas.getContext("2d", { willReadFrequently: true })?.drawImage(media, 0, 0, dims.width, dims.height);
     return canvas;
   }
   const dims = fitWithinMaxSize(media.width || 1, media.height || 1, canvasSize);
   const canvas = document.createElement("canvas");
   canvas.width = dims.width;
   canvas.height = dims.height;
-  canvas.getContext("2d")?.drawImage(media, 0, 0, dims.width, dims.height);
+  canvas.getContext("2d", { willReadFrequently: true })?.drawImage(media, 0, 0, dims.width, dims.height);
   return canvas;
 }
 

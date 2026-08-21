@@ -2,9 +2,18 @@ import { clampCropCenter, clampCropScale, resolveCropAspectRatio } from "../crop
 import { findWidget, widgetNumber, widgetString, widgetBoolean, hideWidgetForGood, setWidgetValue, setWidgetBooleanValue } from "../shared/widgets.js";
 import { ensureState } from "../shared/state.js";
 import { markCanvasDirty } from "../shared/canvas.js";
+import { styleInlineAction } from "../shared/dom-styles.js";
 const NODE_CLASS = "ImageOpsCrop";
 function isNode(node) {
   return String(node?.comfyClass ?? "") === NODE_CLASS;
+}
+function createCropResetButton() {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Reset";
+  styleInlineAction(button);
+  button.style.opacity = "0.85";
+  return button;
 }
 function hideCropGeometryWidgets(node) {
   hideWidgetForGood(node, findWidget(node, "crop_center_x"));
@@ -26,10 +35,10 @@ function getCropControlState(node, fallbackWidth = 1, fallbackHeight = 1) {
     scale: clampCropScale(widgetNumber(node, "crop_scale", 1))
   };
 }
-function setCropControlState(node, centerX, centerY, scale) {
-  setWidgetValue(findWidget(node, "crop_center_x"), clampCropCenter(centerX));
-  setWidgetValue(findWidget(node, "crop_center_y"), clampCropCenter(centerY));
-  setWidgetValue(findWidget(node, "crop_scale"), clampCropScale(scale));
+function setCropControlState(node, centerX, centerY, scale, notify = true) {
+  setWidgetValue(findWidget(node, "crop_center_x"), clampCropCenter(centerX), { notify });
+  setWidgetValue(findWidget(node, "crop_center_y"), clampCropCenter(centerY), { notify });
+  setWidgetValue(findWidget(node, "crop_scale"), clampCropScale(scale), { notify });
 }
 function resetCropControlState(node) {
   setCropControlState(node, 0.5, 0.5, 1);
@@ -107,7 +116,7 @@ function canvasToSourcePoint(geometry, x, y) {
     y: Math.max(0, Math.min(geometry.sourceHeight, localY * geometry.sourceHeight))
   };
 }
-function syncCropWidgets(node, changedName) {
+function syncCropWidgets(node, changedName, notify = true) {
   if (!isNode(node)) return;
   const st = ensureState(node);
   const widthWidget = findWidget(node, "width");
@@ -142,14 +151,14 @@ function syncCropWidgets(node, changedName) {
       }
     }
   }
-  widthWidget.value = width;
-  heightWidget.value = height;
+  setWidgetValue(widthWidget, width, { notify });
+  setWidgetValue(heightWidget, height, { notify });
   markCanvasDirty();
 }
-function setCropOutputDimensions(node, width, height) {
-  setWidgetValue(findWidget(node, "width"), Math.max(1, Math.round(width)));
-  setWidgetValue(findWidget(node, "height"), Math.max(1, Math.round(height)));
-  syncCropWidgets(node);
+function setCropOutputDimensions(node, width, height, notify = true) {
+  setWidgetValue(findWidget(node, "width"), Math.max(1, Math.round(width)), { notify });
+  setWidgetValue(findWidget(node, "height"), Math.max(1, Math.round(height)), { notify });
+  syncCropWidgets(node, void 0, notify);
 }
 function projectedCropWidth(deltaX, deltaY, targetRatio) {
   const ratio = Math.max(1e-4, targetRatio);
@@ -238,6 +247,7 @@ function freeCropRectFromAnchor(anchor, mode, pointerSource, startRect, sourceWi
 export {
   NODE_CLASS,
   canvasToSourcePoint,
+  createCropResetButton,
   cropRectFromAnchor,
   freeCropRectFromAnchor,
   getCropCanvasMetrics,

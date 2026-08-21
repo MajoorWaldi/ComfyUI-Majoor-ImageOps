@@ -1,38 +1,87 @@
 import { ensureState } from "./state.js";
-import { IMAGEOPS_CLASSES } from "./classes.js";
-import { isNode as isPreviewNode } from "../nodes/preview.js";
-import { isNode as isColorCorrectNode } from "../nodes/color-correct.js";
-import { isNode as isCropNode } from "../nodes/crop.js";
-import { isNode as isDrawNode } from "../nodes/draw.js";
-import { isNode as isCompNode } from "../nodes/comp.js";
-import { styleSoftButton, styleSoftField, styleSoftRange, styleInlineAction, createColorSwatch } from "./dom-styles.js";
-import { COMP_BLEND_MODES } from "../comp.js";
+import { isImageOpsClass } from "./classes.js";
+import { createPreviewControlsUi, isNode as isPreviewNode } from "../nodes/preview.js";
+import { createConstantControlsUi, isNode as isConstantNode } from "../nodes/constant.js";
+import { createGrainControlsUi, isNode as isGrainNode } from "../nodes/grain.js";
+import { createRampControlsUi, isNode as isRampNode } from "../nodes/ramp.js";
+import { createTextControlsUi, isNode as isTextNode } from "../nodes/text.js";
+import { createColorCorrectControlsUi, isNode as isColorCorrectNode } from "../nodes/color-correct.js";
+import { createCropResetButton, isNode as isCropNode } from "../nodes/crop.js";
+import { createDrawControlsUi, isNode as isDrawNode } from "../nodes/draw.js";
+import { createCompControlsUi, isNode as isCompNode } from "../nodes/comp.js";
+import { createJoinControlsUi, isNode as isAppendNode } from "../nodes/append.js";
+import { createFrameSelectorControlsUi, isNode as isFrameRangeNode } from "../nodes/frame-range.js";
+import { createKeyerControlsUi, isNode as isKeyerNode } from "../nodes/keyer.js";
+import { createPadOutControlsUi, isNode as isPadOutNode } from "../nodes/pad-out.js";
+import { styleInlineAction } from "./dom-styles.js";
+import {
+  IMAGEOPS_DEFAULT_PREVIEW_MIN_HEIGHT,
+  IMAGEOPS_NODE_METADATA
+} from "./imageops-metadata.js";
 function getNodePreviewMinHeight(node) {
-  if (isDrawNode(node)) return 220;
-  if (isColorCorrectNode(node)) return 490;
-  if (isCompNode(node)) return 400;
-  if (isPreviewNode(node)) return 360;
-  return 320;
+  const className = String(node?.comfyClass ?? "");
+  return IMAGEOPS_NODE_METADATA.find((entry) => entry.className === className)?.minPreviewHeight ?? IMAGEOPS_DEFAULT_PREVIEW_MIN_HEIGHT;
 }
-function getNodePreviewTargetSize(node, root, fallbackWidth = 360) {
-  const minWidth = 360;
+function getMeasuredBlockHeight(element, extra = 0) {
+  if (!element || element.style.display === "none") return 0;
+  return Math.max(element.offsetHeight ?? 0, element.scrollHeight ?? 0) + extra;
+}
+function getCanvasDisplayHeight(canvas, container) {
+  if (!canvas) return 0;
+  const offsetHeight = canvas.offsetHeight ?? 0;
+  if (offsetHeight > 0) return offsetHeight;
+  const aspectWidth = Math.max(1, Math.round(canvas.width || 1));
+  const aspectHeight = Math.max(1, Math.round(canvas.height || 1));
+  const innerWidth = Math.max(0, Math.round((container?.clientWidth ?? container?.offsetWidth ?? 0) - 12));
+  if (innerWidth <= 0) return 0;
+  return Math.round(innerWidth * aspectHeight / aspectWidth);
+}
+function getNodePreviewContentHeight(node, root) {
+  const st = ensureState(node);
   const minHeight = getNodePreviewMinHeight(node);
-  const measuredWidth = root ? Math.max(root.offsetWidth, root.scrollWidth) + 12 : 0;
-  const measuredHeight = root ? Math.max(root.offsetHeight, root.scrollHeight) + 12 : 0;
-  return [
-    Math.max(minWidth, fallbackWidth, measuredWidth),
-    Math.max(minHeight, measuredHeight)
-  ];
+  const previewRoot = root ?? st.previewRoot;
+  const mediaH = getMeasuredBlockHeight(st.mediaWrap, 0);
+  const imageH = Math.max(getCanvasDisplayHeight(st.canvas, previewRoot), mediaH);
+  const metaH = getMeasuredBlockHeight(st.previewMetaRow, 6);
+  const controlsH = getMeasuredBlockHeight(st.previewControls, 8);
+  const progressH = getMeasuredBlockHeight(st.progressWrap, 0);
+  const compactPanelH = getMeasuredBlockHeight(st.compactNativePanel, 0);
+  const chromeH = metaH + controlsH + progressH + compactPanelH + 12;
+  const measured = Math.max(minHeight, imageH + chromeH, chromeH);
+  const lastHeight = Math.max(0, Math.round(Number(st.previewWidgetHeight) || 0));
+  const nextHeight = lastHeight > 0 ? Math.max(measured, Math.round(lastHeight * 0.92)) : measured;
+  st.previewWidgetHeight = nextHeight;
+  return nextHeight;
 }
-function ensurePreviewWidget(node, progress, canvasSize) {
-  if (!IMAGEOPS_CLASSES.has(node.comfyClass)) return null;
+function prettifyWidgetLabel(value) {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
+}
+function getCompactWidgetValue(widget, fallback) {
+  const raw = widget.value ?? fallback ?? "";
+  return String(raw ?? "");
+}
+function buildCompactNativeWidgetControls(node, onWidgetChange) {
+  return null;
+}
+function syncCompactNativeWidgetControls(node) {
+}
+function ensurePreviewWidget(node, progress, canvasSize, onNativeWidgetChange) {
+  if (!isImageOpsClass(node.comfyClass)) return null;
   const st = ensureState(node);
   if (st.canvas) return st;
   const previewNode = isPreviewNode(node);
+  const constantNode = isConstantNode(node);
+  const grainNode = isGrainNode(node);
+  const rampNode = isRampNode(node);
+  const textNode = isTextNode(node);
   const colorCorrectNode = isColorCorrectNode(node);
   const cropNode = isCropNode(node);
   const drawNode = isDrawNode(node);
   const compNode = isCompNode(node);
+  const joinNode = isAppendNode(node);
+  const frameSelectorNode = isFrameRangeNode(node);
+  const keyerNode = isKeyerNode(node);
+  const padOutNode = isPadOutNode(node);
   const root = document.createElement("div");
   root.style.width = "100%";
   root.style.boxSizing = "border-box";
@@ -86,46 +135,31 @@ function ensurePreviewWidget(node, progress, canvasSize) {
   info.style.opacity = "0.8";
   info.style.flex = "1 1 auto";
   info.textContent = "Live preview (no queue)";
+  let nodeResetButton = null;
+  if (!cropNode && !colorCorrectNode && !compNode) {
+    nodeResetButton = document.createElement("button");
+    nodeResetButton.type = "button";
+    nodeResetButton.textContent = "Reset";
+    styleInlineAction(nodeResetButton);
+    nodeResetButton.style.opacity = "0.85";
+  }
   let cropResetButton = null;
   if (cropNode) {
-    cropResetButton = document.createElement("button");
-    cropResetButton.type = "button";
-    cropResetButton.textContent = "Reset";
-    styleInlineAction(cropResetButton);
-    cropResetButton.style.opacity = "0.85";
+    cropResetButton = createCropResetButton();
   }
   let previewControls = null;
   if (previewNode) {
-    previewControls = document.createElement("div");
-    previewControls.style.marginTop = "8px";
-    previewControls.style.display = "grid";
-    previewControls.style.gap = "6px";
-    const targetRow = document.createElement("div");
-    targetRow.style.display = "grid";
-    targetRow.style.gridTemplateColumns = "auto auto auto minmax(0,1fr)";
-    targetRow.style.gap = "6px";
-    targetRow.style.alignItems = "center";
-    for (const [value, label] of [["auto", "Auto"], ["image", "Image"], ["mask", "Mask"]]) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = label;
-      button.dataset.previewTarget = value;
-      styleSoftButton(button, value === "auto");
-      targetRow.appendChild(button);
-    }
-    const modeSelect = document.createElement("select");
-    modeSelect.dataset.previewMode = "1";
-    modeSelect.title = "Preview export mode";
-    styleSoftField(modeSelect);
-    modeSelect.style.width = "100%";
-    for (const mode of ["images", "strip", "animated_webp", "animated_gif"]) {
-      const option = document.createElement("option");
-      option.value = mode;
-      option.textContent = mode.replace(/_/g, " ");
-      modeSelect.appendChild(option);
-    }
-    targetRow.appendChild(modeSelect);
-    previewControls.appendChild(targetRow);
+    previewControls = createPreviewControlsUi().controls;
+  } else if (constantNode) {
+    previewControls = createConstantControlsUi().controls;
+  } else if (grainNode) {
+    previewControls = createGrainControlsUi(node).controls;
+  } else if (textNode) {
+    previewControls = createTextControlsUi().controls;
+  } else if (rampNode) {
+    previewControls = createRampControlsUi().controls;
+  } else if (padOutNode) {
+    previewControls = createPadOutControlsUi().controls;
   }
   let colorWheelCanvas = null;
   let colorHueLabel = null;
@@ -159,235 +193,136 @@ function ensurePreviewWidget(node, progress, canvasSize) {
   let colorZoneTabHighlights = null;
   let colorControls = null;
   if (colorCorrectNode) {
-    colorControls = document.createElement("div");
-    colorControls.style.marginTop = "8px";
-    colorControls.style.display = "grid";
-    colorControls.style.gridTemplateColumns = "minmax(0,1fr)";
-    colorControls.style.gap = "10px";
-    colorControls.style.alignItems = "stretch";
-    colorWheelCanvas = document.createElement("canvas");
-    colorWheelCanvas.width = 152;
-    colorWheelCanvas.height = 152;
-    colorWheelCanvas.style.width = "100%";
-    colorWheelCanvas.style.aspectRatio = "1";
-    colorWheelCanvas.style.borderRadius = "999px";
-    colorWheelCanvas.style.cursor = "crosshair";
-    colorWheelCanvas.style.background = "radial-gradient(circle at center, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 55%, rgba(0,0,0,0.18) 100%)";
-    colorWheelCanvas.style.border = "1px solid rgba(255,255,255,0.1)";
-    colorWheelCanvas.style.boxSizing = "border-box";
-    const colorMeta = document.createElement("div");
-    colorMeta.style.display = "grid";
-    colorMeta.style.gap = "6px";
-    colorMeta.style.alignContent = "start";
-    const colorTitle = document.createElement("div");
-    colorTitle.textContent = "Color wheel";
-    colorTitle.style.fontSize = "12px";
-    colorTitle.style.fontWeight = "600";
-    colorTitle.style.letterSpacing = "0.02em";
-    const colorHint = document.createElement("div");
-    colorHint.textContent = "Drag for hue and chroma. Use the saturation slider below for desat or negative fine tuning.";
-    colorHint.style.fontSize = "11px";
-    colorHint.style.opacity = "0.72";
-    colorHint.style.lineHeight = "1.35";
-    colorSwatch = document.createElement("div");
-    colorSwatch.style.height = "34px";
-    colorSwatch.style.borderRadius = "10px";
-    colorSwatch.style.border = "1px solid rgba(255,255,255,0.12)";
-    colorSwatch.style.background = "linear-gradient(135deg, rgba(255,255,255,0.18), rgba(255,255,255,0.02))";
-    const readoutRow = document.createElement("div");
-    readoutRow.style.display = "grid";
-    readoutRow.style.gridTemplateColumns = "minmax(0,1fr) minmax(0,1fr)";
-    readoutRow.style.gap = "6px";
-    colorHueLabel = document.createElement("div");
-    colorHueLabel.style.fontSize = "11px";
-    colorHueLabel.style.opacity = "0.86";
-    colorHueLabel.textContent = "Hue 0 deg";
-    colorSatLabel = document.createElement("div");
-    colorSatLabel.style.fontSize = "11px";
-    colorSatLabel.style.opacity = "0.86";
-    colorSatLabel.style.textAlign = "right";
-    colorSatLabel.textContent = "Sat 0%";
-    readoutRow.appendChild(colorHueLabel);
-    readoutRow.appendChild(colorSatLabel);
-    colorResetButton = document.createElement("button");
-    colorResetButton.type = "button";
-    colorResetButton.textContent = "Reset wheel";
-    styleSoftButton(colorResetButton, false);
-    colorResetButton.style.justifySelf = "start";
-    colorMeta.appendChild(colorTitle);
-    colorMeta.appendChild(colorHint);
-    colorMeta.appendChild(colorSwatch);
-    colorMeta.appendChild(readoutRow);
-    colorMeta.appendChild(colorResetButton);
-    const globalWheelRow = document.createElement("div");
-    globalWheelRow.style.display = "grid";
-    globalWheelRow.style.gridTemplateColumns = "minmax(132px, 152px) minmax(0,1fr)";
-    globalWheelRow.style.gap = "10px";
-    globalWheelRow.style.alignItems = "stretch";
-    globalWheelRow.appendChild(colorWheelCanvas);
-    globalWheelRow.appendChild(colorMeta);
-    colorControls.appendChild(globalWheelRow);
-    const makeRangeRow = (labelText, input, valueLabel, min, max, step, value, accent) => {
-      const row = document.createElement("div");
-      row.style.display = "grid";
-      row.style.gridTemplateColumns = "68px minmax(0,1fr) 40px";
-      row.style.gap = "8px";
-      row.style.alignItems = "center";
-      const label = document.createElement("div");
-      label.textContent = labelText;
-      label.style.fontSize = "11px";
-      label.style.opacity = "0.8";
-      input.type = "range";
-      input.min = String(min);
-      input.max = String(max);
-      input.step = String(step);
-      input.value = String(value);
-      styleSoftRange(input);
-      if (accent) input.style.accentColor = accent;
-      valueLabel.style.fontSize = "11px";
-      valueLabel.style.opacity = "0.84";
-      valueLabel.style.textAlign = "right";
-      valueLabel.textContent = String(value);
-      row.appendChild(label);
-      row.appendChild(input);
-      row.appendChild(valueLabel);
-      return row;
-    };
-    const primariesCard = document.createElement("div");
-    primariesCard.style.display = "grid";
-    primariesCard.style.gap = "8px";
-    const primariesTop = document.createElement("div");
-    primariesTop.style.display = "flex";
-    primariesTop.style.alignItems = "center";
-    primariesTop.style.justifyContent = "space-between";
-    primariesTop.style.gap = "8px";
-    const primariesTitle = document.createElement("div");
-    primariesTitle.textContent = "Primaries";
-    primariesTitle.style.fontSize = "12px";
-    primariesTitle.style.fontWeight = "600";
-    primariesTitle.style.letterSpacing = "0.02em";
-    primariesTop.appendChild(primariesTitle);
-    primariesTop.appendChild(colorResetButton);
-    primariesCard.appendChild(primariesTop);
-    colorZoneTabsRow = document.createElement("div");
-    colorZoneTabsRow.style.display = "grid";
-    colorZoneTabsRow.style.gridTemplateColumns = "repeat(4, 1fr)";
-    colorZoneTabsRow.style.gap = "4px";
-    const makeZoneTab = (label) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.textContent = label;
-      btn.style.fontSize = "11px";
-      btn.style.padding = "4px 6px";
-      styleSoftButton(btn, false);
-      return btn;
-    };
-    colorZoneTabGlobal = makeZoneTab("Global");
-    colorZoneTabShadows = makeZoneTab("Shadows");
-    colorZoneTabMidtones = makeZoneTab("Midtones");
-    colorZoneTabHighlights = makeZoneTab("Highlights");
-    colorZoneTabsRow.appendChild(colorZoneTabGlobal);
-    colorZoneTabsRow.appendChild(colorZoneTabShadows);
-    colorZoneTabsRow.appendChild(colorZoneTabMidtones);
-    colorZoneTabsRow.appendChild(colorZoneTabHighlights);
-    primariesCard.appendChild(colorZoneTabsRow);
-    colorBrightnessInput = document.createElement("input");
-    colorBrightnessLabel = document.createElement("div");
-    primariesCard.appendChild(makeRangeRow("Bright", colorBrightnessInput, colorBrightnessLabel, -100, 100, 1, 0, ""));
-    colorTemperatureInput = document.createElement("input");
-    colorTemperatureLabel = document.createElement("div");
-    primariesCard.appendChild(makeRangeRow("Temp", colorTemperatureInput, colorTemperatureLabel, -100, 100, 1, 0, "#ffb347"));
-    colorTintInput = document.createElement("input");
-    colorTintLabel = document.createElement("div");
-    primariesCard.appendChild(makeRangeRow("Hue", colorTintInput, colorTintLabel, -180, 180, 1, 0, "#d77dff"));
-    colorContrastInput = document.createElement("input");
-    colorContrastLabel = document.createElement("div");
-    primariesCard.appendChild(makeRangeRow("Contrast", colorContrastInput, colorContrastLabel, -100, 100, 1, 0, ""));
-    colorSaturationInput = document.createElement("input");
-    colorSaturationValueLabel = document.createElement("div");
-    primariesCard.appendChild(makeRangeRow("Sat", colorSaturationInput, colorSaturationValueLabel, -100, 100, 1, 0, ""));
-    colorVibranceInput = document.createElement("input");
-    colorVibranceLabel = document.createElement("div");
-    primariesCard.appendChild(makeRangeRow("Vibrance", colorVibranceInput, colorVibranceLabel, -100, 100, 1, 0, ""));
-    colorGammaInput = document.createElement("input");
-    colorGammaLabel = document.createElement("div");
-    primariesCard.appendChild(makeRangeRow("Gamma", colorGammaInput, colorGammaLabel, 0.2, 2.2, 0.01, 1, ""));
-    colorControls.appendChild(primariesCard);
+    const colorUi = createColorCorrectControlsUi();
+    colorControls = colorUi.controls;
+    colorWheelCanvas = colorUi.wheelCanvas;
+    colorHueLabel = colorUi.hueLabel;
+    colorSatLabel = colorUi.satLabel;
+    colorSwatch = colorUi.swatch;
+    colorResetButton = colorUi.resetButton;
+    colorTemperatureInput = colorUi.temperatureInput;
+    colorTemperatureLabel = colorUi.temperatureLabel;
+    colorTintInput = colorUi.tintInput;
+    colorTintLabel = colorUi.tintLabel;
+    colorContrastInput = colorUi.contrastInput;
+    colorContrastLabel = colorUi.contrastLabel;
+    colorSaturationInput = colorUi.saturationInput;
+    colorSaturationValueLabel = colorUi.saturationValueLabel;
+    colorVibranceInput = colorUi.vibranceInput;
+    colorVibranceLabel = colorUi.vibranceLabel;
+    colorGammaInput = colorUi.gammaInput;
+    colorGammaLabel = colorUi.gammaLabel;
+    colorShadowWheelCanvas = colorUi.shadowWheelCanvas;
+    colorShadowLabel = colorUi.shadowLabel;
+    colorMidtoneWheelCanvas = colorUi.midtoneWheelCanvas;
+    colorMidtoneLabel = colorUi.midtoneLabel;
+    colorHighlightWheelCanvas = colorUi.highlightWheelCanvas;
+    colorHighlightLabel = colorUi.highlightLabel;
+    colorBrightnessInput = colorUi.brightnessInput;
+    colorBrightnessLabel = colorUi.brightnessLabel;
+    colorZoneTabsRow = colorUi.zoneTabsRow;
+    colorZoneTabGlobal = colorUi.zoneTabGlobal;
+    colorZoneTabShadows = colorUi.zoneTabShadows;
+    colorZoneTabMidtones = colorUi.zoneTabMidtones;
+    colorZoneTabHighlights = colorUi.zoneTabHighlights;
   }
   let compAddButton = null;
+  let compRemoveButton = null;
   let compResetButton = null;
   let compResizeButton = null;
   let compCornerPinButton = null;
+  let compAspectRatioSelect = null;
   let compModeSelect = null;
   let compOpacityInput = null;
   let compOpacityLabel = null;
   let compLayerLabel = null;
   let compControls = null;
   if (compNode) {
-    compControls = document.createElement("div");
-    compControls.style.marginTop = "8px";
-    compControls.style.display = "grid";
-    compControls.style.gridTemplateColumns = "auto auto auto auto 1fr";
-    compControls.style.gap = "6px";
-    compControls.style.alignItems = "center";
-    compAddButton = document.createElement("button");
-    compAddButton.type = "button";
-    compAddButton.textContent = "+ Layer";
-    styleSoftButton(compAddButton, false);
-    compResetButton = document.createElement("button");
-    compResetButton.type = "button";
-    compResetButton.textContent = "Reset";
-    styleSoftButton(compResetButton, false);
-    compResizeButton = document.createElement("button");
-    compResizeButton.type = "button";
-    compResizeButton.textContent = "Scale";
-    styleSoftButton(compResizeButton, true);
-    compCornerPinButton = document.createElement("button");
-    compCornerPinButton.type = "button";
-    compCornerPinButton.textContent = "Pin";
-    styleSoftButton(compCornerPinButton, false);
-    compLayerLabel = document.createElement("div");
-    compLayerLabel.style.fontSize = "11px";
-    compLayerLabel.style.opacity = "0.85";
-    compLayerLabel.style.justifySelf = "end";
-    compLayerLabel.textContent = "Layer";
-    const compBottomRow = document.createElement("div");
-    compBottomRow.style.gridColumn = "1 / -1";
-    compBottomRow.style.display = "grid";
-    compBottomRow.style.gridTemplateColumns = "minmax(0,1fr) auto minmax(110px,0.9fr)";
-    compBottomRow.style.gap = "6px";
-    compBottomRow.style.alignItems = "center";
-    compModeSelect = document.createElement("select");
-    compModeSelect.style.width = "100%";
-    styleSoftField(compModeSelect);
-    for (const mode of COMP_BLEND_MODES) {
-      const option = document.createElement("option");
-      option.value = mode;
-      option.textContent = mode.replace("_", " ");
-      compModeSelect.appendChild(option);
-    }
-    compOpacityLabel = document.createElement("div");
-    compOpacityLabel.textContent = "100%";
-    compOpacityLabel.style.fontSize = "11px";
-    compOpacityLabel.style.opacity = "0.82";
-    compOpacityLabel.style.justifySelf = "end";
-    compOpacityInput = document.createElement("input");
-    compOpacityInput.type = "range";
-    compOpacityInput.min = "0";
-    compOpacityInput.max = "100";
-    compOpacityInput.step = "1";
-    compOpacityInput.value = "100";
-    compOpacityInput.title = "Layer opacity";
-    styleSoftRange(compOpacityInput);
-    compControls.appendChild(compAddButton);
-    compControls.appendChild(compResetButton);
-    compControls.appendChild(compResizeButton);
-    compControls.appendChild(compCornerPinButton);
-    compControls.appendChild(compLayerLabel);
-    compBottomRow.appendChild(compModeSelect);
-    compBottomRow.appendChild(compOpacityLabel);
-    compBottomRow.appendChild(compOpacityInput);
-    compControls.appendChild(compBottomRow);
+    const compUi = createCompControlsUi();
+    compControls = compUi.controls;
+    compAddButton = compUi.addButton;
+    compRemoveButton = compUi.removeButton;
+    compResetButton = compUi.resetButton;
+    compResizeButton = compUi.resizeButton;
+    compCornerPinButton = compUi.cornerPinButton;
+    compAspectRatioSelect = compUi.aspectRatioSelect;
+    compModeSelect = compUi.modeSelect;
+    compOpacityInput = compUi.opacityInput;
+    compOpacityLabel = compUi.opacityLabel;
+    compLayerLabel = compUi.layerLabel;
+  }
+  let frameSelectorControls = null;
+  let frameSelectorLabel = null;
+  let frameSelectorTrimStart = null;
+  let frameSelectorTrimEnd = null;
+  let frameSelectorHoldFrame = null;
+  let frameSelectorRuler = null;
+  let frameSelectorSliderBox = null;
+  let frameSelectorFill = null;
+  let frameSelectorFillLabel = null;
+  let frameSelectorStartHandle = null;
+  let frameSelectorEndHandle = null;
+  let frameSelectorPlayhead = null;
+  let frameSelectorHoldToggle = null;
+  let frameSelectorHoldRow = null;
+  let frameSelectorRepeatRow = null;
+  let frameSelectorRepeatToggle = null;
+  let frameSelectorRepeatModeSelect = null;
+  let frameSelectorRepeatCountInput = null;
+  if (frameSelectorNode) {
+    const frameSelectorUi = createFrameSelectorControlsUi();
+    frameSelectorControls = frameSelectorUi.controls;
+    frameSelectorLabel = frameSelectorUi.label;
+    frameSelectorTrimStart = frameSelectorUi.trimStart;
+    frameSelectorTrimEnd = frameSelectorUi.trimEnd;
+    frameSelectorHoldFrame = frameSelectorUi.holdFrame;
+    frameSelectorRuler = frameSelectorUi.ruler;
+    frameSelectorSliderBox = frameSelectorUi.sliderBox;
+    frameSelectorFill = frameSelectorUi.fill;
+    frameSelectorFillLabel = frameSelectorUi.fillLabel;
+    frameSelectorStartHandle = frameSelectorUi.startHandle;
+    frameSelectorEndHandle = frameSelectorUi.endHandle;
+    frameSelectorPlayhead = frameSelectorUi.playhead;
+    frameSelectorHoldToggle = frameSelectorUi.holdToggle;
+    frameSelectorHoldRow = frameSelectorUi.holdRow;
+    frameSelectorRepeatRow = frameSelectorUi.repeatRow;
+    frameSelectorRepeatToggle = frameSelectorUi.repeatToggle;
+    frameSelectorRepeatModeSelect = frameSelectorUi.repeatModeSelect;
+    frameSelectorRepeatCountInput = frameSelectorUi.repeatCountInput;
+  }
+  let joinControls = null;
+  let joinAddButton = null;
+  let joinTrimList = null;
+  if (joinNode) {
+    const joinUi = createJoinControlsUi();
+    joinControls = joinUi.controls;
+    joinAddButton = joinUi.addButton;
+    joinTrimList = joinUi.trimList;
+  }
+  let keyerControls = null;
+  let keyerModeButtons = [];
+  let keyerInvertButton = null;
+  let keyerInvertMaskButton = null;
+  let keyerBypassButton = null;
+  let keyerPickButton = null;
+  let keyerColorInput = null;
+  let keyerToleranceInput = null;
+  let keyerSoftnessInput = null;
+  let keyerGainInput = null;
+  let keyerBlurInput = null;
+  if (keyerNode) {
+    const keyerUi = createKeyerControlsUi();
+    keyerControls = keyerUi.controls;
+    keyerModeButtons = keyerUi.modeButtons;
+    keyerInvertButton = keyerUi.invertButton;
+    keyerInvertMaskButton = keyerUi.invertMaskButton;
+    keyerBypassButton = keyerUi.bypassButton;
+    keyerPickButton = keyerUi.pickButton;
+    keyerColorInput = keyerUi.colorInput;
+    keyerToleranceInput = keyerUi.toleranceInput;
+    keyerSoftnessInput = keyerUi.softnessInput;
+    keyerGainInput = keyerUi.gainInput;
+    keyerBlurInput = keyerUi.blurInput;
   }
   let drawBrushButton = null;
   let drawEraserButton = null;
@@ -410,208 +345,29 @@ function ensurePreviewWidget(node, progress, canvasSize) {
   let drawTiltSizeInput = null;
   let drawControls = null;
   if (drawNode) {
-    drawControls = document.createElement("div");
-    drawControls.style.marginTop = "8px";
-    drawControls.style.display = "grid";
-    drawControls.style.gap = "8px";
-    const topRow = document.createElement("div");
-    topRow.style.display = "flex";
-    topRow.style.alignItems = "center";
-    topRow.style.justifyContent = "space-between";
-    topRow.style.gap = "8px";
-    const toolRow = document.createElement("div");
-    toolRow.style.display = "flex";
-    toolRow.style.alignItems = "center";
-    toolRow.style.gap = "6px";
-    drawBrushButton = document.createElement("button");
-    drawBrushButton.type = "button";
-    drawBrushButton.textContent = "Brush";
-    styleSoftButton(drawBrushButton, true);
-    drawEraserButton = document.createElement("button");
-    drawEraserButton.type = "button";
-    drawEraserButton.textContent = "Eraser";
-    styleSoftButton(drawEraserButton, false);
-    drawClearButton = document.createElement("button");
-    drawClearButton.type = "button";
-    drawClearButton.textContent = "Clear";
-    styleInlineAction(drawClearButton);
-    drawOverlayFormatSelect = document.createElement("select");
-    drawOverlayFormatSelect.title = "Overlay format";
-    drawOverlayFormatSelect.style.width = "72px";
-    styleSoftField(drawOverlayFormatSelect);
-    for (const format of ["png", "webp"]) {
-      const option = document.createElement("option");
-      option.value = format;
-      option.textContent = format.toUpperCase();
-      drawOverlayFormatSelect.appendChild(option);
-    }
-    const rightTools = document.createElement("div");
-    rightTools.style.display = "flex";
-    rightTools.style.alignItems = "center";
-    rightTools.style.gap = "6px";
-    rightTools.appendChild(drawOverlayFormatSelect);
-    rightTools.appendChild(drawClearButton);
-    toolRow.appendChild(drawBrushButton);
-    toolRow.appendChild(drawEraserButton);
-    topRow.appendChild(toolRow);
-    topRow.appendChild(rightTools);
-    const strokeRow = document.createElement("div");
-    strokeRow.style.display = "grid";
-    strokeRow.style.gridTemplateColumns = "auto minmax(0,1fr) auto auto minmax(0,1fr)";
-    strokeRow.style.alignItems = "center";
-    strokeRow.style.gap = "6px";
-    const colorLabel = document.createElement("div");
-    colorLabel.textContent = "Color";
-    colorLabel.style.fontSize = "11px";
-    colorLabel.style.opacity = "0.78";
-    const colorSwatchResult = createColorSwatch("#FFFFFF");
-    drawColorInput = colorSwatchResult.input;
-    drawEdgeSelect = document.createElement("select");
-    styleSoftField(drawEdgeSelect);
-    drawEdgeSelect.title = "Brush edge";
-    for (const edge of ["hard", "soft"]) {
-      const option = document.createElement("option");
-      option.value = edge;
-      option.textContent = edge === "hard" ? "Hard edge" : "Soft edge";
-      drawEdgeSelect.appendChild(option);
-    }
-    drawOpacityLabel = document.createElement("div");
-    drawOpacityLabel.textContent = "100%";
-    drawOpacityLabel.style.fontSize = "11px";
-    drawOpacityLabel.style.opacity = "0.82";
-    drawOpacityLabel.style.justifySelf = "end";
-    drawOpacityInput = document.createElement("input");
-    drawOpacityInput.type = "range";
-    drawOpacityInput.min = "0";
-    drawOpacityInput.max = "100";
-    drawOpacityInput.step = "1";
-    drawOpacityInput.value = "100";
-    drawOpacityInput.title = "Brush opacity";
-    styleSoftRange(drawOpacityInput);
-    strokeRow.appendChild(colorLabel);
-    strokeRow.appendChild(colorSwatchResult.host);
-    strokeRow.appendChild(drawEdgeSelect);
-    strokeRow.appendChild(drawOpacityLabel);
-    strokeRow.appendChild(drawOpacityInput);
-    const softnessRow = document.createElement("div");
-    softnessRow.style.display = "grid";
-    softnessRow.style.gridTemplateColumns = "auto minmax(0,1fr) auto";
-    softnessRow.style.alignItems = "center";
-    softnessRow.style.gap = "6px";
-    const softnessLabel = document.createElement("div");
-    softnessLabel.textContent = "Softness";
-    softnessLabel.style.fontSize = "11px";
-    softnessLabel.style.opacity = "0.78";
-    drawSoftnessInput = document.createElement("input");
-    drawSoftnessInput.type = "range";
-    drawSoftnessInput.min = "0";
-    drawSoftnessInput.max = "100";
-    drawSoftnessInput.step = "1";
-    drawSoftnessInput.value = "50";
-    drawSoftnessInput.title = "Soft brush feather (only when edge=Soft)";
-    styleSoftRange(drawSoftnessInput);
-    drawSoftnessLabel = document.createElement("div");
-    drawSoftnessLabel.textContent = "50%";
-    drawSoftnessLabel.style.fontSize = "11px";
-    drawSoftnessLabel.style.opacity = "0.82";
-    drawSoftnessLabel.style.justifySelf = "end";
-    softnessRow.appendChild(softnessLabel);
-    softnessRow.appendChild(drawSoftnessInput);
-    softnessRow.appendChild(drawSoftnessLabel);
-    const sizeRow = document.createElement("div");
-    sizeRow.style.display = "grid";
-    sizeRow.style.gridTemplateColumns = "auto minmax(0,1fr) auto auto auto auto auto";
-    sizeRow.style.alignItems = "center";
-    sizeRow.style.gap = "6px";
-    const sizeLabel = document.createElement("div");
-    sizeLabel.textContent = "Size";
-    sizeLabel.style.fontSize = "11px";
-    sizeLabel.style.opacity = "0.78";
-    drawSizeInput = document.createElement("input");
-    drawSizeInput.type = "range";
-    drawSizeInput.min = "1";
-    drawSizeInput.max = "256";
-    drawSizeInput.step = "1";
-    drawSizeInput.value = "10";
-    drawSizeInput.title = "Brush size";
-    styleSoftRange(drawSizeInput);
-    drawSizeLabel = document.createElement("div");
-    drawSizeLabel.textContent = "10";
-    drawSizeLabel.style.fontSize = "11px";
-    drawSizeLabel.style.opacity = "0.82";
-    drawSizeLabel.style.justifySelf = "end";
-    drawWidthInput = document.createElement("input");
-    drawWidthInput.type = "number";
-    drawWidthInput.min = "64";
-    drawWidthInput.max = "4096";
-    drawWidthInput.step = "64";
-    drawWidthInput.value = "1024";
-    drawWidthInput.placeholder = "W";
-    drawWidthInput.title = "Width";
-    drawWidthInput.style.width = "62px";
-    styleSoftField(drawWidthInput);
-    drawHeightInput = document.createElement("input");
-    drawHeightInput.type = "number";
-    drawHeightInput.min = "64";
-    drawHeightInput.max = "4096";
-    drawHeightInput.step = "64";
-    drawHeightInput.value = "1024";
-    drawHeightInput.placeholder = "H";
-    drawHeightInput.title = "Height";
-    drawHeightInput.style.width = "62px";
-    styleSoftField(drawHeightInput);
-    drawLinkButton = document.createElement("button");
-    drawLinkButton.type = "button";
-    drawLinkButton.textContent = "Linked";
-    styleSoftButton(drawLinkButton, true);
-    const bgColorSwatchResult = createColorSwatch("#000000", { compact: true, title: "Background color" });
-    drawBgColorInput = bgColorSwatchResult.input;
-    sizeRow.appendChild(sizeLabel);
-    sizeRow.appendChild(drawSizeInput);
-    sizeRow.appendChild(drawSizeLabel);
-    sizeRow.appendChild(drawWidthInput);
-    sizeRow.appendChild(drawHeightInput);
-    sizeRow.appendChild(drawLinkButton);
-    sizeRow.appendChild(bgColorSwatchResult.host);
-    const dynamicsRow = document.createElement("div");
-    dynamicsRow.style.display = "flex";
-    dynamicsRow.style.alignItems = "center";
-    dynamicsRow.style.gap = "10px";
-    dynamicsRow.style.flexWrap = "wrap";
-    dynamicsRow.style.fontSize = "11px";
-    dynamicsRow.style.opacity = "0.86";
-    const dynamicsLabel = document.createElement("span");
-    dynamicsLabel.textContent = "Dynamics";
-    dynamicsLabel.style.opacity = "0.78";
-    const makeDynamicsToggle = (text, title) => {
-      const label = document.createElement("label");
-      label.style.display = "inline-flex";
-      label.style.alignItems = "center";
-      label.style.gap = "4px";
-      label.title = title;
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.style.margin = "0";
-      label.appendChild(input);
-      label.appendChild(document.createTextNode(text));
-      return [label, input];
-    };
-    const [pressureSizeLabel, pressureSizeInput] = makeDynamicsToggle("Size pressure", "Pen pressure changes brush diameter");
-    const [pressureOpacityLabel, pressureOpacityInput] = makeDynamicsToggle("Opacity pressure", "Pen pressure changes brush opacity");
-    const [tiltSizeLabel, tiltSizeInput] = makeDynamicsToggle("Tilt size", "Pen tilt widens the brush footprint");
-    drawPressureSizeInput = pressureSizeInput;
-    drawPressureOpacityInput = pressureOpacityInput;
-    drawTiltSizeInput = tiltSizeInput;
-    dynamicsRow.appendChild(dynamicsLabel);
-    dynamicsRow.appendChild(pressureSizeLabel);
-    dynamicsRow.appendChild(pressureOpacityLabel);
-    dynamicsRow.appendChild(tiltSizeLabel);
-    drawControls.appendChild(topRow);
-    drawControls.appendChild(strokeRow);
-    drawControls.appendChild(softnessRow);
-    drawControls.appendChild(sizeRow);
-    drawControls.appendChild(dynamicsRow);
+    const drawUi = createDrawControlsUi();
+    drawControls = drawUi.controls;
+    drawBrushButton = drawUi.brushButton;
+    drawEraserButton = drawUi.eraserButton;
+    drawClearButton = drawUi.clearButton;
+    drawColorInput = drawUi.colorInput;
+    drawEdgeSelect = drawUi.edgeSelect;
+    drawSoftnessInput = drawUi.softnessInput;
+    drawSoftnessLabel = drawUi.softnessLabel;
+    drawOpacityInput = drawUi.opacityInput;
+    drawOpacityLabel = drawUi.opacityLabel;
+    drawSizeInput = drawUi.sizeInput;
+    drawSizeLabel = drawUi.sizeLabel;
+    drawWidthInput = drawUi.widthInput;
+    drawHeightInput = drawUi.heightInput;
+    drawLinkButton = drawUi.linkButton;
+    drawBgColorInput = drawUi.bgColorInput;
+    drawOverlayFormatSelect = drawUi.overlayFormatSelect;
+    drawPressureSizeInput = drawUi.pressureSizeInput;
+    drawPressureOpacityInput = drawUi.pressureOpacityInput;
+    drawTiltSizeInput = drawUi.tiltSizeInput;
   }
+  const compactNativeControls = buildCompactNativeWidgetControls(node, onNativeWidgetChange);
   const progressWrap = document.createElement("div");
   progressWrap.style.marginTop = "6px";
   progressWrap.style.height = "6px";
@@ -628,35 +384,67 @@ function ensurePreviewWidget(node, progress, canvasSize) {
   root.appendChild(mediaWrap);
   root.appendChild(canvas);
   metaRow.appendChild(info);
+  if (nodeResetButton) metaRow.appendChild(nodeResetButton);
   if (cropResetButton) metaRow.appendChild(cropResetButton);
   root.appendChild(metaRow);
   if (previewControls) root.appendChild(previewControls);
   if (colorControls) root.appendChild(colorControls);
   if (drawControls) root.appendChild(drawControls);
   if (compControls) root.appendChild(compControls);
+  if (joinControls) root.appendChild(joinControls);
+  if (frameSelectorControls) root.appendChild(frameSelectorControls);
+  if (keyerControls) root.appendChild(keyerControls);
+  if (compactNativeControls) {
+    root.appendChild(compactNativeControls);
+    ensureState(node).compactNativePanel = compactNativeControls;
+  }
   root.appendChild(progressWrap);
+  const activeControls = previewControls ?? colorControls ?? drawControls ?? compControls ?? joinControls ?? frameSelectorControls ?? keyerControls ?? compactNativeControls;
   root.style.pointerEvents = "auto";
-  const domMinHeight = getNodePreviewMinHeight(node);
   if (typeof node.addDOMWidget === "function") {
     node.addDOMWidget("preview", "ImageOpsPreview", root, {
       serialize: false,
       hideOnZoom: false,
       getMinHeight: () => {
-        const mediaH = mediaWrap.style.display !== "none" ? mediaWrap.offsetHeight : 0;
-        const imageH = Math.max(canvas.offsetHeight, mediaH);
-        if (imageH === 0) return domMinHeight;
-        const metaH = metaRow.offsetHeight + 6;
-        const activeControls = previewControls ?? colorControls ?? drawControls ?? compControls;
-        const controlsH = activeControls ? activeControls.offsetHeight + 8 : 0;
-        const progressH = progressWrap.offsetHeight;
-        const naturalH = imageH + metaH + controlsH + progressH + 12;
-        return Math.max(domMinHeight, naturalH);
+        return getNodePreviewContentHeight(node, root);
       }
     });
+    const domWidget = (node.widgets ?? []).find((widget) => widget?.name === "preview");
+    if (domWidget?.hidden !== false) {
+      domWidget.hidden = false;
+    }
+    if (drawNode && drawClearButton) {
+      const clearWrap = document.createElement("div");
+      clearWrap.style.display = "flex";
+      clearWrap.style.justifyContent = "center";
+      clearWrap.style.marginTop = "8px";
+      clearWrap.style.marginBottom = "8px";
+      clearWrap.style.width = "100%";
+      clearWrap.appendChild(drawClearButton);
+      node.addDOMWidget("clear_action", "ImageOpsClear", clearWrap, {
+        serialize: false,
+        hideOnZoom: false,
+        getMinHeight: () => 32
+      });
+      const clearWidget = (node.widgets ?? []).find((widget) => widget?.name === "clear_action");
+      if (clearWidget?.hidden !== false) {
+        clearWidget.hidden = false;
+      }
+    }
   } else {
     const domEl = node.domElement ?? node.element;
     if (domEl instanceof HTMLElement) {
       domEl.appendChild(root);
+      if (drawNode && drawClearButton) {
+        const clearWrap = document.createElement("div");
+        clearWrap.style.display = "flex";
+        clearWrap.style.justifyContent = "center";
+        clearWrap.style.marginTop = "8px";
+        clearWrap.style.marginBottom = "8px";
+        clearWrap.style.width = "100%";
+        clearWrap.appendChild(drawClearButton);
+        domEl.appendChild(clearWrap);
+      }
     } else {
       console.warn("[ImageOps] addDOMWidget unavailable and no DOM container found on node", node.id);
     }
@@ -671,12 +459,16 @@ function ensurePreviewWidget(node, progress, canvasSize) {
   } catch {
   }
   st.canvas = canvas;
+  st.previewRoot = root;
+  st.previewMetaRow = metaRow;
+  st.previewControls = activeControls;
   st.info = info;
   st.progressWrap = progressWrap;
   st.progressBar = progressBar;
   st.mediaWrap = mediaWrap;
   st.mediaVideo = mediaVideo;
   st.mediaImage = mediaImage;
+  st.nodeResetButton = nodeResetButton;
   st.cropResetButton = cropResetButton;
   st.drawBrushButton = drawBrushButton;
   st.drawEraserButton = drawEraserButton;
@@ -728,27 +520,51 @@ function ensurePreviewWidget(node, progress, canvasSize) {
   st.colorZoneTabMidtones = colorZoneTabMidtones;
   st.colorZoneTabHighlights = colorZoneTabHighlights;
   st.compAddButton = compAddButton;
+  st.compRemoveButton = compRemoveButton;
   st.compResetButton = compResetButton;
   st.compResizeButton = compResizeButton;
   st.compCornerPinButton = compCornerPinButton;
+  st.compAspectRatioSelect = compAspectRatioSelect;
   st.compModeSelect = compModeSelect;
   st.compOpacityInput = compOpacityInput;
   st.compOpacityLabel = compOpacityLabel;
   st.compLayerLabel = compLayerLabel;
+  st.joinAddButton = joinAddButton;
+  st.joinTrimList = joinTrimList;
+  st.joinControls = joinControls;
+  st.frameSelectorControls = frameSelectorControls;
+  st.frameSelectorLabel = frameSelectorLabel;
+  st.frameSelectorTrimStart = frameSelectorTrimStart;
+  st.frameSelectorTrimEnd = frameSelectorTrimEnd;
+  st.frameSelectorHoldFrame = frameSelectorHoldFrame;
+  st.frameSelectorRuler = frameSelectorRuler;
+  st.frameSelectorSliderBox = frameSelectorSliderBox;
+  st.frameSelectorFill = frameSelectorFill;
+  st.frameSelectorFillLabel = frameSelectorFillLabel;
+  st.frameSelectorStartHandle = frameSelectorStartHandle;
+  st.frameSelectorEndHandle = frameSelectorEndHandle;
+  st.frameSelectorPlayhead = frameSelectorPlayhead;
+  st.frameSelectorHoldToggle = frameSelectorHoldToggle;
+  st.frameSelectorHoldRow = frameSelectorHoldRow;
+  st.frameSelectorRepeatRow = frameSelectorRepeatRow;
+  st.frameSelectorRepeatToggle = frameSelectorRepeatToggle;
+  st.frameSelectorRepeatModeSelect = frameSelectorRepeatModeSelect;
+  st.frameSelectorRepeatCountInput = frameSelectorRepeatCountInput;
+  st.keyerControls = keyerControls;
+  st.keyerModeButtons = keyerModeButtons;
+  st.keyerInvertButton = keyerInvertButton;
+  st.keyerInvertMaskButton = keyerInvertMaskButton;
+  st.keyerBypassButton = keyerBypassButton;
+  st.keyerPickButton = keyerPickButton;
+  st.keyerColorInput = keyerColorInput;
+  st.keyerToleranceInput = keyerToleranceInput;
+  st.keyerSoftnessInput = keyerSoftnessInput;
+  st.keyerGainInput = keyerGainInput;
+  st.keyerBlurInput = keyerBlurInput;
   try {
-    const cs = node.computeSize?.() ?? [360, domMinHeight];
-    node.setSize?.(getNodePreviewTargetSize(node, root, Math.max(cs[0], 360)));
     node.resizable = true;
   } catch {
   }
-  setTimeout(() => {
-    try {
-      const cs2 = node.computeSize?.() ?? [360, domMinHeight];
-      node.setSize?.(getNodePreviewTargetSize(node, root, Math.max(cs2[0], 360)));
-      node.graph?.setDirtyCanvas(true, true);
-    } catch {
-    }
-  }, 100);
   if (progress) {
     progress.registerNodeWidget(node, progressWrap, progressBar);
   }
@@ -757,5 +573,5 @@ function ensurePreviewWidget(node, progress, canvasSize) {
 export {
   ensurePreviewWidget,
   getNodePreviewMinHeight,
-  getNodePreviewTargetSize
+  syncCompactNativeWidgetControls
 };

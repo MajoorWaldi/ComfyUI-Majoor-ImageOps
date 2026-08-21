@@ -307,7 +307,7 @@ def _wrap_legacy_node20(node_id: str, cls, display_name: str):
 
 
 # Create internal package + nodes package so node files' relative imports work.
-_ensure_pkg(_PKG, BASE_DIR, BASE_DIR / "__init__.py")
+_internal_package = _ensure_pkg(_PKG, BASE_DIR, BASE_DIR / "__init__.py")
 _ensure_pkg(f"{_PKG}.nodes", BASE_DIR / "nodes", BASE_DIR / "nodes" / "__init__.py")
 
 _nodes_dir = BASE_DIR / "nodes"
@@ -399,6 +399,15 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageOpsFrameRange": "〽️ ImageOps Frame Range",
     "ImageOpsAppend": "〽️ ImageOps Append",
 }
+
+# V3NodeBase is imported through the private ``majoor_imageops`` namespace,
+# while ComfyUI loads this entrypoint under a synthetic module name. Expose the
+# root schema helpers on that private package so native V3 nodes can build their
+# schemas when /object_info asks for them. Without this bridge ComfyUI catches an
+# AttributeError and silently omits Channel, Clamp, Invert and MaskConvert.
+_internal_package._build_legacy_schema = _build_legacy_schema
+_internal_package.NODE_CLASS_MAPPINGS = NODE_CLASS_MAPPINGS
+_internal_package.NODE_DISPLAY_NAME_MAPPINGS = NODE_DISPLAY_NAME_MAPPINGS
 
 for _node_id, _node_cls in list(NODE_CLASS_MAPPINGS.items()):
     _display = NODE_DISPLAY_NAME_MAPPINGS.get(_node_id, _humanize_node_id(_node_id))

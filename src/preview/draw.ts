@@ -1,4 +1,5 @@
 import type { ComfyNode, ComfyWidget } from "../types.js";
+import { setWidgetValue } from "./shared/widgets.js";
 
 export type DrawTool = "brush" | "eraser";
 export type DrawEdgeMode = "hard" | "soft";
@@ -96,6 +97,15 @@ export function makeCanvas(width: number, height: number): HTMLCanvasElement {
   canvas.width = normalizeCanvasDimension(width, 1);
   canvas.height = normalizeCanvasDimension(height, 1);
   return canvas;
+}
+
+export function createOffscreenCanvas(width: number, height: number): any {
+  if (typeof OffscreenCanvas !== "undefined") {
+    try {
+      return new OffscreenCanvas(normalizeCanvasDimension(width, 1), normalizeCanvasDimension(height, 1));
+    } catch {}
+  }
+  return makeCanvas(width, height);
 }
 
 export function resizeCanvasPreserve(source: HTMLCanvasElement | null, width: number, height: number): HTMLCanvasElement {
@@ -333,17 +343,21 @@ export function makeSolidBackgroundCanvas(width: number, height: number, bgColor
   return canvas;
 }
 
-export async function renderDrawPreview(node: ComfyNode, baseCanvas: HTMLCanvasElement | null = null): Promise<HTMLCanvasElement> {
-  const width = baseCanvas?.width || clampDrawDimension(widgetNumber(node, "width", 1024));
-  const height = baseCanvas?.height || clampDrawDimension(widgetNumber(node, "height", 1024));
+export async function renderDrawPreview(
+  node: ComfyNode,
+  baseCanvas: HTMLCanvasElement | null = null,
+  inputSize: { width: number; height: number } | null = null,
+): Promise<HTMLCanvasElement> {
+  const width = inputSize?.width || baseCanvas?.width || clampDrawDimension(widgetNumber(node, "width", 1024));
+  const height = inputSize?.height || baseCanvas?.height || clampDrawDimension(widgetNumber(node, "height", 1024));
   // When an input image drives the canvas size, reflect that back into the
   // width/height widgets so the user sees the actual output dimensions.
   if (baseCanvas) {
     const widgets = (node?.widgets ?? []) as Array<{ name?: string; value?: number }>;
     const ww = widgets.find((entry) => entry?.name === "width");
     const hw = widgets.find((entry) => entry?.name === "height");
-    if (ww && ww.value !== width) ww.value = width;
-    if (hw && hw.value !== height) hw.value = height;
+    setWidgetValue(ww as ComfyWidget | null, width);
+    setWidgetValue(hw as ComfyWidget | null, height);
   }
   const output = baseCanvas ? resizeCanvasPreserve(baseCanvas, width, height) : makeSolidBackgroundCanvas(width, height, widgetString(node, "bg_color", "#000000"));
   if (widgetBoolean(node, "bypass", false)) {

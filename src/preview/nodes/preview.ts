@@ -1,11 +1,53 @@
 import type { ComfyNode } from "../../types.js";
 import { findWidget, hideWidgetForGood, widgetString } from "../shared/widgets.js";
-import { styleSoftButton } from "../shared/dom-styles.js";
+import { createContextMenuSelect, styleSoftButton, styleSoftField } from "../shared/dom-styles.js";
 
 export const NODE_CLASS = "ImageOpsPreview";
 
 export function isNode(node: ComfyNode): boolean {
   return String(node?.comfyClass ?? "") === NODE_CLASS;
+}
+
+export type PreviewControlsUi = {
+  controls: HTMLDivElement;
+};
+
+export function createPreviewControlsUi(): PreviewControlsUi {
+  const controls = document.createElement("div");
+  controls.style.marginTop = "8px";
+  controls.style.display = "grid";
+  controls.style.gap = "6px";
+
+  const targetRow = document.createElement("div");
+  targetRow.style.display = "grid";
+  targetRow.style.gridTemplateColumns = "auto auto auto minmax(0,1fr)";
+  targetRow.style.gap = "6px";
+  targetRow.style.alignItems = "center";
+
+  for (const [value, label] of [["auto", "Auto"], ["image", "Image"], ["mask", "Mask"]] as const) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.dataset.previewTarget = value;
+    styleSoftButton(button, value === "auto");
+    targetRow.appendChild(button);
+  }
+
+  const modeSelect = document.createElement("select");
+  modeSelect.dataset.previewMode = "1";
+  modeSelect.title = "Preview export mode";
+  styleSoftField(modeSelect);
+  modeSelect.style.width = "100%";
+  for (const mode of ["images", "strip", "animated_webp", "animated_gif"]) {
+    const option = document.createElement("option");
+    option.value = mode;
+    option.textContent = mode.replace(/_/g, " ");
+    modeSelect.appendChild(option);
+  }
+  targetRow.appendChild(createContextMenuSelect(modeSelect));
+  controls.appendChild(targetRow);
+
+  return { controls };
 }
 
 export function hidePreviewWidgets(node: ComfyNode): void {

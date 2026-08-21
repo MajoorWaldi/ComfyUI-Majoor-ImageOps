@@ -3,11 +3,21 @@ import { clampCropCenter, clampCropScale, resolveCropAspectRatio, type CropRect 
 import { findWidget, widgetNumber, widgetString, widgetBoolean, hideWidgetForGood, setWidgetValue, setWidgetBooleanValue } from "../shared/widgets.js";
 import { ensureState } from "../shared/state.js";
 import { markCanvasDirty } from "../shared/canvas.js";
+import { styleInlineAction } from "../shared/dom-styles.js";
 
 export const NODE_CLASS = "ImageOpsCrop";
 
 export function isNode(node: ComfyNode): boolean {
   return String(node?.comfyClass ?? "") === NODE_CLASS;
+}
+
+export function createCropResetButton(): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Reset";
+  styleInlineAction(button);
+  button.style.opacity = "0.85";
+  return button;
 }
 
 export function hideCropGeometryWidgets(node: ComfyNode): void {
@@ -38,10 +48,10 @@ export function getCropControlState(node: ComfyNode, fallbackWidth: number = 1, 
   };
 }
 
-export function setCropControlState(node: ComfyNode, centerX: number, centerY: number, scale: number): void {
-  setWidgetValue(findWidget(node, "crop_center_x"), clampCropCenter(centerX));
-  setWidgetValue(findWidget(node, "crop_center_y"), clampCropCenter(centerY));
-  setWidgetValue(findWidget(node, "crop_scale"), clampCropScale(scale));
+export function setCropControlState(node: ComfyNode, centerX: number, centerY: number, scale: number, notify: boolean = true): void {
+  setWidgetValue(findWidget(node, "crop_center_x"), clampCropCenter(centerX), { notify });
+  setWidgetValue(findWidget(node, "crop_center_y"), clampCropCenter(centerY), { notify });
+  setWidgetValue(findWidget(node, "crop_scale"), clampCropScale(scale), { notify });
 }
 
 export function resetCropControlState(node: ComfyNode): void {
@@ -139,7 +149,7 @@ export function canvasToSourcePoint(geometry: CropPreviewGeometry, x: number, y:
 
 // ── Runtime widget sync helpers ──
 
-export function syncCropWidgets(node: ComfyNode, changedName?: string): void {
+export function syncCropWidgets(node: ComfyNode, changedName?: string, notify: boolean = true): void {
   if (!isNode(node)) return;
 
   const st = ensureState(node);
@@ -181,15 +191,15 @@ export function syncCropWidgets(node: ComfyNode, changedName?: string): void {
     }
   }
 
-  widthWidget.value = width;
-  heightWidget.value = height;
+  setWidgetValue(widthWidget, width, { notify });
+  setWidgetValue(heightWidget, height, { notify });
   markCanvasDirty();
 }
 
-export function setCropOutputDimensions(node: ComfyNode, width: number, height: number): void {
-  setWidgetValue(findWidget(node, "width"), Math.max(1, Math.round(width)));
-  setWidgetValue(findWidget(node, "height"), Math.max(1, Math.round(height)));
-  syncCropWidgets(node);
+export function setCropOutputDimensions(node: ComfyNode, width: number, height: number, notify: boolean = true): void {
+  setWidgetValue(findWidget(node, "width"), Math.max(1, Math.round(width)), { notify });
+  setWidgetValue(findWidget(node, "height"), Math.max(1, Math.round(height)), { notify });
+  syncCropWidgets(node, undefined, notify);
 }
 
 // ── Pure geometry helpers for crop interaction ──
@@ -279,4 +289,3 @@ export function freeCropRectFromAnchor(
     cropHeight,
   };
 }
-

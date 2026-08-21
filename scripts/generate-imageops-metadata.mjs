@@ -31,4 +31,12 @@ export const IMAGEOPS_DEFAULT_NODE_WIDTH = 360;
 export const IMAGEOPS_CLASS_ALIASES = new Map<string, string>(${JSON.stringify(Object.entries(aliases), null, 2)});
 `;
 
-await writeFile(targetPath, content, "utf8");
+if (process.argv.includes("--check")) {
+  const current = await readFile(targetPath, "utf8").catch(() => "");
+  if (current !== content) {
+    console.error(`${targetPath} is stale. Run: npm run generate:metadata`);
+    process.exitCode = 1;
+  }
+} else {
+  await writeFile(targetPath, content, "utf8");
+}
