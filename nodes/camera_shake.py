@@ -135,17 +135,20 @@ class ImageOpsCameraShake:
         unique_id=None,
     ):
         source = _select_media_tensor(image, video).float().clamp(0.0, 1.0)
-        frame_count = max(1, _scalar(frame_length, int))
         preview_fps = max(1.0, _scalar(fps, float))
+        progress = start_progress(unique_id=unique_id)
+
+        if _scalar(bypass, bool) or _all_near_zero(translate_px, rotate_deg, zoom):
+            progress.finish()
+            output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
+            return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_camerashake", fps=preview_fps)
+
+        frame_count = max(1, _scalar(frame_length, int))
         if frame_count > int(source.shape[0]):
             repeats = (frame_count + int(source.shape[0]) - 1) // max(1, int(source.shape[0]))
             source = source.repeat((repeats, 1, 1, 1))[:frame_count]
         input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-        progress = start_progress(unique_id=unique_id)
-        if _scalar(bypass, bool) or _all_near_zero(translate_px, rotate_deg, zoom):
-            progress.finish()
-            return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_camerashake", fps=preview_fps)
 
         frames = int(source.shape[0])
         tx, ty, rot, scales = _shake_params(

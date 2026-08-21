@@ -22,3 +22,20 @@ jobs:
       - name: Verify js/ is up to date
         run: |
           git diff --exit-code js/ || (echo "::error::js/ is out of date — run 'npm run build' and commit the result" && exit 1)
+
+  pytest:
+    name: Python tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchvision numpy pytest pillow
+      - name: Run unit tests
+        run: |
+          python -m pytest tests/ -v

@@ -355,7 +355,7 @@ class ImageOpsNoise:
                 "contrast": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 4.0, "step": 0.01, "round": 0.001}),
                 "invert": ("BOOLEAN", {"default": False}),
                 "low_color": ("COLOR", {"default": "#FFFFFF"}),
-                "high_color": ("COLOR", {"default": "#000000"}),
+                "high_color": ("COLOR", {"default": "#FFFFFF"}),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -380,7 +380,7 @@ class ImageOpsNoise:
         contrast=1.0,
         invert=False,
         low_color="#FFFFFF",
-        high_color="#000000",
+        high_color="#FFFFFF",
         # legacy / compat params (ignored if present in old workflows)
         batch_size=None,
         seed_step=None,
@@ -398,6 +398,15 @@ class ImageOpsNoise:
         frame_count = max(1, _scalar(frame_length, int))
         preview_fps = max(1.0, _scalar(fps, float))
         device = _resolve_noise_device(_scalar(compute_device, str) if compute_device is not None else "auto")
+
+        # Memory preflight: prevent absurd allocations before starting generation.
+        from .core.memory import check_budget
+        check_budget(
+            frame_count, target_h, target_w, 3,
+            multiplier=2.0,
+            label="ImageOps Noise",
+        )
+
         progress = start_progress(total=frame_count, unique_id=unique_id)
         anim_speed = _scalar(animation_speed, float) if frame_offset_z is None else _scalar(frame_offset_z, float)
 

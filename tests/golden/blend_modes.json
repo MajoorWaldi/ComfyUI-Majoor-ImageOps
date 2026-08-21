@@ -1,0 +1,131 @@
+{
+  "_meta": {
+    "description": "Golden fixtures for ImageOps blend mode verification",
+    "version": 1,
+    "tolerance_abs": 1e-5,
+    "note": "Both Python backend and future frontend/WebGL tests consume these values"
+  },
+  "boundary_values": [0.0, 1e-7, 0.001, 0.25, 0.5, 0.75, 0.999, 1.0],
+  "modes": {
+    "over": {
+      "formula": "top",
+      "cases": [
+        {"base": 0.0, "top": 0.0, "expected": 0.0},
+        {"base": 0.0, "top": 1.0, "expected": 1.0},
+        {"base": 1.0, "top": 0.0, "expected": 0.0},
+        {"base": 1.0, "top": 1.0, "expected": 1.0},
+        {"base": 0.5, "top": 0.25, "expected": 0.25},
+        {"base": 0.25, "top": 0.75, "expected": 0.75}
+      ]
+    },
+    "add": {
+      "formula": "clamp(base + top, 0, 1)",
+      "cases": [
+        {"base": 0.0, "top": 0.0, "expected": 0.0},
+        {"base": 0.5, "top": 0.5, "expected": 1.0},
+        {"base": 0.75, "top": 0.5, "expected": 1.0},
+        {"base": 0.0, "top": 1.0, "expected": 1.0},
+        {"base": 0.25, "top": 0.25, "expected": 0.5}
+      ]
+    },
+    "multiply": {
+      "formula": "base * top",
+      "cases": [
+        {"base": 0.0, "top": 0.0, "expected": 0.0},
+        {"base": 1.0, "top": 1.0, "expected": 1.0},
+        {"base": 0.5, "top": 0.5, "expected": 0.25},
+        {"base": 0.0, "top": 1.0, "expected": 0.0},
+        {"base": 1.0, "top": 0.5, "expected": 0.5},
+        {"base": 0.25, "top": 0.75, "expected": 0.1875}
+      ]
+    },
+    "screen": {
+      "formula": "1 - (1-base)*(1-top)",
+      "cases": [
+        {"base": 0.0, "top": 0.0, "expected": 0.0},
+        {"base": 1.0, "top": 1.0, "expected": 1.0},
+        {"base": 0.5, "top": 0.5, "expected": 0.75},
+        {"base": 0.0, "top": 1.0, "expected": 1.0},
+        {"base": 1.0, "top": 0.0, "expected": 1.0}
+      ]
+    },
+    "overlay": {
+      "formula": "base<=0.5 ? 2*base*top : 1-2*(1-base)*(1-top)",
+      "cases": [
+        {"base": 0.0, "top": 0.0, "expected": 0.0},
+        {"base": 1.0, "top": 1.0, "expected": 1.0},
+        {"base": 0.25, "top": 0.5, "expected": 0.25},
+        {"base": 0.75, "top": 0.5, "expected": 0.75},
+        {"base": 0.5, "top": 0.5, "expected": 0.5}
+      ]
+    },
+    "soft_light": {
+      "formula": "W3C soft-light formula",
+      "cases": [
+        {"base": 0.0, "top": 0.0, "expected": 0.0},
+        {"base": 1.0, "top": 1.0, "expected": 1.0},
+        {"base": 0.5, "top": 0.5, "expected": 0.5},
+        {"base": 0.5, "top": 0.0, "expected": 0.25},
+        {"base": 0.5, "top": 1.0, "expected": 0.7071067811865476}
+      ]
+    },
+    "difference": {
+      "formula": "abs(base - top)",
+      "cases": [
+        {"base": 0.0, "top": 0.0, "expected": 0.0},
+        {"base": 1.0, "top": 1.0, "expected": 0.0},
+        {"base": 1.0, "top": 0.0, "expected": 1.0},
+        {"base": 0.0, "top": 1.0, "expected": 1.0},
+        {"base": 0.75, "top": 0.25, "expected": 0.5}
+      ]
+    },
+    "color_dodge": {
+      "formula": "base / (1 - top), clamped; top>=1 -> 1",
+      "cases": [
+        {"base": 0.0, "top": 0.0, "expected": 0.0},
+        {"base": 0.5, "top": 0.5, "expected": 1.0},
+        {"base": 0.25, "top": 0.5, "expected": 0.5},
+        {"base": 0.5, "top": 1.0, "expected": 1.0},
+        {"base": 0.0, "top": 1.0, "expected": 1.0}
+      ]
+    },
+    "color_burn": {
+      "formula": "1 - (1-base)/top, clamped; top<=0 -> 0",
+      "cases": [
+        {"base": 1.0, "top": 1.0, "expected": 1.0},
+        {"base": 0.0, "top": 1.0, "expected": 0.0},
+        {"base": 0.5, "top": 0.5, "expected": 0.0},
+        {"base": 1.0, "top": 0.5, "expected": 1.0},
+        {"base": 0.5, "top": 0.0, "expected": 0.0}
+      ]
+    },
+    "exclusion": {
+      "formula": "base + top - 2*base*top",
+      "cases": [
+        {"base": 0.0, "top": 0.0, "expected": 0.0},
+        {"base": 1.0, "top": 1.0, "expected": 0.0},
+        {"base": 0.5, "top": 0.5, "expected": 0.5},
+        {"base": 0.0, "top": 1.0, "expected": 1.0},
+        {"base": 1.0, "top": 0.0, "expected": 1.0}
+      ]
+    },
+    "lighten": {
+      "formula": "max(base, top)",
+      "cases": [
+        {"base": 0.0, "top": 0.0, "expected": 0.0},
+        {"base": 1.0, "top": 0.0, "expected": 1.0},
+        {"base": 0.25, "top": 0.75, "expected": 0.75},
+        {"base": 0.75, "top": 0.25, "expected": 0.75}
+      ]
+    },
+    "darken": {
+      "formula": "min(base, top)",
+      "cases": [
+        {"base": 0.0, "top": 0.0, "expected": 0.0},
+        {"base": 1.0, "top": 0.0, "expected": 0.0},
+        {"base": 0.25, "top": 0.75, "expected": 0.25},
+        {"base": 0.75, "top": 0.25, "expected": 0.25}
+      ]
+    }
+  }
+}

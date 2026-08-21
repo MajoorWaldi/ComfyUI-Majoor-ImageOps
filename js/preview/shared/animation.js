@@ -11,7 +11,7 @@ function widgetAnimatedLength(value) {
 function getProceduralFrameCount(node) {
   const cls = String(node?.comfyClass ?? "");
   const animatedLength = Math.max(1, ...(node.widgets ?? []).map((entry) => widgetAnimatedLength(entry?.value)));
-  if (cls !== "ImageOpsNoise" && cls !== "ImageOpsGrain" && cls !== "ImageOpsCameraShake") {
+  if (cls !== "ImageOpsNoise") {
     return animatedLength > 1 ? animatedLength : null;
   }
   const widget = (name) => node.widgets?.find((entry) => entry?.name === name) ?? null;
@@ -24,9 +24,6 @@ function getProceduralFrameCount(node) {
   const batchSize = Math.max(1, Math.round(numeric("batch_size", 1)));
   const frameLength = Math.max(0, Math.round(numeric("frame_length", 0)));
   const frameCount = frameLength > 0 ? frameLength : batchSize;
-  if (cls === "ImageOpsGrain" || cls === "ImageOpsCameraShake") {
-    return Math.max(frameCount, animatedLength);
-  }
   const animSpeed = numeric("animation_speed", 0);
   if (animSpeed !== 0) return 3600;
   return Math.max(frameCount, animatedLength);
@@ -34,7 +31,7 @@ function getProceduralFrameCount(node) {
 function hasProceduralAnimation(node) {
   const cls = String(node?.comfyClass ?? "");
   const animatedWidgets = (node.widgets ?? []).some((entry) => widgetHasAnimatedValues(entry?.value));
-  if (cls !== "ImageOpsNoise" && cls !== "ImageOpsGrain" && cls !== "ImageOpsCameraShake") return animatedWidgets && (getProceduralFrameCount(node) ?? 1) > 1;
+  if (cls !== "ImageOpsNoise") return animatedWidgets && (getProceduralFrameCount(node) ?? 1) > 1;
   const widget = (name) => node.widgets?.find((entry) => entry?.name === name) ?? null;
   const numeric = (name, fallback = 0) => {
     const value = widget(name)?.value;
@@ -44,11 +41,6 @@ function hasProceduralAnimation(node) {
   };
   const frameCount = getProceduralFrameCount(node) ?? 1;
   if (frameCount <= 1) return false;
-  if (cls === "ImageOpsGrain") {
-    const animated = String(widget("animated")?.value ?? "true").toLowerCase();
-    return animated !== "false" && animated !== "0";
-  }
-  if (cls === "ImageOpsCameraShake") return true;
   if (numeric("animation_speed", 0) !== 0) return true;
   if (numeric("seed_step", 0) !== 0) return true;
   if (numeric("frame_offset_x", 0) !== 0) return true;
@@ -58,7 +50,7 @@ function hasProceduralAnimation(node) {
 }
 function getProceduralPlaybackFps(node) {
   const cls = String(node?.comfyClass ?? "");
-  if (cls !== "ImageOpsNoise" && cls !== "ImageOpsGrain" && cls !== "ImageOpsCameraShake") return null;
+  if (cls !== "ImageOpsNoise") return null;
   const widget = (name) => node.widgets?.find((entry) => entry?.name === name) ?? null;
   const value = parseFloat(widget("fps")?.value);
   return Number.isFinite(value) ? Math.max(1, value) : 12;

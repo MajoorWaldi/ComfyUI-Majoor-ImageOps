@@ -2,18 +2,15 @@ import { ensureState, markPreviewInteraction } from "./state.js";
 import { clampPreviewZoom } from "./geometry.js";
 import { blit } from "./bounds.js";
 import { isNode as isDrawNode } from "../nodes/draw.js";
-import { isNode as isTextNode } from "../nodes/text.js";
 function isInteractiveNode(node) {
-  return isDrawNode(node) || isTextNode(node);
+  return isDrawNode(node);
 }
 function attachPreviewNavigation(node, canvasSize) {
   const st = ensureState(node);
+  if (st.previewNavigationHooked) return;
+  st.previewNavigationHooked = true;
   const canvas = st.canvas;
   if (!canvas) return;
-  if (st.previewNavigationHooked && st.previewNavigationCanvas === canvas) return;
-  st.previewNavigationHooked = true;
-  st.previewNavigationCanvas = canvas;
-  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : void 0;
   const reblitNow = () => {
     if (!st.previewLastSource) return;
     blit(node, st, st.previewLastSource, canvasSize);
@@ -24,7 +21,7 @@ function attachPreviewNavigation(node, canvasSize) {
     return { rect, sx: canvas.width / rect.width, sy: canvas.height / rect.height };
   };
   canvas.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || !(event.ctrlKey || event.metaKey) || isInteractiveNode(node)) return;
+    if (event.button !== 1) return;
     event.preventDefault();
     event.stopPropagation();
     try {
@@ -40,8 +37,7 @@ function attachPreviewNavigation(node, canvasSize) {
       startPanX: st.previewPanX,
       startPanY: st.previewPanY
     };
-    canvas.style.cursor = "grabbing";
-  }, listenerOptions);
+  });
   let panRafPending = false;
   canvas.addEventListener("pointermove", (event) => {
     if (!st.previewPanDrag || st.previewPanDrag.pointerId !== event.pointerId) return;
@@ -59,25 +55,25 @@ function attachPreviewNavigation(node, canvasSize) {
         reblitNow();
       });
     }
-  }, listenerOptions);
-  const releasePanDrag = (event) => {
+  });
+  canvas.addEventListener("pointerup", (event) => {
     if (st.previewPanDrag?.pointerId === event.pointerId) {
       st.previewPanDrag = null;
-      canvas.style.cursor = "";
       try {
         canvas.releasePointerCapture(event.pointerId);
       } catch {
       }
     }
-  };
-  canvas.addEventListener("pointerup", releasePanDrag, listenerOptions);
-  canvas.addEventListener("pointercancel", releasePanDrag, listenerOptions);
-  canvas.addEventListener("lostpointercapture", releasePanDrag, listenerOptions);
+  });
+  canvas.addEventListener("pointercancel", (event) => {
+    if (st.previewPanDrag?.pointerId === event.pointerId) {
+      st.previewPanDrag = null;
+    }
+  });
   const handleWheel = (event) => {
     const target = event.target;
     if (target !== canvas && !canvas.contains(target)) return;
     if (isInteractiveNode(node)) return;
-    if (!(event.ctrlKey || event.metaKey)) return;
     event.stopImmediatePropagation();
     event.preventDefault();
     const r = safeRect();
@@ -94,8 +90,7 @@ function attachPreviewNavigation(node, canvasSize) {
     markPreviewInteraction(node);
     reblitNow();
   };
-  const signal = st?._abortController?.signal;
-  document.addEventListener("wheel", handleWheel, { capture: true, passive: false, signal });
+  document.addEventListener("wheel", handleWheel, { capture: true, passive: false });
   st._navWheelCleanup = () => document.removeEventListener("wheel", handleWheel, { capture: true });
   canvas.addEventListener("dblclick", () => {
     if (isInteractiveNode(node)) return;
@@ -104,7 +99,7 @@ function attachPreviewNavigation(node, canvasSize) {
     st.previewPanX = 0;
     st.previewPanY = 0;
     reblitNow();
-  }, listenerOptions);
+  });
 }
 export {
   attachPreviewNavigation

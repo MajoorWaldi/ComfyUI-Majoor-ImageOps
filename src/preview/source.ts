@@ -1,21 +1,5 @@
 // Media source helpers (v6)
 import type { ComfyNode, ComfyAPI, AnnotatedFilename, MediaState } from "../types.js";
-import { getNativePreviewImage } from "./shared/media.js";
-
-const VIDEO_EXTS = new Set(["mp4", "mov", "webm", "mkv", "avi", "m4v", "flv", "wmv", "mpg", "mpeg", "ogv"]);
-const VIDEO_MIME_BY_EXT: Record<string, string> = {
-  avi: "video/x-msvideo",
-  flv: "video/x-flv",
-  m4v: "video/mp4",
-  mkv: "video/x-matroska",
-  mov: "video/quicktime",
-  mp4: "video/mp4",
-  mpg: "video/mpeg",
-  mpeg: "video/mpeg",
-  ogv: "video/ogg",
-  webm: "video/webm",
-  wmv: "video/x-ms-wmv",
-};
 
 export function parseAnnotated(raw: string | null): AnnotatedFilename {
   if (!raw) return { filename: null, subfolder: "", type: "input" };
@@ -37,28 +21,10 @@ export function parseAnnotated(raw: string | null): AnnotatedFilename {
   return { filename: s, subfolder: "", type };
 }
 
-function fileExtLower(value: string | null): string {
-  const match = String(value ?? "").toLowerCase().match(/\.([a-z0-9]+)(\s*\[[^\]]+\]\s*)?$/i);
-  return match ? match[1] : "";
-}
-
-function canBrowserPlayVideoExt(ext: string): boolean {
-  const mime = VIDEO_MIME_BY_EXT[ext];
-  if (!mime || typeof document === "undefined") return false;
-  const probe = document.createElement("video");
-  const support = probe.canPlayType(mime);
-  return support === "probably" || support === "maybe";
-}
-
 export function makeViewUrl(api: ComfyAPI, rawFilename: string): string | null {
   const { filename, subfolder, type } = parseAnnotated(rawFilename);
   if (!filename) return null;
   const qs = new URLSearchParams({ filename, type, subfolder });
-  const ext = fileExtLower(filename);
-  if (VIDEO_EXTS.has(ext) && !canBrowserPlayVideoExt(ext)) {
-    qs.set("deadline", "realtime");
-    return api.apiURL(`/imageops/viewmedia?${qs.toString()}`);
-  }
   return api.apiURL(`/view?${qs.toString()}`);
 }
 
@@ -82,34 +48,6 @@ function ensureCanvasSize(canvas: HTMLCanvasElement | undefined, width: number, 
   return next;
 }
 
-async function waitForVideoReady(videoEl: HTMLVideoElement, timeoutMs: number = 4000): Promise<void> {
-  if (videoEl.readyState >= 2) return;
-  await new Promise<void>((resolve) => {
-    let done = false;
-    let timeoutId = 0;
-    const finish = (): void => {
-      if (done) return;
-      done = true;
-      videoEl.removeEventListener("loadeddata", finish);
-      videoEl.removeEventListener("canplay", finish);
-      videoEl.removeEventListener("error", finish);
-      if (timeoutId) window.clearTimeout(timeoutId);
-      resolve();
-    };
-    timeoutId = window.setTimeout(finish, timeoutMs);
-    // NOTE: do NOT listen to "loadedmetadata" — it fires at readyState=1 (HAVE_METADATA)
-    // which is BEFORE the first frame is decoded. Resolving on it makes the caller
-    // re-test readyState<2 and bail with an empty canvas → flicker every render tick.
-    videoEl.addEventListener("loadeddata", finish, { once: true });
-    videoEl.addEventListener("canplay", finish, { once: true });
-    videoEl.addEventListener("error", finish, { once: true });
-    // DO NOT call v.load() here. The browser emits a transient "suspend" event
-    // (networkState=1, readyState=0) during normal loading, ~70ms before loadedmetadata.
-    // Calling load() on networkState=1 resets the video → suspend → load() → infinite loop.
-    // Instead, load() is called exactly once, explicitly, in the creation path.
-  });
-}
-
 export function renderImageSourceToCanvas(
   node: ComfyNode,
   source: CanvasImageSource,
@@ -126,70 +64,6 @@ export function renderImageSourceToCanvas(
   ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
   st[slot] = canvas;
   return canvas;
-}
-
-export function resolveNodeIntrinsicMediaSize(node: ComfyNode, fallbackCanvas: HTMLCanvasElement | null | undefined): { width: number; height: number } {
-  const nativeImage = getNativePreviewImage(node);
-  if (nativeImage && nativeImage.naturalWidth > 0 && nativeImage.naturalHeight > 0) {
-    return {
-      width: Math.max(1, nativeImage.naturalWidth),
-      height: Math.max(1, nativeImage.naturalHeight),
-    };
-  }
-
-  const previewMedia = Array.isArray(node.imgs) && node.imgs.length > 0
-    ? node.imgs[Math.max(0, Math.min(node.imgs.length - 1, typeof node.imageIndex === "number" ? node.imageIndex : node.imgs.length - 1))] ?? null
-    : null;
-
-  if (previewMedia instanceof HTMLImageElement && previewMedia.naturalWidth > 0 && previewMedia.naturalHeight > 0) {
-    return {
-      width: Math.max(1, previewMedia.naturalWidth),
-      height: Math.max(1, previewMedia.naturalHeight),
-    };
-  }
-  if (previewMedia instanceof HTMLVideoElement && previewMedia.videoWidth > 0 && previewMedia.videoHeight > 0) {
-    return {
-      width: Math.max(1, previewMedia.videoWidth),
-      height: Math.max(1, previewMedia.videoHeight),
-    };
-  }
-  if (previewMedia instanceof HTMLCanvasElement && previewMedia.width > 0 && previewMedia.height > 0) {
-    return {
-      width: Math.max(1, previewMedia.width),
-      height: Math.max(1, previewMedia.height),
-    };
-  }
-
-  for (const widget of (node.widgets ?? [])) {
-    const element = widget?.element;
-    if (!element) continue;
-    const media = element instanceof HTMLImageElement || element instanceof HTMLVideoElement || element instanceof HTMLCanvasElement
-      ? element
-      : element.querySelector?.("img,video,canvas") ?? null;
-    if (media instanceof HTMLImageElement && media.naturalWidth > 0 && media.naturalHeight > 0) {
-      return {
-        width: Math.max(1, media.naturalWidth),
-        height: Math.max(1, media.naturalHeight),
-      };
-    }
-    if (media instanceof HTMLVideoElement && media.videoWidth > 0 && media.videoHeight > 0) {
-      return {
-        width: Math.max(1, media.videoWidth),
-        height: Math.max(1, media.videoHeight),
-      };
-    }
-    if (media instanceof HTMLCanvasElement && media.width > 0 && media.height > 0) {
-      return {
-        width: Math.max(1, media.width),
-        height: Math.max(1, media.height),
-      };
-    }
-  }
-
-  return {
-    width: Math.max(1, fallbackCanvas?.width || 1),
-    height: Math.max(1, fallbackCanvas?.height || 1),
-  };
 }
 
 export async function ensureImageElement(node: ComfyNode, url: string): Promise<HTMLImageElement | null> {
@@ -239,70 +113,28 @@ export async function ensureVideoFrameCanvas(node: ComfyNode, url: string, size:
       try { st.videoEl.removeAttribute("src"); st.videoEl.load(); } catch {}
     }
     const v = document.createElement("video");
-    v.preload = "auto";
     v.src = url;
     v.muted = true;
     v.loop = true;
     v.playsInline = true;
     v.autoplay = true;
-    // Assign BEFORE await so concurrent RAF calls see this element and don't create
-    // additional duplicate video elements while we wait for the first one to load.
+    try { await v.play(); } catch (e) { console.warn("[ImageOps] video play failed:", e); }
     st.videoEl = v;
     st.lastVideoURL = url;
+    // URL changed — invalidate the per-frame draw fingerprint so the next call re-draws.
     (st as any).lastVideoFrameKey = null;
-    // After src assignment, networkState is synchronously NETWORK_NO_SOURCE (3) because
-    // the resource-selection algorithm runs asynchronously. Call load() exactly once to
-    // start the download. waitForVideoReady() must NOT call load() again — see comment there.
-    try { v.load(); } catch {}
-    await waitForVideoReady(v);
-    // Guard: URL may have changed during the await — only play if still our element
-    if (st.videoEl === v) {
-      try { await v.play(); } catch (e) { console.warn("[ImageOps] video play failed:", e); }
-    }
   }
 
   const v = st.videoEl!;
   void tick;
-
-  // If the video isn't playable yet (still buffering / cold start), return the LAST
-  // successfully drawn frame instead of allocating a fresh empty canvas. This avoids
-  // a one-frame-empty flash every time the buffer underruns (readyState drops to 1).
-  // Only allocate a placeholder canvas if we don't have a previous frame at all.
-  if (v.readyState < 2) {
-    await waitForVideoReady(v, 1500);
-    if (v.readyState < 2) {
-      if (st.videoCanvas) return st.videoCanvas;
-      // First-ever call and still not ready — cache the empty canvas so subsequent
-      // not-ready ticks reuse it instead of reallocating (and blinking) every frame.
-      const placeholder = ensureCanvasSize(st.videoCanvas, Math.max(1, size), Math.max(1, size));
-      st.videoCanvas = placeholder;
-      return placeholder;
-    }
-  }
-
   const { width, height } = fitWithinMaxSize(v.videoWidth || size, v.videoHeight || size, size);
-  // Preserve previous frame content across resizes so a size change doesn't blank.
-  let c = st.videoCanvas;
-  if (!c) {
-    c = ensureCanvasSize(undefined, width, height);
-  } else if (c.width !== width || c.height !== height) {
-    const next = document.createElement("canvas");
-    next.width = Math.max(1, Math.round(width));
-    next.height = Math.max(1, Math.round(height));
-    try { next.getContext("2d")?.drawImage(c, 0, 0, next.width, next.height); } catch {}
-    c = next;
-  }
-  st.videoCanvas = c;
+  const c = ensureCanvasSize(st.videoCanvas, width, height);
   const ctx = c.getContext("2d");
   if (!ctx) return c;
 
-  // Avoid spamming v.play() on every tick when the browser repeatedly pauses on
-  // buffer underrun — a single in-flight play() is enough; the next tick will
-  // pick up automatically when the video resumes.
-  if (v.paused && !(st as any).videoPlayInFlight) {
-    (st as any).videoPlayInFlight = true;
-    v.play().catch(() => { /* ignore — browser autoplay / buffering */ })
-      .finally(() => { (st as any).videoPlayInFlight = false; });
+  if (v.readyState < 2) return c;
+  if (v.paused) {
+    try { await v.play(); } catch {}
   }
 
   // Frame de-duplication: a 60 FPS preview loop pulling from a 24/30 FPS source
@@ -312,7 +144,9 @@ export async function ensureVideoFrameCanvas(node: ComfyNode, url: string, size:
   if ((st as any).lastVideoFrameKey === frameKey) return c;
   (st as any).lastVideoFrameKey = frameKey;
 
+  ctx.clearRect(0, 0, width, height);
   ctx.drawImage(v, 0, 0, width, height);
+  st.videoCanvas = c;
   return c;
 }
 

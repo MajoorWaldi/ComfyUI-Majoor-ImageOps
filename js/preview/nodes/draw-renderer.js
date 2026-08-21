@@ -1,24 +1,9 @@
 import { ensureState, setInfo, getRenderCanvasSize } from "../shared/state.js";
-import {
-  isNode as isDrawNode,
-  updateDrawOverlayWidget,
-  syncDrawWidgets,
-  getDrawInfoText,
-  updateDrawToolButtons
-} from "./draw.js";
+import { isNode as isDrawNode } from "./draw.js";
 import { blit } from "../shared/bounds.js";
 import { ensurePreviewWidget } from "../shared/preview-widget.js";
 import { getInputOriginSlot, getUpstreamNode } from "../graph.js";
 import { resolveNodeStreamPreview } from "../nodestream.js";
-import { resolveNodeIntrinsicMediaSize } from "../source.js";
-import {
-  findWidget,
-  widgetNumber,
-  widgetString,
-  widgetBoolean,
-  setWidgetValue,
-  setWidgetStringValue
-} from "../shared/widgets.js";
 import {
   normalizeDrawColor,
   normalizeDrawEdge,
@@ -27,11 +12,12 @@ import {
   clampDrawOpacity,
   clampDrawSize,
   clampDrawSoftness,
-  createOffscreenCanvas,
   resizeCanvasPreserve,
   renderDrawPreview,
   resolveDrawOverlayCanvas
 } from "../draw.js";
+import { findWidget, widgetNumber, widgetString, widgetBoolean, setWidgetValue, setWidgetStringValue } from "../shared/widgets.js";
+import { updateDrawToolButtons, updateDrawOverlayWidget, syncDrawWidgets, getDrawInfoText } from "./draw.js";
 function strokeStyle(color, opacity) {
   const normalized = normalizeDrawColor(color, "#FFFFFF");
   const hex = normalized.startsWith("#") ? normalized.slice(1) : normalized;
@@ -54,7 +40,7 @@ function paintDrawSegment(node, fromX, fromY, toX, toY, dynamics = { size: 1, op
   const st = ensureState(node);
   const canvas = st.drawCanvas;
   if (!canvas) return;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const ctx = canvas.getContext("2d");
   if (!ctx) return;
   const tool = normalizeDrawTool(widgetString(node, "tool", "brush"));
   const edge = normalizeDrawEdge(widgetString(node, "brush_edge", "hard"));
@@ -108,9 +94,9 @@ function buildSoftBrushStamp(brushSize, softness, color, opacity, tool) {
   if (_softStampCache && _softStampCache.size === sizeKey && _softStampCache.softness === softKey && _softStampCache.color === color && _softStampCache.opacity === opacityKey && _softStampCache.tool === tool) {
     return _softStampCache.canvas;
   }
-  const stamp = createOffscreenCanvas(sizePx, sizePx);
+  const stamp = document.createElement("canvas");
   stamp.width = stamp.height = sizePx;
-  const sctx = stamp.getContext("2d", { willReadFrequently: true });
+  const sctx = stamp.getContext("2d");
   const r = sizePx / 2;
   const innerR = Math.max(0, r * (1 - softness));
   const stampColor = tool === "eraser" ? "#FFFFFF" : color;
@@ -190,8 +176,10 @@ function drawBrushCursorOverlay(node, ctx) {
 }
 function cloneCanvas(source) {
   if (!source) return null;
-  const copy = createOffscreenCanvas(Math.max(1, source.width || 1), Math.max(1, source.height || 1));
-  const ctx = copy.getContext("2d", { willReadFrequently: true });
+  const copy = document.createElement("canvas");
+  copy.width = Math.max(1, source.width || 1);
+  copy.height = Math.max(1, source.height || 1);
+  const ctx = copy.getContext("2d");
   if (!ctx) return null;
   ctx.clearRect(0, 0, copy.width, copy.height);
   ctx.drawImage(source, 0, 0, copy.width, copy.height);
@@ -199,7 +187,7 @@ function cloneCanvas(source) {
 }
 function restoreCanvas(target, snapshot) {
   if (!target || !snapshot) return;
-  const ctx = target.getContext("2d", { willReadFrequently: true });
+  const ctx = target.getContext("2d");
   if (!ctx) return;
   ctx.clearRect(0, 0, target.width, target.height);
   ctx.drawImage(snapshot, 0, 0, target.width, target.height);
@@ -232,8 +220,10 @@ function ensureDrawCanvasSize(node, width, height, persist = false) {
   }
 }
 function deriveMaskCanvasFromCanvas(source) {
-  const output = createOffscreenCanvas(Math.max(1, source.width || 1), Math.max(1, source.height || 1));
-  const octx = output.getContext("2d", { willReadFrequently: true });
+  const output = document.createElement("canvas");
+  output.width = Math.max(1, source.width || 1);
+  output.height = Math.max(1, source.height || 1);
+  const octx = output.getContext("2d");
   octx.clearRect(0, 0, output.width, output.height);
   octx.drawImage(source, 0, 0, output.width, output.height);
   const image = octx.getImageData(0, 0, output.width, output.height);
@@ -251,8 +241,10 @@ function deriveMaskCanvasFromCanvas(source) {
   return output;
 }
 function maskToOpaqueDisplayCanvas(source) {
-  const output = createOffscreenCanvas(Math.max(1, source.width || 1), Math.max(1, source.height || 1));
-  const octx = output.getContext("2d", { willReadFrequently: true });
+  const output = document.createElement("canvas");
+  output.width = Math.max(1, source.width || 1);
+  output.height = Math.max(1, source.height || 1);
+  const octx = output.getContext("2d");
   octx.clearRect(0, 0, output.width, output.height);
   octx.drawImage(source, 0, 0, output.width, output.height);
   const image = octx.getImageData(0, 0, output.width, output.height);
@@ -277,16 +269,14 @@ async function renderDrawNode(node, tick, session) {
   const renderCanvasSize = session.canvasSize;
   const upstream = getUpstreamNode(node, 0);
   let baseCanvas = null;
-  let inputSize = null;
   if (upstream) {
     const rendered = await session.renderer.render(upstream, tick, getInputOriginSlot(node, 0), renderCanvasSize);
     baseCanvas = rendered.canvas;
-    inputSize = resolveNodeIntrinsicMediaSize(upstream, baseCanvas);
   }
-  const previewCanvas = await renderDrawPreview(node, baseCanvas, inputSize);
+  const previewCanvas = await renderDrawPreview(node, baseCanvas);
   st.drawBaseCanvas = baseCanvas;
   blit(node, st, previewCanvas, renderCanvasSize);
-  const previewCtx = st.canvas?.getContext("2d", { willReadFrequently: true });
+  const previewCtx = st.canvas?.getContext("2d");
   if (previewCtx) {
     drawBrushCursorOverlay(node, previewCtx);
   }
@@ -313,15 +303,16 @@ async function renderDrawMaskCanvas(node, tick, session) {
   if (upstream) {
     const rendered = await session.renderer.render(upstream, tick, getInputOriginSlot(node, 0), getRenderCanvasSize(ensureState(node)));
     if (rendered.canvas) {
-      const sourceSize = resolveNodeIntrinsicMediaSize(upstream, rendered.canvas);
-      width = Math.max(1, sourceSize.width || rendered.canvas.width || width);
-      height = Math.max(1, sourceSize.height || rendered.canvas.height || height);
+      width = Math.max(1, rendered.canvas.width || width);
+      height = Math.max(1, rendered.canvas.height || height);
     }
   }
   const overlay = await resolveDrawOverlayCanvas(node, width, height);
-  const output = createOffscreenCanvas(overlay.width || 1, overlay.height || 1);
-  const octx = output.getContext("2d", { willReadFrequently: true });
-  const overlayCtx = overlay.getContext("2d", { willReadFrequently: true });
+  const output = document.createElement("canvas");
+  output.width = overlay.width || 1;
+  output.height = overlay.height || 1;
+  const octx = output.getContext("2d");
+  const overlayCtx = overlay.getContext("2d");
   if (!overlayCtx) return output;
   const image = overlayCtx.getImageData(0, 0, overlay.width || 1, overlay.height || 1);
   const data = image.data;

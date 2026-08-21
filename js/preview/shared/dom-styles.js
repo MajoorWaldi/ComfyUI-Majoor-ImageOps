@@ -1,75 +1,23 @@
 function styleSoftButton(button, active = false) {
-  button.classList.add("comfy-btn");
-  if (active) {
-    button.classList.add("active");
-  } else {
-    button.classList.remove("active");
-  }
-  button.style.border = "1px solid #3f3f3f";
-  button.style.background = active ? "#444444" : "#2b2b2b";
-  button.style.color = active ? "#ffffff" : "#cccccc";
-  button.style.borderRadius = "4px";
+  button.style.border = "1px solid rgba(255,255,255,0.12)";
+  button.style.background = active ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.04)";
+  button.style.color = "rgba(255,255,255,0.94)";
+  button.style.borderRadius = "6px";
   button.style.padding = "4px 8px";
   button.style.cursor = "pointer";
   button.style.fontSize = "11px";
   button.style.lineHeight = "1.2";
 }
 function styleSoftField(field) {
-  field.classList.add("comfy-input");
-  field.style.borderRadius = "4px";
-  field.style.border = "1px solid #3f3f3f";
-  field.style.background = "#1c1c1c";
-  field.style.color = "#ffffff";
+  field.style.borderRadius = "6px";
+  field.style.border = "1px solid rgba(255,255,255,0.12)";
+  field.style.background = "rgba(0,0,0,0.28)";
+  field.style.color = "rgba(255,255,255,0.95)";
   field.style.padding = "4px 6px";
   field.style.boxSizing = "border-box";
   field.style.fontSize = "11px";
 }
-let activeContextMenuCleanup = null;
-function closeActiveContextMenu() {
-  if (!activeContextMenuCleanup) return;
-  const cleanup = activeContextMenuCleanup;
-  activeContextMenuCleanup = null;
-  cleanup();
-}
-function syncContextMenuSelect(select) {
-  const trigger = select.__imageopsContextMenuTrigger;
-  if (!trigger) return;
-  const label = trigger.querySelector("span[data-context-menu-label]");
-  const currentOption = select.selectedOptions?.[0] ?? select.options?.[select.selectedIndex] ?? null;
-  if (label) {
-    label.textContent = (currentOption?.textContent ?? select.value ?? "").trim() || "Select";
-  }
-  trigger.disabled = !!select.disabled;
-  trigger.style.opacity = select.disabled ? "0.55" : "1";
-  trigger.style.cursor = select.disabled ? "default" : "pointer";
-  trigger.title = select.title || (currentOption?.textContent ?? "").trim();
-}
-function createContextMenuSelect(select) {
-  const patched = select;
-  const wrapper = document.createElement("div");
-  wrapper.style.position = "relative";
-  wrapper.style.minWidth = "0";
-  wrapper.style.width = select.style.width || "auto";
-  wrapper.style.flex = select.style.flex || "0 0 auto";
-  wrapper.style.flexShrink = select.style.flexShrink || "1";
-  styleSoftField(select);
-  select.style.display = "block";
-  select.style.width = "100%";
-  select.style.minWidth = "0";
-  select.style.height = "26px";
-  select.style.cursor = select.disabled ? "default" : "pointer";
-  patched.__imageopsContextMenuSync = () => {
-    select.style.opacity = select.disabled ? "0.55" : "1";
-    select.style.cursor = select.disabled ? "default" : "pointer";
-  };
-  select.addEventListener("change", patched.__imageopsContextMenuSync);
-  select.addEventListener("input", patched.__imageopsContextMenuSync);
-  patched.__imageopsContextMenuSync();
-  wrapper.append(select);
-  return wrapper;
-}
 function styleSoftRange(field) {
-  field.classList.add("comfy-slider");
   field.style.width = "100%";
   field.style.margin = "0";
   field.style.boxSizing = "border-box";
@@ -101,11 +49,10 @@ function createColorSwatch(initialColor, options = {}) {
   const compact = options.compact ?? false;
   const hex = normalizeHex6(initialColor);
   const host = document.createElement("div");
-  host.classList.add("comfy-swatch");
   host.style.display = "inline-flex";
   host.style.alignItems = "stretch";
-  host.style.borderRadius = "4px";
-  host.style.border = "1px solid #3f3f3f";
+  host.style.borderRadius = "6px";
+  host.style.border = "1px solid rgba(255,255,255,0.12)";
   host.style.overflow = "hidden";
   host.style.cursor = "pointer";
   host.style.height = "28px";
@@ -115,7 +62,7 @@ function createColorSwatch(initialColor, options = {}) {
   const colorBlock = document.createElement("div");
   colorBlock.style.flex = compact ? "1" : "0 0 22px";
   colorBlock.style.background = hex;
-  if (!compact) colorBlock.style.borderRight = "1px solid #3f3f3f";
+  if (!compact) colorBlock.style.borderRight = "1px solid rgba(255,255,255,0.12)";
   host.appendChild(colorBlock);
   let hexLabel = null;
   if (!compact) {
@@ -125,8 +72,8 @@ function createColorSwatch(initialColor, options = {}) {
     hexLabel.style.alignItems = "center";
     hexLabel.style.justifyContent = "center";
     hexLabel.style.fontSize = "10px";
-    hexLabel.style.color = "#aaaaaa";
-    hexLabel.style.background = "#1c1c1c";
+    hexLabel.style.color = "rgba(255,255,255,0.65)";
+    hexLabel.style.background = "rgba(0,0,0,0.28)";
     hexLabel.style.letterSpacing = "0.5px";
     hexLabel.style.fontFamily = "monospace";
     hexLabel.style.userSelect = "none";
@@ -166,7 +113,6 @@ function setDarkColorInputState(input, disabled, hidden = false) {
 }
 export {
   createColorSwatch,
-  createContextMenuSelect,
   setControlDisabled,
   setDarkColorInputState,
   styleInlineAction,

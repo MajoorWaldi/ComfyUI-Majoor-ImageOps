@@ -1,10 +1,12 @@
 import torch
+import torch.nn.functional as F
 
-from ._helpers import ASPECT_RATIO_PRESETS, MEDIA_INPUT_TYPE, _scalar, _select_media_tensor
+from ._helpers import MEDIA_INPUT_TYPE, _apply_blur, _hex_to_rgb01, _resize, _scalar, _select_media_tensor
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 
-_PADOUT_TARGET_FORMATS = list(ASPECT_RATIO_PRESETS.keys())
+_PADOUT_FILL_MODES = ["constant", "edge_extend", "reflect", "blurry"]
+_PADOUT_TARGET_FORMATS = ["custom", "1:1", "16:9", "9:16", "4:3", "3:4"]
 _TARGET_RATIOS = {
     "1:1": (1, 1),
     "square": (1, 1),
@@ -32,18 +34,85 @@ def _build_padout_mask(
     return mask
 
 
-def _snap_nonnegative(value: int, grid: int) -> int:
-    if grid <= 1:
-        return max(0, int(value))
-    return max(0, int(round(int(value) / grid) * grid))
+def _normalize_fill_mode(value: str) -> str:
+    normalized = str(value or "constant").strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in ("edge", "edge_extend", "replicate", "extend"):
+        return "edge_extend"
+    if normalized in ("blur", "blurry", "blurred"):
+        return "blurry"
+    if normalized in ("reflect", "reflection", "mirror"):
+        return "reflect"
+    return "constant"
 
 
-def _make_constant_pad(source: torch.Tensor, out_h: int, out_w: int) -> torch.Tensor:
+def _resolve_target_padding(source_w: int, source_h: int, left: int, top: int, right: int, bottom: int, target_format: str) -> tuple[int, int, int, int]:
+    normalized = str(target_format or "custom").strip().lower().replace(" ", "_")
+    ratio = _TARGET_RATIOS.get(normalized)
+    if ratio is None:
+        return left, top, right, bottom
+
+    out_w = max(1, int(source_w) + int(left) + int(right))
+    out_h = max(1, int(source_h) + int(top) + int(bottom))
+    ratio_w, ratio_h = ratio
+    target_w = out_w
+    target_h = out_h
+    if out_w * ratio_h < out_h * ratio_w:
+        target_w = int((out_h * ratio_w + ratio_h - 1) // ratio_h)
+    elif out_w * ratio_h > out_h * ratio_w:
+        target_h = int((out_w * ratio_h + ratio_w - 1) // ratio_w)
+
+    extra_w = max(0, target_w - out_w)
+    extra_h = max(0, target_h - out_h)
+    extra_left = extra_w // 2
+    extra_top = extra_h // 2
+    return (
+        int(left) + extra_left,
+        int(top) + extra_top,
+        int(right) + (extra_w - extra_left),
+        int(bottom) + (extra_h - extra_top),
+    )
+
+
+def _make_constant_pad(source: torch.Tensor, out_h: int, out_w: int, fill_color: str) -> torch.Tensor:
     batch, _, _, channels = source.shape
     out = torch.zeros((batch, out_h, out_w, channels), device=source.device, dtype=source.dtype)
+    r, g, b = _hex_to_rgb01(fill_color)
+    if channels >= 1:
+        out[..., 0] = r
+    if channels >= 2:
+        out[..., 1] = g
+    if channels >= 3:
+        out[..., 2] = b
     if channels >= 4:
         out[..., 3] = 1.0
     return out
+
+
+def _make_blurry_pad(source: torch.Tensor, out_h: int, out_w: int, blur_radius: int) -> torch.Tensor:
+    background = _resize(source, out_w, out_h, mode="bicubic", antialias=True)
+    radius = int(max(0, blur_radius))
+    if radius > 0:
+        background = _apply_blur(background, radius, max(1.0, radius / 3.0))
+    if background.shape[-1] >= 4:
+        background = background.clone()
+        background[..., 3] = 1.0
+    return background.clamp(0.0, 1.0)
+
+
+def _make_edge_pad(source: torch.Tensor, left: int, top: int, right: int, bottom: int, mode: str) -> torch.Tensor:
+    if left == 0 and right == 0 and top == 0 and bottom == 0:
+        return source.clone()
+    pad_mode = "reflect" if mode == "reflect" else "replicate"
+    x = source.permute(0, 3, 1, 2).contiguous()
+    if pad_mode == "reflect" and (
+        left >= source.shape[2]
+        or right >= source.shape[2]
+        or top >= source.shape[1]
+        or bottom >= source.shape[1]
+    ):
+        pad_mode = "replicate"
+    out = F.pad(x, (left, right, top, bottom), mode=pad_mode)
+    return out.permute(0, 2, 3, 1).contiguous().clamp(0.0, 1.0)
 
 
 class ImageOpsPadOut:
@@ -61,8 +130,10 @@ class ImageOpsPadOut:
                 "pad_top": ("INT", {"default": 128, "min": 0, "max": 4096, "step": 1}),
                 "pad_right": ("INT", {"default": 128, "min": 0, "max": 4096, "step": 1}),
                 "pad_bottom": ("INT", {"default": 128, "min": 0, "max": 4096, "step": 1}),
-                "aspect_ratio": (_PADOUT_TARGET_FORMATS, {"default": "custom", "tooltip": "Interactive preview ratio preset. The UI turns this into explicit padding; backend output uses the pad values as-is."}),
-                "snap_to_multiple": ("INT", {"default": 1, "min": 1, "max": 256, "step": 1, "tooltip": "Quantize padding to this multiple. Use 16 for Wan/VACE-friendly output sizes."}),
+                "target_format": (_PADOUT_TARGET_FORMATS, {"default": "custom", "tooltip": "Add extra padding to hit a target aspect ratio without scaling the image."}),
+                "fill_mode": (_PADOUT_FILL_MODES, {"default": "constant"}),
+                "fill_color": ("COLOR", {"default": "#000000"}),
+                "blur_radius": ("INT", {"default": 32, "min": 0, "max": 512, "step": 1, "tooltip": "Used by blurry padding."}),
                 "invert_mask": ("BOOLEAN", {"default": False, "tooltip": "By default the output mask marks the *padded* area as 1 and the original source as 0. Toggle to invert (source=1, padding=0)."}),
             },
             "optional": {
@@ -81,12 +152,13 @@ class ImageOpsPadOut:
         pad_top=128,
         pad_right=128,
         pad_bottom=128,
-        aspect_ratio="custom",
-        snap_to_multiple=1,
+        target_format="custom",
+        fill_mode="constant",
+        fill_color="#000000",
+        blur_radius=32,
         invert_mask=False,
         video=None,
         unique_id=None,
-        **_unused,
     ):
         source = _select_media_tensor(image, video).float().clamp(0.0, 1.0)
         progress = start_progress(unique_id=unique_id)
@@ -100,19 +172,36 @@ class ImageOpsPadOut:
             if _scalar(invert_mask, bool):
                 mask = 1.0 - mask
             progress.finish()
-            meta = {"imageops_padout_source": {"source_w": source_w, "source_h": source_h, "pad_left": 0, "pad_top": 0, "pad_right": 0, "pad_bottom": 0, "output_w": source_w, "output_h": source_h}}
+            meta = {"imageops_padout_source": {"source_w": source_w, "source_h": source_h, "pad_left": 0, "pad_top": 0}}
             return build_node_preview_result(source, (source, mask, source_w, source_h), prefix="imageops_padout", metadata=meta)
 
-        snap = max(1, _scalar(snap_to_multiple, int))
-        left = _snap_nonnegative(_scalar(pad_left, int), snap)
-        top = _snap_nonnegative(_scalar(pad_top, int), snap)
-        right = _snap_nonnegative(_scalar(pad_right, int), snap)
-        bottom = _snap_nonnegative(_scalar(pad_bottom, int), snap)
+        left = max(0, _scalar(pad_left, int))
+        top = max(0, _scalar(pad_top, int))
+        right = max(0, _scalar(pad_right, int))
+        bottom = max(0, _scalar(pad_bottom, int))
+        left, top, right, bottom = _resolve_target_padding(
+            source_w,
+            source_h,
+            left,
+            top,
+            right,
+            bottom,
+            _scalar(target_format, str),
+        )
 
         out_w = source_w + left + right
         out_h = source_h + top + bottom
 
-        out = _make_constant_pad(source, out_h, out_w)
+        from .core.memory import check_budget
+        check_budget(batch, out_h, out_w, int(source.shape[-1]), multiplier=2.0, label="ImageOps PadOut")
+
+        mode = _normalize_fill_mode(_scalar(fill_mode, str))
+        if mode in ("edge_extend", "reflect"):
+            out = _make_edge_pad(source, left, top, right, bottom, mode)
+        elif mode == "blurry":
+            out = _make_blurry_pad(source, out_h, out_w, _scalar(blur_radius, int))
+        else:
+            out = _make_constant_pad(source, out_h, out_w, _scalar(fill_color, str))
 
         out[:, top:top + source_h, left:left + source_w, :] = source
 
@@ -133,5 +222,5 @@ class ImageOpsPadOut:
             mask = 1.0 - mask
 
         progress.finish()
-        meta = {"imageops_padout_source": {"source_w": source_w, "source_h": source_h, "pad_left": left, "pad_top": top, "pad_right": right, "pad_bottom": bottom, "output_w": out_w, "output_h": out_h, "snap_to_multiple": snap}}
+        meta = {"imageops_padout_source": {"source_w": source_w, "source_h": source_h, "pad_left": left, "pad_top": top}}
         return build_node_preview_result(out, (out, mask.clamp(0.0, 1.0), out_w, out_h), prefix="imageops_padout", metadata=meta)

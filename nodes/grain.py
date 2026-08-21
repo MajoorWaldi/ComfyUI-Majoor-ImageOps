@@ -129,17 +129,20 @@ class ImageOpsGrain:
         unique_id=None,
     ):
         source = _select_media_tensor(image, video)
-        frame_count = max(1, _scalar(frame_length, int))
         preview_fps = max(1.0, _scalar(fps, float))
+        progress = start_progress(unique_id=unique_id)
+
+        if _scalar(bypass, bool) or float(max(0.0, _scalar(amount))) <= 0.0:
+            progress.finish()
+            output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
+            return build_node_preview_result(source, (source, output_mask), prefix="imageops_grain", fps=preview_fps)
+
+        frame_count = max(1, _scalar(frame_length, int))
         if _scalar(animated, bool) and frame_count > int(source.shape[0]):
             repeats = (frame_count + int(source.shape[0]) - 1) // max(1, int(source.shape[0]))
             source = source.repeat((repeats, 1, 1, 1))[:frame_count]
         effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-        progress = start_progress(unique_id=unique_id)
-        if _scalar(bypass, bool) or float(max(0.0, _scalar(amount))) <= 0.0:
-            progress.finish()
-            return build_node_preview_result(source, (source, output_mask), prefix="imageops_grain", fps=preview_fps)
         processed = _apply_synthetic_grain(
             source,
             amount,

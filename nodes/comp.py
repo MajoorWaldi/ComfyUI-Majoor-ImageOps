@@ -7,7 +7,6 @@ import torch
 from comfy_api.latest import io
 
 from ._helpers import (
-    ASPECT_RATIO_PRESETS,
     COMP_BLEND_MODES,
     _alpha_mask_from_image,
     _coerce_media_to_tensor,
@@ -18,44 +17,6 @@ from ._helpers import (
 )
 from ._progress import start_progress
 from ._preview import build_node_preview_result
-
-
-def _io_field(kind: str, direction: str, *args, **kwargs):
-    factory = getattr(io, kind, None)
-    maker = getattr(factory, direction, None)
-    if callable(maker):
-        return maker(*args, **kwargs)
-    return {"io_type": kind.upper(), "args": args, "kwargs": kwargs}
-
-
-def _io_hidden_unique_id():
-    hidden = getattr(io, "Hidden", None)
-    token = getattr(hidden, "unique_id", None)
-    return [] if token is None else [token]
-
-
-def _io_combo(name: str, options: list[str], **kwargs):
-    factory = getattr(io, "Combo", None)
-    maker = getattr(factory, "Input", None)
-    if callable(maker):
-        return maker(name, options=options, **kwargs)
-    return _io_field("String", "Input", name, **kwargs)
-
-
-_COMP_ASPECT_RATIOS = list(ASPECT_RATIO_PRESETS.keys())
-
-
-def _resolve_custom_comp_size(width: int, height: int, aspect_ratio: str) -> tuple[int, int]:
-    out_w = max(1, _scalar(width, int))
-    out_h = max(1, _scalar(height, int))
-    normalized = str(aspect_ratio or "custom").strip().lower().replace(" ", "")
-    if normalized in ("free", "custom"):
-        return out_w, out_h
-    ratio = ASPECT_RATIO_PRESETS.get(aspect_ratio)
-    if ratio is None:
-        return out_w, out_h
-    ratio_w, ratio_h = ratio
-    return out_w, max(1, int(round(out_w * ratio_h / ratio_w)))
 
 
 def _sorted_layer_numbers(inputs: dict[str, Any]) -> list[int]:
@@ -160,62 +121,42 @@ def _largest_connected_layer_size(tensors: list[tuple[dict[str, Any], torch.Tens
 
 
 class ImageOpsComp(io.ComfyNode):
-    RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("image", "mask")
-    FUNCTION = "execute"
-    CATEGORY = "image/imageops"
-
     @classmethod
-    def define_schema(cls):
-        schema_factory = getattr(io, "Schema", None)
-        schema_kwargs = dict(
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
             node_id="ImageOpsComp",
             display_name="〽️ ImageOps Comp",
             category="image/imageops",
-            search_aliases=[
-                "comp",
-                "combine",
-                "merge",
-                "blend",
-                "compose",
-            ],
+            search_aliases=["comp", "composite", "compositor", "image comp", "image composite"],
             accept_all_inputs=True,
             inputs=[
-                _io_field("Boolean", "Input", "bypass", default=False),
-                _io_field(
-                    "Boolean",
-                    "Input",
+                io.Boolean.Input("bypass", default=False),
+                io.Boolean.Input(
                     "use_first_layer_size",
                     default=True,
                     label_on="From First Layer",
                     label_off="Custom Format",
                     tooltip="Use the first connected layer as the comp format. Disable to force Width/Height.",
                 ),
-                _io_field(
-                    "Boolean",
-                    "Input",
+                io.Boolean.Input(
                     "auto_layering",
                     default=False,
                     label_on="Largest Layer",
                     label_off="First/Custom",
                     tooltip="Use the largest connected layer dimensions as the canvas format.",
                 ),
-                _io_field("Int", "Input", "width", default=1024, min=1, max=8192, step=1),
-                _io_field("Int", "Input", "height", default=1024, min=1, max=8192, step=1),
-                _io_combo("aspect_ratio", _COMP_ASPECT_RATIOS, default="custom", tooltip="Only used in Custom Format. Custom keeps Width/Height independent; presets derive Height from Width."),
-                _io_field("Color", "Input", "background_color", default="#000000"),
-                _io_field("String", "Input", "layers_json", default='{"version":1,"layers":[]}', socketless=True),
-                _io_field("Boolean", "Input", "invert_mask", default=False),
+                io.Int.Input("width", default=1024, min=1, max=8192, step=1),
+                io.Int.Input("height", default=1024, min=1, max=8192, step=1),
+                io.Color.Input("background_color", default="#000000"),
+                io.String.Input("layers_json", default='{"version":1,"layers":[]}', socketless=True),
+                io.Boolean.Input("invert_mask", default=False),
             ],
             outputs=[
-                _io_field("Image", "Output", "image", display_name="image"),
-                _io_field("Mask", "Output", "mask", display_name="mask"),
+                io.Image.Output("image", display_name="image"),
+                io.Mask.Output("mask", display_name="mask"),
             ],
-            hidden=_io_hidden_unique_id(),
+            hidden=[io.Hidden.unique_id],
         )
-        if callable(schema_factory):
-            return schema_factory(**schema_kwargs)
-        return type("ImageOpsCompSchema", (), {"kwargs": schema_kwargs})()
 
     @classmethod
     def execute(
@@ -225,7 +166,6 @@ class ImageOpsComp(io.ComfyNode):
         auto_layering: bool = False,
         width: int = 1024,
         height: int = 1024,
-        aspect_ratio: str = "custom",
         background_color: str = "#000000",
         layers_json: str = '{"version":1,"layers":[]}',
         invert_mask: bool = False,
@@ -246,7 +186,8 @@ class ImageOpsComp(io.ComfyNode):
 
         if not connected_layers:
             progress = start_progress(unique_id=progress_unique_id)
-            out_w, out_h = _resolve_custom_comp_size(width, height, aspect_ratio)
+            out_w = max(1, _scalar(width, int))
+            out_h = max(1, _scalar(height, int))
             blank = _make_comp_canvas(1, out_h, out_w, device="cpu", dtype=torch.float32, background_color=background_color)
             output_mask = blank[..., 3]
             if _scalar(invert_mask, bool):
@@ -269,7 +210,8 @@ class ImageOpsComp(io.ComfyNode):
             out_h = int(ref_tensor.shape[1])
             out_w = int(ref_tensor.shape[2])
         else:
-            out_w, out_h = _resolve_custom_comp_size(width, height, aspect_ratio)
+            out_w = max(1, _scalar(width, int))
+            out_h = max(1, _scalar(height, int))
 
         batch = max(int(image.shape[0]) for _, image, _ in tensors)
         device = tensors[0][1].device

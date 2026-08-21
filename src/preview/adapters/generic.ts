@@ -1,7 +1,6 @@
 // Generic heuristics for popular packs (best-effort) (v7)
 import type { Adapter, AdapterApplyContext, ComfyNode, ComfyWidget } from "../../types.js";
 import { ops } from "../ops.js";
-import { isImageOpsClass } from "../shared/classes.js";
 
 function className(node: ComfyNode): string {
   return String(node?.comfyClass ?? "");
@@ -12,7 +11,7 @@ function classLower(node: ComfyNode): string {
 }
 
 function isImageOps(node: ComfyNode): boolean {
-  return isImageOpsClass(node?.comfyClass);
+  return className(node).startsWith("ImageOps");
 }
 
 function widgetNames(node: ComfyNode): string[] {

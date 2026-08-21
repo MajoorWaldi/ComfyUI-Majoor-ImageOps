@@ -12,6 +12,7 @@ from ._helpers import (
     _scalar,
     _select_media_tensor,
 )
+from .compat.comfy_v3 import V3NodeBase
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 
@@ -95,7 +96,7 @@ def _image_to_mask(
     return _apply_mask_points(mask, black_point, white_point).clamp(0.0, 1.0)
 
 
-class ImageOpsMaskConvert:
+class ImageOpsMaskConvert(V3NodeBase):
     CATEGORY = "image/imageops"
     RETURN_TYPES = ("IMAGE", "MASK")
     RETURN_NAMES = ("image", "mask")

@@ -6,7 +6,6 @@ import { isNode as isCropNode, getCropControlState, getCropCanvasMetrics } from 
 import { computeCropRect } from "../crop.js";
 import { isNode as isCompNode, getCompCanvasMetrics } from "../nodes/comp.js";
 import { isNode as isCornerPinNode, cornerPinControlPoints } from "../nodes/corner-pin.js";
-import { isNode as isRampNode, rampControlPoints } from "../nodes/ramp.js";
 import { isNode as isPadOutNode } from "../nodes/pad-out.js";
 import { isNode as isDrawNode } from "../nodes/draw.js";
 function drawTransformBounds(node, ctx, width, height, sourceWidth, sourceHeight) {
@@ -185,45 +184,6 @@ function drawCompBounds(node, ctx, width, height, sourceWidth, sourceHeight, lay
   }
   ctx.restore();
 }
-function drawRampBounds(node, ctx, width, height, sourceWidth, sourceHeight) {
-  if (!isRampNode(node)) return null;
-  const fit = getFitPlacement(width, height, sourceWidth, sourceHeight);
-  const geometry = {
-    sourceWidth,
-    sourceHeight,
-    fitDx: fit.dx,
-    fitDy: fit.dy,
-    fitDrawWidth: fit.drawWidth,
-    fitDrawHeight: fit.drawHeight
-  };
-  const points = rampControlPoints(node, geometry);
-  ctx.save();
-  ctx.strokeStyle = "rgba(126, 214, 255, 0.92)";
-  ctx.lineWidth = 2;
-  ctx.setLineDash([]);
-  ctx.beginPath();
-  ctx.moveTo(points.start.x, points.start.y);
-  ctx.lineTo(points.end.x, points.end.y);
-  ctx.stroke();
-  const drawHandle = (x, y, label, fill) => {
-    ctx.fillStyle = fill;
-    ctx.strokeStyle = "rgba(10, 12, 16, 0.92)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(x, y, 7, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "rgba(255,255,255,0.96)";
-    ctx.font = "11px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-    ctx.fillText(label, x, y - 10);
-  };
-  drawHandle(points.start.x, points.start.y, "A", "rgba(255, 196, 87, 0.95)");
-  drawHandle(points.end.x, points.end.y, "B", "rgba(86, 208, 255, 0.95)");
-  ctx.restore();
-  return geometry;
-}
 function drawCornerPinBounds(node, ctx, width, height, sourceWidth, sourceHeight) {
   if (!isCornerPinNode(node)) return null;
   const fit = getFitPlacement(width, height, sourceWidth, sourceHeight);
@@ -274,12 +234,10 @@ function drawCornerPinBounds(node, ctx, width, height, sourceWidth, sourceHeight
 }
 function drawPadOutBounds(node, ctx, width, height, outputWidth, outputHeight, fixedSourceWidth = 0, fixedSourceHeight = 0) {
   if (!isPadOutNode(node)) return null;
-  const snap = Math.max(1, Math.round(widgetNumber(node, "snap_to_multiple", 1)));
-  const snapPad = (value) => snap <= 1 ? Math.max(0, Math.round(value)) : Math.max(0, Math.round(Math.round(value) / snap) * snap);
-  const padLeft = snapPad(widgetNumber(node, "pad_left", 0));
-  const padTop = snapPad(widgetNumber(node, "pad_top", 0));
-  const padRight = snapPad(widgetNumber(node, "pad_right", 0));
-  const padBottom = snapPad(widgetNumber(node, "pad_bottom", 0));
+  const padLeft = Math.max(0, Math.round(widgetNumber(node, "pad_left", 0)));
+  const padTop = Math.max(0, Math.round(widgetNumber(node, "pad_top", 0)));
+  const padRight = Math.max(0, Math.round(widgetNumber(node, "pad_right", 0)));
+  const padBottom = Math.max(0, Math.round(widgetNumber(node, "pad_bottom", 0)));
   const sourceWidth = fixedSourceWidth > 0 ? fixedSourceWidth : Math.max(1, outputWidth - padLeft - padRight);
   const sourceHeight = fixedSourceHeight > 0 ? fixedSourceHeight : Math.max(1, outputHeight - padTop - padBottom);
   const effectiveOutputWidth = sourceWidth + padLeft + padRight;
@@ -291,24 +249,6 @@ function drawPadOutBounds(node, ctx, width, height, outputWidth, outputHeight, f
   const top = fit.dy + padTop * scaleY;
   const innerWidth = sourceWidth * scaleX;
   const innerHeight = sourceHeight * scaleY;
-  const drawLabel = (text, centerX, centerY) => {
-    ctx.save();
-    ctx.font = "11px ui-monospace, SFMono-Regular, Consolas, monospace";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    const metrics = ctx.measureText(text);
-    const boxWidth = Math.ceil(metrics.width + 14);
-    const boxHeight = 20;
-    const x = Math.round(centerX - boxWidth / 2);
-    const y = Math.round(centerY - boxHeight / 2);
-    ctx.fillStyle = "rgba(0,0,0,0.58)";
-    ctx.fillRect(x, y, boxWidth, boxHeight);
-    ctx.strokeStyle = "rgba(255,255,255,0.14)";
-    ctx.strokeRect(x + 0.5, y + 0.5, boxWidth - 1, boxHeight - 1);
-    ctx.fillStyle = "rgba(255,255,255,0.92)";
-    ctx.fillText(text, x + boxWidth / 2, y + boxHeight / 2 + 0.5);
-    ctx.restore();
-  };
   ctx.save();
   ctx.fillStyle = "rgba(0,0,0,0.32)";
   ctx.beginPath();
@@ -341,11 +281,6 @@ function drawPadOutBounds(node, ctx, width, height, outputWidth, outputHeight, f
   for (const pt of outerHandles) {
     ctx.fillRect(pt.x - 4, pt.y - 4, 8, 8);
   }
-  drawLabel(`${effectiveOutputWidth}\xD7${effectiveOutputHeight}`, fit.dx + fit.drawWidth / 2, fit.dy + fit.drawHeight - 14);
-  if (padTop > 0) drawLabel(`T ${padTop}`, fit.dx + fit.drawWidth / 2, fit.dy + Math.max(12, (top - fit.dy) / 2));
-  if (padBottom > 0) drawLabel(`B ${padBottom}`, fit.dx + fit.drawWidth / 2, top + innerHeight + Math.max(12, (fit.dy + fit.drawHeight - (top + innerHeight)) / 2));
-  if (padLeft > 0) drawLabel(`L ${padLeft}`, fit.dx + Math.max(18, (left - fit.dx) / 2), fit.dy + fit.drawHeight / 2);
-  if (padRight > 0) drawLabel(`R ${padRight}`, left + innerWidth + Math.max(18, (fit.dx + fit.drawWidth - (left + innerWidth)) / 2), fit.dy + fit.drawHeight / 2);
   ctx.restore();
   return {
     sourceWidth,
@@ -361,27 +296,6 @@ function drawPadOutBounds(node, ctx, width, height, outputWidth, outputHeight, f
     fitDrawWidth: fit.drawWidth,
     fitDrawHeight: fit.drawHeight
   };
-}
-function drawFrameNumberOverlay(ctx, canvasSize, frameIndex) {
-  if (frameIndex == null || !Number.isFinite(frameIndex)) return;
-  const label = `f ${Math.max(0, Math.round(frameIndex)).toString().padStart(4, "0")}`;
-  ctx.save();
-  ctx.font = "11px ui-monospace, SFMono-Regular, Consolas, monospace";
-  ctx.textBaseline = "top";
-  const metrics = ctx.measureText(label);
-  const padX = 7;
-  const padY = 4;
-  const x = 8;
-  const w = Math.ceil(metrics.width + padX * 2);
-  const h = 20;
-  const y = Math.max(8, canvasSize - h - 8);
-  ctx.fillStyle = "rgba(0,0,0,0.58)";
-  ctx.fillRect(x, y, w, h);
-  ctx.strokeStyle = "rgba(255,255,255,0.16)";
-  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-  ctx.fillStyle = "rgba(255,255,255,0.9)";
-  ctx.fillText(label, x + padX, y + padY);
-  ctx.restore();
 }
 function blit(node, st, source, canvasSize, sourceWidth, sourceHeight) {
   if (!st.canvas) return;
@@ -405,42 +319,42 @@ function blit(node, st, source, canvasSize, sourceWidth, sourceHeight) {
       sourceHeight ?? (imgEl.naturalHeight > 0 ? imgEl.naturalHeight : void 0) ?? (vidEl.videoHeight > 0 ? vidEl.videoHeight : void 0) ?? canvasEl.height ?? 1
     )
   );
-  st.previewSourceWidth = resolvedWidth;
-  st.previewSourceHeight = resolvedHeight;
   const isNewSource = source !== st.previewLastSource;
   st.previewLastSource = source;
   let padOutFit = null;
   let padOutPl = 0, padOutPt = 0, padOutPr = 0, padOutPb = 0;
   let padOutSw = 0, padOutSh = 0;
   if (isPadOutNode(node)) {
-    const snap = Math.max(1, Math.round(widgetNumber(node, "snap_to_multiple", 1)));
-    const snapPad = (value) => snap <= 1 ? Math.max(0, Math.round(value)) : Math.max(0, Math.round(Math.round(value) / snap) * snap);
-    padOutPl = snapPad(widgetNumber(node, "pad_left", 0));
-    padOutPt = snapPad(widgetNumber(node, "pad_top", 0));
-    padOutPr = snapPad(widgetNumber(node, "pad_right", 0));
-    padOutPb = snapPad(widgetNumber(node, "pad_bottom", 0));
+    padOutPl = Math.max(0, Math.round(widgetNumber(node, "pad_left", 0)));
+    padOutPt = Math.max(0, Math.round(widgetNumber(node, "pad_top", 0)));
+    padOutPr = Math.max(0, Math.round(widgetNumber(node, "pad_right", 0)));
+    padOutPb = Math.max(0, Math.round(widgetNumber(node, "pad_bottom", 0)));
     if (isNewSource) {
-      const srcW = Math.max(1, resolvedWidth - padOutPl - padOutPr);
-      const srcH = Math.max(1, resolvedHeight - padOutPt - padOutPb);
-      const opsW = source.width || canvasSize;
-      const opsH = source.height || canvasSize;
-      const srcAreaW = Math.max(1, opsW - padOutPl - padOutPr);
-      const srcAreaH = Math.max(1, opsH - padOutPt - padOutPb);
-      const srcAreaFit = getFitPlacement(srcAreaW, srcAreaH, srcW, srcH);
-      const vx = padOutPl + srcAreaFit.dx;
-      const vy = padOutPt + srcAreaFit.dy;
-      const vw = Math.max(1, srcAreaFit.drawWidth);
-      const vh = Math.max(1, srcAreaFit.drawHeight);
-      const srcCanvas = document.createElement("canvas");
-      srcCanvas.width = vw;
-      srcCanvas.height = vh;
-      srcCanvas.getContext("2d")?.drawImage(source, vx, vy, vw, vh, 0, 0, vw, vh);
-      st.padOutSourceCanvas = srcCanvas;
-      st.padOutSourceWidth = srcW;
-      st.padOutSourceHeight = srcH;
+      const bsw = st.padOutBackendSourceW ?? 0;
+      const bsh = st.padOutBackendSourceH ?? 0;
+      const bpl = st.padOutBackendPadL ?? 0;
+      const bpt = st.padOutBackendPadT ?? 0;
+      if (bsw > 0 && bsh > 0) {
+        st.padOutSourceWidth = bsw;
+        st.padOutSourceHeight = bsh;
+        const srcCanvas = document.createElement("canvas");
+        srcCanvas.width = bsw;
+        srcCanvas.height = bsh;
+        srcCanvas.getContext("2d")?.drawImage(source, bpl, bpt, bsw, bsh, 0, 0, bsw, bsh);
+        st.padOutSourceCanvas = srcCanvas;
+      } else {
+        st.padOutSourceWidth = Math.max(1, resolvedWidth - padOutPl - padOutPr);
+        st.padOutSourceHeight = Math.max(1, resolvedHeight - padOutPt - padOutPb);
+        const sw = st.padOutSourceWidth, sh = st.padOutSourceHeight;
+        const srcCanvas = document.createElement("canvas");
+        srcCanvas.width = sw;
+        srcCanvas.height = sh;
+        srcCanvas.getContext("2d")?.drawImage(source, padOutPl, padOutPt, sw, sh, 0, 0, sw, sh);
+        st.padOutSourceCanvas = srcCanvas;
+      }
     }
-    padOutSw = st.padOutSourceWidth ?? 0;
-    padOutSh = st.padOutSourceHeight ?? 0;
+    padOutSw = st.padOutSourceWidth;
+    padOutSh = st.padOutSourceHeight;
     if (padOutSw > 0) {
       padOutFit = getFitPlacement(
         canvasSize,
@@ -468,7 +382,7 @@ function blit(node, st, source, canvasSize, sourceWidth, sourceHeight) {
     const oh = padOutSh + padOutPt + padOutPb;
     const scX = padOutFit.drawWidth / Math.max(1, ow);
     const scY = padOutFit.drawHeight / Math.max(1, oh);
-    ctx.fillStyle = "#000000";
+    ctx.fillStyle = "rgb(128,128,128)";
     ctx.fillRect(padOutFit.dx, padOutFit.dy, padOutFit.drawWidth, padOutFit.drawHeight);
     ctx.drawImage(
       st.padOutSourceCanvas,
@@ -493,7 +407,6 @@ function blit(node, st, source, canvasSize, sourceWidth, sourceHeight) {
     st.drawGeometry = null;
   }
   st.cropGeometry = drawCropBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
-  st.rampGeometry = drawRampBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
   st.cornerPinGeometry = drawCornerPinBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
   const effOW = padOutSw > 0 ? padOutSw + padOutPl + padOutPr : resolvedWidth;
   const effOH = padOutSh > 0 ? padOutSh + padOutPt + padOutPb : resolvedHeight;
@@ -502,10 +415,9 @@ function blit(node, st, source, canvasSize, sourceWidth, sourceHeight) {
   drawCompBounds(node, ctx, canvasSize, canvasSize, st.compOutputWidth || resolvedWidth, st.compOutputHeight || resolvedHeight, st.compLayers);
   drawOutputFormatBox(ctx, padOutFit ?? fit);
   if (hasTransform) ctx.restore();
-  drawFrameNumberOverlay(ctx, canvasSize, st.previewFrameIndex);
 }
 function tryRenderNativePreview(node, st, canvasSize) {
-  if (isCropNode(node) || isCompNode(node) || isDrawNode(node) || isPadOutNode(node) || isCornerPinNode(node) || isRampNode(node)) return false;
+  if (isCropNode(node) || isCompNode(node) || isDrawNode(node) || isPadOutNode(node) || isCornerPinNode(node)) return false;
   if (st.nativeDirty) return false;
   if (showNativeMediaPreview(node, st, canvasSize)) {
     setInfo(st, "Node preview (media)");
@@ -530,7 +442,6 @@ export {
   drawCornerPinBounds,
   drawCropBounds,
   drawPadOutBounds,
-  drawRampBounds,
   drawTransformBounds,
   tryRenderNativePreview
 };

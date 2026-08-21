@@ -5,10 +5,11 @@ from ._helpers import (
     _scalar,
     _select_media_tensor,
 )
+from .compat.comfy_v3 import V3NodeBase
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 
-class ImageOpsInvert:
+class ImageOpsInvert(V3NodeBase):
     CATEGORY = "image/imageops"
     RETURN_TYPES = ("IMAGE", "MASK")
     RETURN_NAMES = ("image", "mask")

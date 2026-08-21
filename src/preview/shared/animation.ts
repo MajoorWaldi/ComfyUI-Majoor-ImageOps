@@ -15,7 +15,7 @@ export function widgetAnimatedLength(value: unknown): number {
 export function getProceduralFrameCount(node: ComfyNode): number | null {
   const cls = String(node?.comfyClass ?? "");
   const animatedLength = Math.max(1, ...(node.widgets ?? []).map((entry) => widgetAnimatedLength(entry?.value)));
-  if (cls !== "ImageOpsNoise" && cls !== "ImageOpsGrain" && cls !== "ImageOpsCameraShake") {
+  if (cls !== "ImageOpsNoise") {
     return animatedLength > 1 ? animatedLength : null;
   }
 
@@ -31,10 +31,6 @@ export function getProceduralFrameCount(node: ComfyNode): number | null {
   const frameLength = Math.max(0, Math.round(numeric("frame_length", 0)));
   const frameCount = frameLength > 0 ? frameLength : batchSize;
 
-  if (cls === "ImageOpsGrain" || cls === "ImageOpsCameraShake") {
-    return Math.max(frameCount, animatedLength);
-  }
-
   // animation_speed != 0 means infinite animation — return a bounded cycle so the tick is never clamped
   // to 0 yet remains small enough that animation seeds wrap predictably and modulo math stays cheap.
   // 3600 frames ≈ 5 minutes at 12 fps, far longer than any practical preview session.
@@ -47,7 +43,7 @@ export function getProceduralFrameCount(node: ComfyNode): number | null {
 export function hasProceduralAnimation(node: ComfyNode): boolean {
   const cls = String(node?.comfyClass ?? "");
   const animatedWidgets = (node.widgets ?? []).some((entry) => widgetHasAnimatedValues(entry?.value));
-  if (cls !== "ImageOpsNoise" && cls !== "ImageOpsGrain" && cls !== "ImageOpsCameraShake") return animatedWidgets && (getProceduralFrameCount(node) ?? 1) > 1;
+  if (cls !== "ImageOpsNoise") return animatedWidgets && (getProceduralFrameCount(node) ?? 1) > 1;
 
   const widget = (name: string) => node.widgets?.find((entry) => entry?.name === name) ?? null;
   const numeric = (name: string, fallback: number = 0): number => {
@@ -59,11 +55,6 @@ export function hasProceduralAnimation(node: ComfyNode): boolean {
 
   const frameCount = getProceduralFrameCount(node) ?? 1;
   if (frameCount <= 1) return false;
-  if (cls === "ImageOpsGrain") {
-    const animated = String(widget("animated")?.value ?? "true").toLowerCase();
-    return animated !== "false" && animated !== "0";
-  }
-  if (cls === "ImageOpsCameraShake") return true;
   if (numeric("animation_speed", 0) !== 0) return true;
   if (numeric("seed_step", 0) !== 0) return true;
   if (numeric("frame_offset_x", 0) !== 0) return true;
@@ -75,7 +66,7 @@ export function hasProceduralAnimation(node: ComfyNode): boolean {
 
 export function getProceduralPlaybackFps(node: ComfyNode): number | null {
   const cls = String(node?.comfyClass ?? "");
-  if (cls !== "ImageOpsNoise" && cls !== "ImageOpsGrain" && cls !== "ImageOpsCameraShake") return null;
+  if (cls !== "ImageOpsNoise") return null;
   const widget = (name: string) => node.widgets?.find((entry) => entry?.name === name) ?? null;
   const value = parseFloat(widget("fps")?.value as string);
   return Number.isFinite(value) ? Math.max(1, value) : 12;

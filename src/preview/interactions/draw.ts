@@ -10,7 +10,7 @@ import {
 } from "../draw.js";
 import { isNode as isDrawNode, canvasToDrawSourcePoint } from "../nodes/draw.js";
 import { getCanvasPointer, screenToWorld, clampPreviewZoom } from "../shared/geometry.js";
-import { findWidget, widgetNumber, widgetBoolean, setWidgetValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetBooleanValue } from "../shared/widgets.js";
+import { findWidget, widgetNumber, widgetBoolean, setWidgetValue, setWidgetStringValue, setWidgetBooleanValue } from "../shared/widgets.js";
 
 export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext): void {
   const st = (node as any).__imageops_state as any;
@@ -18,7 +18,6 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
   st.drawInteractiveHooked = true;
 
   const canvas: HTMLCanvasElement = st.canvas;
-  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : undefined;
 
   // ── Viewport helpers ──────────────────────────────────────────────────────
   // Map a screen-space canvas position to world-space (pre-zoom/pan coords that
@@ -37,64 +36,21 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     return canvasToDrawSourcePoint(st.drawGeometry, w.x, w.y);
   };
 
-  // RAF handle to coalesce hover renders.
-  let hoverRafPending = false;
+  // State for Ctrl+left-drag pan.
+  let ctrlPanDrag: {
+    pointerId: number;
+    startCanvasX: number;
+    startCanvasY: number;
+    startPanX: number;
+    startPanY: number;
+  } | null = null;
+
+  // RAF handle to coalesce pan renders.
   let panRafPending = false;
 
-  const startPreviewPan = (event: PointerEvent): boolean => {
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width < 1 || rect.height < 1) return false;
-    const sx = canvas.width / rect.width;
-    const sy = canvas.height / rect.height;
-    st.previewPanDrag = {
-      pointerId: event.pointerId,
-      startCanvasX: (event.clientX - rect.left) * sx,
-      startCanvasY: (event.clientY - rect.top) * sy,
-      startPanX: (st.previewPanX as number) ?? 0,
-      startPanY: (st.previewPanY as number) ?? 0,
-    };
-    try {
-      canvas.setPointerCapture?.(event.pointerId);
-    } catch {
-      // Some environments may reject pointer capture for synthetic pointers.
-    }
-    canvas.style.cursor = "grabbing";
-    return true;
-  };
-
-  const updatePreviewPan = (event: PointerEvent): boolean => {
-    const drag = st.previewPanDrag;
-    if (!drag || drag.pointerId !== event.pointerId) return false;
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width < 1 || rect.height < 1) return true;
-    const sx = canvas.width / rect.width;
-    const sy = canvas.height / rect.height;
-    const cx = (event.clientX - rect.left) * sx;
-    const cy = (event.clientY - rect.top) * sy;
-    st.previewPanX = drag.startPanX + (cx - drag.startCanvasX);
-    st.previewPanY = drag.startPanY + (cy - drag.startCanvasY);
-    ctx.markPreviewInteraction(node);
-    if (!panRafPending) {
-      panRafPending = true;
-      requestAnimationFrame(() => {
-        panRafPending = false;
-        void ctx.renderDrawNode(node, 0);
-      });
-    }
-    return true;
-  };
-
-  const releasePreviewPan = (event: PointerEvent): boolean => {
-    if (!st.previewPanDrag || st.previewPanDrag.pointerId !== event.pointerId) return false;
-    st.previewPanDrag = null;
-    canvas.style.cursor = event.ctrlKey || event.metaKey ? "grab" : "";
-    try {
-      canvas.releasePointerCapture?.(event.pointerId);
-    } catch {
-      // Ignore missing capture state.
-    }
-    return true;
-  };
+  // Coalesces hover-only renders to one per animation frame so repeated
+  // pointermove events don't queue unlimited async render calls.
+  let hoverRafPending = false;
 
   if (!st.drawGeometry || !st.drawCanvas) {
     void ctx.renderDrawNode(node, 0);
@@ -103,32 +59,32 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
   st.drawBrushButton?.addEventListener("click", (event: MouseEvent) => {
     event.preventDefault();
     ctx.setDrawTool(node, "brush");
-  }, listenerOptions);
+  });
 
   st.drawEraserButton?.addEventListener("click", (event: MouseEvent) => {
     event.preventDefault();
     ctx.setDrawTool(node, "eraser");
-  }, listenerOptions);
+  });
 
   st.drawClearButton?.addEventListener("click", (event: MouseEvent) => {
     event.preventDefault();
     ctx.ensureDrawCanvasSize(node, st.drawCanvas?.width ?? widgetNumber(node, "width", 1024), st.drawCanvas?.height ?? widgetNumber(node, "height", 1024), false);
-    const drawCtx = st.drawCanvas?.getContext("2d", { willReadFrequently: true });
+    const drawCtx = st.drawCanvas?.getContext("2d");
     drawCtx?.clearRect(0, 0, st.drawCanvas?.width ?? 0, st.drawCanvas?.height ?? 0);
     st.drawUndoStack = [];
     ctx.updateDrawOverlayWidget(node);
     ctx.refreshNode(node);
-  }, listenerOptions);
+  });
 
   st.drawColorInput?.addEventListener("input", () => {
     const color = normalizeDrawColor(st.drawColorInput?.value ?? "#FFFFFF", "#FFFFFF");
-    setWidgetStringValuesByName(node, "brush_color", color);
+    setWidgetStringValue(findWidget(node, "brush_color"), color);
     if (st.drawColorInput) {
       st.drawColorInput.value = color;
       ctx.syncDarkColorInputUI(st.drawColorInput, color);
     }
     void ctx.renderDrawNode(node, 0);
-  }, listenerOptions);
+  });
 
   st.drawEdgeSelect?.addEventListener("change", () => {
     const edge = normalizeDrawEdge(st.drawEdgeSelect?.value ?? "hard");
@@ -136,27 +92,27 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     if (st.drawEdgeSelect) st.drawEdgeSelect.value = edge;
     ctx.syncDrawWidgets(node);
     void ctx.renderDrawNode(node, 0);
-  }, listenerOptions);
+  });
 
   st.drawSoftnessInput?.addEventListener("input", () => {
     const softness = clampDrawSoftness(Number(st.drawSoftnessInput?.value ?? 50) / 100, 0.5);
     setWidgetValue(findWidget(node, "brush_softness"), softness);
     if (st.drawSoftnessLabel) st.drawSoftnessLabel.textContent = `${Math.round(softness * 100)}%`;
     void ctx.renderDrawNode(node, 0);
-  }, listenerOptions);
+  });
 
   st.drawOpacityInput?.addEventListener("input", () => {
     const opacity = clampDrawOpacity(Number(st.drawOpacityInput?.value ?? 100) / 100, 1);
     setWidgetValue(findWidget(node, "brush_opacity"), opacity);
     if (st.drawOpacityLabel) st.drawOpacityLabel.textContent = `${Math.round(opacity * 100)}%`;
     void ctx.renderDrawNode(node, 0);
-  }, listenerOptions);
+  });
 
   st.drawSizeInput?.addEventListener("input", () => {
     const size = clampDrawSize(Number(st.drawSizeInput?.value ?? 10), 10);
     ctx.setDrawBrushSize(node, size);
     void ctx.renderDrawNode(node, 0);
-  }, listenerOptions);
+  });
 
   st.drawWidthInput?.addEventListener("change", () => {
     if ((node.inputs?.[0]?.link ?? null) != null) return;
@@ -165,7 +121,7 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     ctx.syncDrawWidgets(node, "width");
     ctx.ensureDrawCanvasSize(node, widgetNumber(node, "width", width), widgetNumber(node, "height", 1024), true);
     ctx.refreshNode(node);
-  }, listenerOptions);
+  });
 
   st.drawHeightInput?.addEventListener("change", () => {
     if ((node.inputs?.[0]?.link ?? null) != null) return;
@@ -174,7 +130,7 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     ctx.syncDrawWidgets(node, "height");
     ctx.ensureDrawCanvasSize(node, widgetNumber(node, "width", 1024), widgetNumber(node, "height", height), true);
     ctx.refreshNode(node);
-  }, listenerOptions);
+  });
 
   st.drawLinkButton?.addEventListener("click", (event: MouseEvent) => {
     event.preventDefault();
@@ -183,18 +139,18 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     setWidgetBooleanValue(findWidget(node, "sync_dimensions"), linked);
     ctx.syncDrawWidgets(node, "sync_dimensions");
     ctx.refreshNode(node);
-  }, listenerOptions);
+  });
 
   st.drawBgColorInput?.addEventListener("input", () => {
     if ((node.inputs?.[0]?.link ?? null) != null) return;
     const color = normalizeDrawColor(st.drawBgColorInput?.value ?? "#000000", "#000000");
-    setWidgetStringValuesByName(node, "bg_color", color);
+    setWidgetStringValue(findWidget(node, "bg_color"), color);
     if (st.drawBgColorInput) {
       st.drawBgColorInput.value = color;
       ctx.syncDarkColorInputUI(st.drawBgColorInput, color);
     }
     ctx.refreshNode(node);
-  }, listenerOptions);
+  });
 
   st.drawOverlayFormatSelect?.addEventListener("change", () => {
     const format = normalizeDrawOverlayFormat(st.drawOverlayFormatSelect?.value ?? "png");
@@ -209,7 +165,7 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     }
     ctx.updateDrawOverlayWidget(node);
     ctx.refreshNode(node);
-  }, listenerOptions);
+  });
 
   const syncDrawDynamics = () => {
     setWidgetBooleanValue(findWidget(node, "brush_pressure_size"), !!st.drawPressureSizeInput?.checked);
@@ -217,9 +173,9 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     setWidgetBooleanValue(findWidget(node, "brush_tilt_size"), !!st.drawTiltSizeInput?.checked);
     void ctx.renderDrawNode(node, 0);
   };
-  st.drawPressureSizeInput?.addEventListener("change", syncDrawDynamics, listenerOptions);
-  st.drawPressureOpacityInput?.addEventListener("change", syncDrawDynamics, listenerOptions);
-  st.drawTiltSizeInput?.addEventListener("change", syncDrawDynamics, listenerOptions);
+  st.drawPressureSizeInput?.addEventListener("change", syncDrawDynamics);
+  st.drawPressureOpacityInput?.addEventListener("change", syncDrawDynamics);
+  st.drawTiltSizeInput?.addEventListener("change", syncDrawDynamics);
 
   // ── Wheel: zoom (Ctrl+scroll) and brush size (scroll) ──
   // Use document capture phase to intercept before Node 2.0 graph container.
@@ -262,8 +218,7 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     ctx.setDrawBrushSize(node, current + direction);
     void ctx.renderDrawNode(node, 0);
   };
-  const signal = st?._abortController?.signal;
-  document.addEventListener("wheel", handleDrawWheel, { capture: true, passive: false, signal } as any);
+  document.addEventListener("wheel", handleDrawWheel, { capture: true, passive: false });
   // Store cleanup ref so onRemoved can deregister the document-level listener.
   // Use idempotent removal so multiple onRemoved calls (or replays during reconfigure)
   // never leak duplicate listeners on the document.
@@ -285,7 +240,7 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     ctx.restoreCanvas(st.drawCanvas, snapshot);
     ctx.updateDrawOverlayWidget(node);
     ctx.refreshNode(node);
-  }, listenerOptions);
+  });
 
   // ── Double-click: reset zoom/pan ─────────────────────────────────────────
   canvas.addEventListener("dblclick", () => {
@@ -294,14 +249,26 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     st.previewPanX = 0;
     st.previewPanY = 0;
     void ctx.renderDrawNode(node, 0);
-  }, listenerOptions);
+  });
 
   canvas.addEventListener("pointerdown", async (event: PointerEvent) => {
+    // ── Ctrl+left-drag: pan the viewport ────────────────────────────────────
     if ((event.ctrlKey || event.metaKey) && event.button === 0) {
       event.preventDefault();
-      event.stopPropagation();
       canvas.focus();
-      startPreviewPan(event);
+      try { canvas.setPointerCapture?.(event.pointerId); } catch {}
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return;
+      const sx = canvas.width  / rect.width;
+      const sy = canvas.height / rect.height;
+      ctrlPanDrag = {
+        pointerId:    event.pointerId,
+        startCanvasX: (event.clientX - rect.left) * sx,
+        startCanvasY: (event.clientY - rect.top)  * sy,
+        startPanX:    (st.previewPanX as number) ?? 0,
+        startPanY:    (st.previewPanY as number) ?? 0,
+      };
+      canvas.style.cursor = "grabbing";
       return;
     }
 
@@ -312,7 +279,6 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
       if (!canvasToSource(point0.x, point0.y).inside) return;
     }
     event.preventDefault();
-    event.stopPropagation();
     canvas.focus();
 
     const ready = await ctx.ensureDrawInteractionReady(node);
@@ -343,12 +309,26 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     ctx.markPreviewInteraction(node);
     ctx.markCanvasDirty();
     void ctx.renderDrawNode(node, 0);
-  }, listenerOptions);
+  });
 
   canvas.addEventListener("pointermove", (event: PointerEvent) => {
-    if (updatePreviewPan(event)) {
-      event.preventDefault();
-      event.stopPropagation();
+    // ── Ctrl+drag pan in progress ────────────────────────────────────────────
+    if (ctrlPanDrag && ctrlPanDrag.pointerId === event.pointerId) {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return;
+      const sx = canvas.width  / rect.width;
+      const sy = canvas.height / rect.height;
+      const cx = (event.clientX - rect.left) * sx;
+      const cy = (event.clientY - rect.top)  * sy;
+      st.previewPanX = ctrlPanDrag.startPanX + (cx - ctrlPanDrag.startCanvasX);
+      st.previewPanY = ctrlPanDrag.startPanY + (cy - ctrlPanDrag.startCanvasY);
+      if (!panRafPending) {
+        panRafPending = true;
+        requestAnimationFrame(() => {
+          panRafPending = false;
+          void ctx.renderDrawNode(node, 0);
+        });
+      }
       return;
     }
 
@@ -388,9 +368,16 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     drag.lastY = mapped.y;
     ctx.markPreviewInteraction(node);
     void ctx.renderDrawNode(node, 0);
-  }, listenerOptions);
+  });
 
   const releaseStroke = (event: PointerEvent) => {
+    // ── Release Ctrl+pan drag ────────────────────────────────────────────────
+    if (ctrlPanDrag && ctrlPanDrag.pointerId === event.pointerId) {
+      ctrlPanDrag = null;
+      canvas.style.cursor = "";
+      try { canvas.releasePointerCapture?.(event.pointerId); } catch {}
+      return;
+    }
     if (!st.drawStroke || st.drawStroke.pointerId !== event.pointerId) return;
     st.drawStroke = null;
     try {
@@ -402,27 +389,23 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     ctx.refreshNode(node);
   };
 
-  canvas.addEventListener("pointerup", (event: PointerEvent) => {
-    if (releasePreviewPan(event)) return;
-    releaseStroke(event);
-  }, listenerOptions);
+  canvas.addEventListener("pointerup", releaseStroke);
   canvas.addEventListener("pointercancel", (event: PointerEvent) => {
-    if (releasePreviewPan(event)) return;
+    if (ctrlPanDrag && ctrlPanDrag.pointerId === event.pointerId) {
+      ctrlPanDrag = null;
+      canvas.style.cursor = "";
+    }
     releaseStroke(event);
-  }, listenerOptions);
-  canvas.addEventListener("lostpointercapture", (event: PointerEvent) => {
-    if (releasePreviewPan(event)) return;
-    releaseStroke(event);
-  }, listenerOptions);
+  });
   canvas.addEventListener("pointerleave", () => {
-    if (!st.drawStroke && !st.previewPanDrag) {
+    if (!st.drawStroke && !ctrlPanDrag) {
       st.drawHover = null;
       canvas.style.cursor = "";
       void ctx.renderDrawNode(node, 0);
     }
-  }, listenerOptions);
+  });
 
   canvas.addEventListener("pointerenter", () => {
     canvas.focus();
-  }, listenerOptions);
+  });
 }

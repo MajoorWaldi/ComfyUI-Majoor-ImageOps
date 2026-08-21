@@ -1,5 +1,4 @@
 import { ops } from "../ops.js";
-import { isImageOpsClass } from "../shared/classes.js";
 function className(node) {
   return String(node?.comfyClass ?? "");
 }
@@ -7,7 +6,7 @@ function classLower(node) {
   return className(node).toLowerCase();
 }
 function isImageOps(node) {
-  return isImageOpsClass(node?.comfyClass);
+  return className(node).startsWith("ImageOps");
 }
 function widgetNames(node) {
   return (node?.widgets ?? []).map((widget) => String(widget?.name ?? "").toLowerCase());

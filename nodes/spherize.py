@@ -225,24 +225,27 @@ class ImageOpsSpherize:
         src = _select_media_tensor(image, video)
         progress = start_progress(total=src.shape[0] if src is not None else 1, unique_id=unique_id)
 
-        # Resolve target dimensions
-        use_custom = str(_scalar(size_mode, str)).strip().lower() == "custom"
-        tgt_w = max(64, int(_scalar(width, int)))
-        tgt_h = max(64, int(_scalar(height, int)))
-
-        if src is not None and use_custom:
-            src = _resize(src, tgt_w, tgt_h, mode="bilinear", antialias=True)
-        prepared_mask = _prepare_effect_mask(mask, src) if (mask is not None and src is not None) else None
-
+        # Bypass BEFORE any resize or processing — bypass means pixel identity.
         if src is None or _scalar(bypass, bool):
             if src is not None:
+                prepared_mask = _prepare_effect_mask(mask, src) if mask is not None else None
                 out_mask = prepared_mask if prepared_mask is not None else torch.ones(src.shape[0], src.shape[1], src.shape[2], device=src.device, dtype=src.dtype)
             else:
                 out_mask = torch.ones(1, 64, 64, dtype=torch.float32)
             progress.finish()
             return build_node_preview_result(src, (src, out_mask), prefix="imageops_spherize")
 
+        # Resolve target dimensions
+        use_custom = str(_scalar(size_mode, str)).strip().lower() == "custom"
+        tgt_w = max(64, int(_scalar(width, int)))
+        tgt_h = max(64, int(_scalar(height, int)))
+
+        if use_custom:
+            src = _resize(src, tgt_w, tgt_h, mode="bilinear", antialias=True)
+        prepared_mask = _prepare_effect_mask(mask, src) if (mask is not None and src is not None) else None
+
         frames = []
+        warped_masks = [] if prepared_mask is not None else None
         for fi in range(src.shape[0]):
             frame_mode = _scalar(mode, str, index=fi)
             frame_strength = float(_scalar(strength, float, index=fi))
@@ -259,6 +262,18 @@ class ImageOpsSpherize:
                     edge_mode=frame_edge,
                 )
             )
+            # Warp mask through the exact same grid as the image
+            if prepared_mask is not None:
+                mask_frame = prepared_mask[fi:fi + 1].unsqueeze(-1)  # [1, H, W, 1]
+                warped_mask_frame = _spherize_frame(
+                    mask_frame,
+                    mode=frame_mode,
+                    strength=frame_strength,
+                    invert=frame_invert,
+                    filter_mode=frame_filter,
+                    edge_mode="zeros",  # mask outside boundary is 0
+                )
+                warped_masks.append(warped_mask_frame[..., 0])  # [1, H, W]
             progress.update()
 
         out = torch.cat(frames, dim=0).clamp(0.0, 1.0)
@@ -276,10 +291,12 @@ class ImageOpsSpherize:
             per_frame.append(ones_mask if frame_mode in ("latlong", "unlatlong") else circle_mask)
         circle_mask_b = torch.stack(per_frame, dim=0)  # [B, H, W]
 
-        if prepared_mask is not None:
-            out_mask = circle_mask_b * prepared_mask
+        if warped_masks is not None:
+            warped_mask_b = torch.cat(warped_masks, dim=0).clamp(0.0, 1.0)
+            out_mask = circle_mask_b * warped_mask_b
         else:
             out_mask = circle_mask_b
 
         progress.finish()
         return build_node_preview_result(out, (out, out_mask), prefix="imageops_spherize")
+

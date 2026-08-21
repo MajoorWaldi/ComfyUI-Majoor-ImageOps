@@ -8,9 +8,10 @@ __pycache__/
 *.md.backup
 
 # Tests
-tests/
+# tests directory is tracked
 test_*.py
 *_test.py
+.tracking
 
 # IDE
 .vscode/
@@ -30,5 +31,5 @@ CODEX_TODO.md
 # Node modules
 node_modules/
 REFACTO.md
-comfyui_agent.md
-.cursorrules
+tmp_extracted_workflow_00023.json
+docs/IMAGEOPS_VNEXT_UPDATE_ROADMAP.md

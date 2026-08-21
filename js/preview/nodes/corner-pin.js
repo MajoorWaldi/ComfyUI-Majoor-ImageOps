@@ -44,19 +44,19 @@ function cornerPinCanvasToNormalized(geometry, x, y) {
     yNorm: Math.max(-2, Math.min(2, sourceY / denomY))
   };
 }
-function setCornerPinHandle(node, handle, xNorm, yNorm, notify = true) {
+function setCornerPinHandle(node, handle, xNorm, yNorm) {
   if (handle === "tl") {
-    setWidgetValue(findWidget(node, "tl_x"), xNorm, { notify });
-    setWidgetValue(findWidget(node, "tl_y"), yNorm, { notify });
+    setWidgetValue(findWidget(node, "tl_x"), xNorm);
+    setWidgetValue(findWidget(node, "tl_y"), yNorm);
   } else if (handle === "tr") {
-    setWidgetValue(findWidget(node, "tr_x"), xNorm, { notify });
-    setWidgetValue(findWidget(node, "tr_y"), yNorm, { notify });
+    setWidgetValue(findWidget(node, "tr_x"), xNorm);
+    setWidgetValue(findWidget(node, "tr_y"), yNorm);
   } else if (handle === "bl") {
-    setWidgetValue(findWidget(node, "bl_x"), xNorm, { notify });
-    setWidgetValue(findWidget(node, "bl_y"), yNorm, { notify });
+    setWidgetValue(findWidget(node, "bl_x"), xNorm);
+    setWidgetValue(findWidget(node, "bl_y"), yNorm);
   } else {
-    setWidgetValue(findWidget(node, "br_x"), xNorm, { notify });
-    setWidgetValue(findWidget(node, "br_y"), yNorm, { notify });
+    setWidgetValue(findWidget(node, "br_x"), xNorm);
+    setWidgetValue(findWidget(node, "br_y"), yNorm);
   }
 }
 export {

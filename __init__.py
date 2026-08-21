@@ -1,4 +1,4 @@
-﻿"""
+"""
 ComfyUI custom node entrypoint.
 
 ComfyUI loads custom nodes via `importlib.util.spec_from_file_location()` with a synthetic module name
@@ -10,7 +10,6 @@ To stay ComfyUI-proof, we create an internal package namespace and load node mod
 from __future__ import annotations
 
 import importlib.util
-import json
 import re
 import sys
 import types
@@ -165,10 +164,6 @@ def _make_schema_output(name: str, output_type: str):
         factory = _field_factory("Mask")
     elif "IMAGE" in kind or "VIDEO" in kind:
         factory = _field_factory("Image")
-    elif kind == "INT":
-        factory = _field_factory("Int")
-    elif kind == "FLOAT":
-        factory = _field_factory("Float")
     else:
         factory = _field_factory("String")
     return factory.Output(name, display_name=name) if factory else None
@@ -188,7 +183,7 @@ def _make_hidden_fields(hidden_spec: dict | None):
     return out
 
 
-def _build_legacy_schema(node_id: str, cls, display_name: str, search_aliases=None):
+def _build_legacy_schema(node_id: str, cls, display_name: str):
     if _node20_io is None:
         return None
 
@@ -245,15 +240,13 @@ def _build_legacy_schema(node_id: str, cls, display_name: str, search_aliases=No
         "outputs": outputs,
         "accept_all_inputs": True,
     }
-    if search_aliases:
-        schema_kwargs["search_aliases"] = list(search_aliases)
     hidden_fields = _make_hidden_fields(hidden)
     if hidden_fields:
         schema_kwargs["hidden"] = hidden_fields
     return _node20_io.Schema(**schema_kwargs)
 
 
-def _wrap_legacy_node20(node_id: str, cls, display_name: str, search_aliases=None):
+def _wrap_legacy_node20(node_id: str, cls, display_name: str):
     if callable(getattr(cls, "define_schema", None)) and callable(getattr(cls, "execute", None)):
         return cls
     if _node20_io is None:
@@ -262,103 +255,49 @@ def _wrap_legacy_node20(node_id: str, cls, display_name: str, search_aliases=Non
     comfy_node_base = getattr(_node20_io, "ComfyNode", object)
     bases = (cls,) if not isinstance(comfy_node_base, type) or issubclass(cls, comfy_node_base) else (cls, comfy_node_base)
 
-    import inspect
-    fn_name = getattr(cls, "FUNCTION", None)
-    is_async = False
-    if fn_name:
-        try:
-            is_async = inspect.iscoroutinefunction(getattr(cls(), fn_name))
-        except Exception:
-            pass
+    class Node20Compat(*bases):
+        # v3 execution path uses FUNCTION to locate the callable; must point to
+        # a classmethod so that getattr(cls, FUNCTION).__func__ works correctly.
+        FUNCTION = "execute"
 
-    if is_async:
-        class Node20Compat(*bases):
-            # v3 execution path uses FUNCTION to locate the callable; must point to
-            # a classmethod so that getattr(cls, FUNCTION).__func__ works correctly.
-            FUNCTION = "execute"
+        @classmethod
+        def define_schema(inner_cls):
+            return _build_legacy_schema(node_id, cls, display_name)
 
-            @classmethod
-            def define_schema(inner_cls):
-                return _build_legacy_schema(node_id, cls, display_name, search_aliases)
-
-            @classmethod
-            def INPUT_TYPES(inner_cls):
-                # Explicitly override the legacy INPUT_TYPES() so that ComfyUI's v3
-                # validation path receives a schema-derived dict with "COMBO" io_type
-                # strings instead of raw lists.  Without this, Python's MRO resolves
-                # INPUT_TYPES to the legacy classmethod (which returns list-based Combo
-                # values), and parse_class_inputs then tries `list_value in dict` which
-                # raises TypeError: unhashable type: 'list'.
-                schema = _build_legacy_schema(node_id, cls, display_name, search_aliases)
-                # Older Comfy builds expose Schema.finalize(); newer builds drop it
-                # because the Schema is finalised lazily. Guard so both shapes work.
-                finalize = getattr(schema, "finalize", None)
-                if callable(finalize):
-                    try:
-                        finalize()
-                    except Exception:
-                        pass
+        @classmethod
+        def INPUT_TYPES(inner_cls):
+            # Explicitly override the legacy INPUT_TYPES() so that ComfyUI's v3
+            # validation path receives a schema-derived dict with "COMBO" io_type
+            # strings instead of raw lists.  Without this, Python's MRO resolves
+            # INPUT_TYPES to the legacy classmethod (which returns list-based Combo
+            # values), and parse_class_inputs then tries `list_value in dict` which
+            # raises TypeError: unhashable type: 'list'.
+            schema = _build_legacy_schema(node_id, cls, display_name)
+            # Older Comfy builds expose Schema.finalize(); newer builds drop it
+            # because the Schema is finalised lazily. Guard so both shapes work.
+            finalize = getattr(schema, "finalize", None)
+            if callable(finalize):
                 try:
-                    return schema.get_v1_info(inner_cls).input
-                except AttributeError:
-                    # Fall back to the legacy INPUT_TYPES from the original class so
-                    # the v1 validation path still has data even if the v3 schema
-                    # cannot be downgraded by this Comfy version.
-                    legacy = getattr(cls, "INPUT_TYPES", None)
-                    return legacy() if callable(legacy) else {"required": {}}
+                    finalize()
+                except Exception:
+                    pass
+            try:
+                return schema.get_v1_info(inner_cls).input
+            except AttributeError:
+                # Fall back to the legacy INPUT_TYPES from the original class so
+                # the v1 validation path still has data even if the v3 schema
+                # cannot be downgraded by this Comfy version.
+                legacy = getattr(cls, "INPUT_TYPES", None)
+                return legacy() if callable(legacy) else {"required": {}}
 
-            @classmethod
-            async def execute(inner_cls, **kwargs):
-                fn_name_inner = getattr(cls, "FUNCTION", None)
-                if not fn_name_inner:
-                    raise AttributeError(f"{node_id} is missing FUNCTION for Node 2.0 compatibility")
-                instance = cls()
-                fn = getattr(instance, fn_name_inner)
-                return await fn(**kwargs)
-    else:
-        class Node20Compat(*bases):
-            # v3 execution path uses FUNCTION to locate the callable; must point to
-            # a classmethod so that getattr(cls, FUNCTION).__func__ works correctly.
-            FUNCTION = "execute"
-
-            @classmethod
-            def define_schema(inner_cls):
-                return _build_legacy_schema(node_id, cls, display_name, search_aliases)
-
-            @classmethod
-            def INPUT_TYPES(inner_cls):
-                # Explicitly override the legacy INPUT_TYPES() so that ComfyUI's v3
-                # validation path receives a schema-derived dict with "COMBO" io_type
-                # strings instead of raw lists.  Without this, Python's MRO resolves
-                # INPUT_TYPES to the legacy classmethod (which returns list-based Combo
-                # values), and parse_class_inputs then tries `list_value in dict` which
-                # raises TypeError: unhashable type: 'list'.
-                schema = _build_legacy_schema(node_id, cls, display_name, search_aliases)
-                # Older Comfy builds expose Schema.finalize(); newer builds drop it
-                # because the Schema is finalised lazily. Guard so both shapes work.
-                finalize = getattr(schema, "finalize", None)
-                if callable(finalize):
-                    try:
-                        finalize()
-                    except Exception:
-                        pass
-                try:
-                    return schema.get_v1_info(inner_cls).input
-                except AttributeError:
-                    # Fall back to the legacy INPUT_TYPES from the original class so
-                    # the v1 validation path still has data even if the v3 schema
-                    # cannot be downgraded by this Comfy version.
-                    legacy = getattr(cls, "INPUT_TYPES", None)
-                    return legacy() if callable(legacy) else {"required": {}}
-
-            @classmethod
-            def execute(inner_cls, **kwargs):
-                fn_name_inner = getattr(cls, "FUNCTION", None)
-                if not fn_name_inner:
-                    raise AttributeError(f"{node_id} is missing FUNCTION for Node 2.0 compatibility")
-                instance = cls()
-                fn = getattr(instance, fn_name_inner)
-                return fn(**kwargs)
+        @classmethod
+        def execute(inner_cls, **kwargs):
+            fn_name = getattr(cls, "FUNCTION", None)
+            if not fn_name:
+                raise AttributeError(f"{node_id} is missing FUNCTION for Node 2.0 compatibility")
+            instance = cls()
+            fn = getattr(instance, fn_name)
+            return fn(**kwargs)
 
     Node20Compat.__name__ = cls.__name__
     Node20Compat.__qualname__ = cls.__qualname__
@@ -374,44 +313,76 @@ _ensure_pkg(f"{_PKG}.nodes", BASE_DIR / "nodes", BASE_DIR / "nodes" / "__init__.
 _nodes_dir = BASE_DIR / "nodes"
 _load_module(f"{_PKG}.server", BASE_DIR / "server.py")
 
+ImageOpsBlur = _load_module(f"{_PKG}.nodes.blur", _nodes_dir / "blur.py").ImageOpsBlur
+ImageOpsChannel = _load_module(f"{_PKG}.nodes.channel", _nodes_dir / "channel.py").ImageOpsChannel
+ImageOpsCornerPin = _load_module(f"{_PKG}.nodes.corner_pin", _nodes_dir / "corner_pin.py").ImageOpsCornerPin
+ImageOpsComp = _load_module(f"{_PKG}.nodes.comp", _nodes_dir / "comp.py").ImageOpsComp
+ImageOpsCrop = _load_module(f"{_PKG}.nodes.crop", _nodes_dir / "crop.py").ImageOpsCrop
+ImageOpsDistort = _load_module(f"{_PKG}.nodes.distort", _nodes_dir / "distort.py").ImageOpsDistort
+ImageOpsDraw = _load_module(f"{_PKG}.nodes.draw", _nodes_dir / "draw.py").ImageOpsDraw
+ImageOpsTransform = _load_module(f"{_PKG}.nodes.transform", _nodes_dir / "transform.py").ImageOpsTransform
+ImageOpsColorAjust = _load_module(f"{_PKG}.nodes.color_ajust", _nodes_dir / "color_ajust.py").ImageOpsColorAjust
+ImageOpsInvert = _load_module(f"{_PKG}.nodes.invert", _nodes_dir / "invert.py").ImageOpsInvert
+ImageOpsClamp = _load_module(f"{_PKG}.nodes.clamp", _nodes_dir / "clamp.py").ImageOpsClamp
+ImageOpsMerge = _load_module(f"{_PKG}.nodes.merge", _nodes_dir / "merge.py").ImageOpsMerge
+ImageOpsMaskConvert = _load_module(f"{_PKG}.nodes.mask_convert", _nodes_dir / "mask_convert.py").ImageOpsMaskConvert
+ImageOpsNoise = _load_module(f"{_PKG}.nodes.noise", _nodes_dir / "noise.py").ImageOpsNoise
+ImageOpsPadOut = _load_module(f"{_PKG}.nodes.padout", _nodes_dir / "padout.py").ImageOpsPadOut
+ImageOpsPreview = _load_module(f"{_PKG}.nodes.preview", _nodes_dir / "preview.py").ImageOpsPreview
+ImageOpsSpherize = _load_module(f"{_PKG}.nodes.spherize", _nodes_dir / "spherize.py").ImageOpsSpherize
 
-def _load_node_metadata() -> list[dict]:
-    path = BASE_DIR / "imageops_nodes.json"
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    nodes = raw.get("nodes") if isinstance(raw, dict) else None
-    return [entry for entry in nodes if isinstance(entry, dict)] if isinstance(nodes, list) else []
+NODE_CLASS_MAPPINGS = {
+    "ImageOpsBlur": ImageOpsBlur,
+    "ImageOpsChannel": ImageOpsChannel,
+    "ImageOpsCornerPin": ImageOpsCornerPin,
+    "ImageOpsComp": ImageOpsComp,
+    "ImageOpsCrop": ImageOpsCrop,
+    "ImageOpsDistort": ImageOpsDistort,
+    "ImageOpsDraw": ImageOpsDraw,
+    "ImageOpsTransform": ImageOpsTransform,
+    "ImageOpsColorAjust": ImageOpsColorAjust,
+    "ImageOpsInvert": ImageOpsInvert,
+    "ImageOpsClamp": ImageOpsClamp,
+    "ImageOpsMerge": ImageOpsMerge,
+    "ImageOpsMaskConvert": ImageOpsMaskConvert,
+    "ImageOpsNoise": ImageOpsNoise,
+    "ImageOpsPadOut": ImageOpsPadOut,
+    "ImageOpsPreview": ImageOpsPreview,
+    "ImageOpsSpherize": ImageOpsSpherize,
+}
 
-_NODE_METADATA = _load_node_metadata()
-if not _NODE_METADATA:
-    raise RuntimeError("ImageOps node metadata is missing or invalid")
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "ImageOpsBlur": "〽️ ImageOps Blur",
+    "ImageOpsChannel": "〽️ ImageOps Channels",
+    "ImageOpsCornerPin": "〽️ ImageOps Corner Pin",
+    "ImageOpsComp": "〽️ ImageOps Comp",
+    "ImageOpsCrop": "〽️ ImageOps Resize/Crop",
+    "ImageOpsDistort": "〽️ ImageOps Distort",
+    "ImageOpsDraw": "〽️ ImageOps Paint",
+    "ImageOpsTransform": "〽️ ImageOps Transform",
+    # Keep the legacy class key for workflow compatibility, but expose the
+    # corrected node name in the UI.
+    "ImageOpsColorAjust": "〽️ ImageOps Color Correct",
+    "ImageOpsInvert": "〽️ ImageOps Invert",
+    "ImageOpsClamp": "〽️ ImageOps Clamp",
+    "ImageOpsMerge": "〽️ ImageOps Merge",
+    "ImageOpsMaskConvert": "〽️ ImageOps Mask Convert",
+    "ImageOpsNoise": "〽️ ImageOps Noise",
+    "ImageOpsPadOut": "〽️ ImageOps PadOut",
+    "ImageOpsPreview": "〽️ ImageOps Preview",
+    "ImageOpsSpherize": "〽️ ImageOps Spherize",
+}
 
-NODE_CLASS_MAPPINGS = {}
-NODE_DISPLAY_NAME_MAPPINGS = {}
-NODE_SEARCH_ALIAS_MAPPINGS = {}
-
-for _entry in _NODE_METADATA:
-    _node_id = str(_entry.get("className") or "").strip()
-    _module_name = str(_entry.get("module") or "").strip()
-    _class_export = str(_entry.get("classExport") or _node_id).strip()
-    if not _node_id or not _module_name or not _class_export:
-        continue
-    _module = _load_module(f"{_PKG}.nodes.{_module_name}", _nodes_dir / f"{_module_name}.py")
-    NODE_CLASS_MAPPINGS[_node_id] = getattr(_module, _class_export)
-    NODE_DISPLAY_NAME_MAPPINGS[_node_id] = str(_entry.get("displayName") or _humanize_node_id(_node_id))
-    _aliases = _entry.get("aliases")
-    NODE_SEARCH_ALIAS_MAPPINGS[_node_id] = [str(alias) for alias in _aliases] if isinstance(_aliases, list) else []
 for _node_id, _node_cls in list(NODE_CLASS_MAPPINGS.items()):
     _display = NODE_DISPLAY_NAME_MAPPINGS.get(_node_id, _humanize_node_id(_node_id))
-    _aliases = NODE_SEARCH_ALIAS_MAPPINGS.get(_node_id, ())
-    NODE_CLASS_MAPPINGS[_node_id] = _wrap_legacy_node20(_node_id, _node_cls, _display, _aliases)
+    if _node_id in {"ImageOpsInvert", "ImageOpsClamp", "ImageOpsChannel", "ImageOpsMaskConvert"}:
+        NODE_CLASS_MAPPINGS[_node_id] = _node_cls
+    else:
+        NODE_CLASS_MAPPINGS[_node_id] = _wrap_legacy_node20(_node_id, _node_cls, _display)
 
 __all__ = [
     "NODE_CLASS_MAPPINGS",
     "NODE_DISPLAY_NAME_MAPPINGS",
-    "NODE_SEARCH_ALIAS_MAPPINGS",
     "WEB_DIRECTORY",
 ]
 

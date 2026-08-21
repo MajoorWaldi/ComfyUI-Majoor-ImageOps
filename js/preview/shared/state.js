@@ -1,15 +1,9 @@
 import { isNode as isPreviewNode } from "../nodes/preview.js";
 import { getPreviewConfig } from "../config.js";
 import { isStressed } from "./fps-monitor.js";
-function createInitialState(node) {
-  return {
+function ensureState(node) {
+  node.__imageops_state ?? (node.__imageops_state = {
     hooked: false,
-    _ownerNode: node,
-    _ownerNodeId: node.id,
-    _abortController: null,
-    previewRoot: null,
-    previewMetaRow: null,
-    previewControls: null,
     canvas: null,
     info: null,
     progressWrap: null,
@@ -35,15 +29,11 @@ function createInitialState(node) {
     previewLastSource: null,
     previewSourceWidth: 0,
     previewSourceHeight: 0,
-    previewFrameIndex: null,
     cropAspectRatio: null,
     cropGeometry: null,
     cropDrag: null,
     cropResetButton: null,
     cropInteractiveHooked: false,
-    rampGeometry: null,
-    rampDrag: null,
-    rampInteractiveHooked: false,
     drawAspectRatio: null,
     drawGeometry: null,
     drawHover: null,
@@ -111,11 +101,9 @@ function createInitialState(node) {
     compSelectedSlot: null,
     compDrag: null,
     compAddButton: null,
-    compRemoveButton: null,
     compResetButton: null,
     compResizeButton: null,
     compCornerPinButton: null,
-    compAspectRatioSelect: null,
     compModeSelect: null,
     compOpacityInput: null,
     compOpacityLabel: null,
@@ -134,57 +122,12 @@ function createInitialState(node) {
     padOutBackendSourceW: 0,
     padOutBackendSourceH: 0,
     padOutBackendPadL: 0,
-    padOutBackendPadT: 0,
-    frameSelectorControls: null,
-    frameSelectorLabel: null,
-    frameSelectorTrimStart: null,
-    frameSelectorTrimEnd: null,
-    frameSelectorHoldFrame: null,
-    frameSelectorRuler: null,
-    frameSelectorSliderBox: null,
-    frameSelectorFill: null,
-    frameSelectorStartHandle: null,
-    frameSelectorEndHandle: null,
-    frameSelectorPlayhead: null,
-    frameSelectorHoldToggle: null,
-    frameSelectorRepeatToggle: null,
-    frameSelectorRepeatModeSelect: null,
-    frameSelectorRepeatCountInput: null,
-    frameSelectorSourceCount: 0,
-    frameSelectorHooked: false,
-    keyerControls: null,
-    keyerModeButtons: [],
-    keyerInvertButton: null,
-    keyerInvertMaskButton: null,
-    keyerBypassButton: null,
-    keyerPickButton: null,
-    keyerColorInput: null,
-    keyerToleranceInput: null,
-    keyerSoftnessInput: null,
-    keyerGainInput: null,
-    keyerBlurInput: null,
-    keyerPicking: false,
-    keyerHooked: false
-  };
-}
-function ensureState(node) {
-  const existing = node.__imageops_state;
-  if (!existing) {
-    node.__imageops_state = createInitialState(node);
-  } else if (existing._ownerNode && existing._ownerNode !== node) {
-    node.__imageops_state = createInitialState(node);
-  } else {
-    existing._ownerNode = node;
-    existing._ownerNodeId = node.id;
-  }
+    padOutBackendPadT: 0
+  });
   return node.__imageops_state;
 }
 function setInfo(st, text) {
-  if (!st.info) return;
-  const width = Math.max(0, Math.round(Number(st.previewSourceWidth) || 0));
-  const height = Math.max(0, Math.round(Number(st.previewSourceHeight) || 0));
-  const hasSize = /\b\d+\s*x\s*\d+\b/i.test(text) || /\b\d+\s*×\s*\d+\b/i.test(text);
-  st.info.textContent = !hasSize && width > 0 && height > 0 ? `${text} (${width}x${height})` : text;
+  if (st.info) st.info.textContent = text;
 }
 function schedule(node, fn, delayMs = 120) {
   const st = ensureState(node);

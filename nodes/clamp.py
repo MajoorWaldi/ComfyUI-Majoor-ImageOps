@@ -6,10 +6,11 @@ from ._helpers import (
     _scalar,
     _select_media_tensor,
 )
+from .compat.comfy_v3 import V3NodeBase
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 
-class ImageOpsClamp:
+class ImageOpsClamp(V3NodeBase):
     CATEGORY = "image/imageops"
     RETURN_TYPES = ("IMAGE", "MASK")
     RETURN_NAMES = ("image", "mask")
@@ -20,8 +21,10 @@ class ImageOpsClamp:
         return {
             "required": {
                 "bypass": ("BOOLEAN", {"default": False}),
-                "min_v": ("FLOAT", {"default": 0.0, "min": -1.0, "max": 1.0, "step": 0.01, "round": 0.001}),
-                "max_v": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.01, "round": 0.001}),
+                "min_v": ("FLOAT", {"default": 0.0, "min": -10.0, "max": 10.0, "step": 0.01, "round": 0.001,
+                                     "tooltip": "Minimum output value. Values below this are clamped up."}),
+                "max_v": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01, "round": 0.001,
+                                     "tooltip": "Maximum output value. Values above this are clamped down."}),
                 "invert_mask": ("BOOLEAN", {"default": False}),
             },
             "optional": {

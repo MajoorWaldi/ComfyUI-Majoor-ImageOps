@@ -10,14 +10,7 @@ import folder_paths
 import server
 
 
-web = getattr(server, "web", None)
-if web is None:
-    try:
-        from aiohttp import web as _aiohttp_web
-
-        web = _aiohttp_web
-    except Exception:  # pragma: no cover - import-time fallback for headless tests
-        web = None
+web = server.web
 
 
 def _ffmpeg_path() -> str | None:
@@ -82,28 +75,7 @@ def _force_size_filter(force_size: str) -> str | None:
     return f"scale={width_expr}:{height_expr}:flags=lanczos"
 
 
-def _ffmpeg_cpu_used() -> str:
-    try:
-        return str(max(0, min(8, int(os.getenv("IMAGEOPS_FFMPEG_CPU_USED", "8")))))
-    except (TypeError, ValueError):
-        return "8"
-
-
-def _route(path: str):
-    prompt_server = getattr(server, "PromptServer", None)
-    instance = getattr(prompt_server, "instance", None)
-    routes = getattr(instance, "routes", None)
-    route_get = getattr(routes, "get", None)
-    if callable(route_get):
-        return route_get(path)
-
-    def decorator(fn):
-        return fn
-
-    return decorator
-
-
-@_route("/imageops/viewmedia")
+@server.PromptServer.instance.routes.get("/imageops/viewmedia")
 async def imageops_viewmedia(request):
     path, filename = _resolve_preview_path(request.rel_url.query)
     ext = _ext(path)
@@ -111,16 +83,14 @@ async def imageops_viewmedia(request):
     force_filter = _force_size_filter(request.rel_url.query.get("force_size", ""))
     animated_like = ext in {".gif", ".webp", ".mp4", ".mov", ".webm", ".mkv", ".avi"}
 
-    if not animated_like:
-        raise web.HTTPBadRequest(text="Use ComfyUI /view for static previews")
-    if ffmpeg is None:
+    if ffmpeg is None or not animated_like:
         return web.FileResponse(path=path)
 
     args = [ffmpeg, "-v", "error", "-i", path]
     if force_filter:
         args += ["-vf", force_filter]
     deadline = "good" if str(request.rel_url.query.get("deadline", "realtime")).lower() == "good" else "realtime"
-    args += ["-an", "-c:v", "libvpx-vp9", "-deadline", deadline, "-cpu-used", _ffmpeg_cpu_used(), "-f", "webm", "-"]
+    args += ["-an", "-c:v", "libvpx-vp9", "-deadline", deadline, "-cpu-used", "8", "-f", "webm", "-"]
 
     proc = await asyncio.create_subprocess_exec(
         *args,
