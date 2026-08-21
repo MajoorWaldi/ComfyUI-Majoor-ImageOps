@@ -1,3 +1,4 @@
+import { setWidgetValue } from "./shared/widgets.js";
 function widget(node, name) {
   return node?.widgets?.find((entry) => entry?.name === name) ?? null;
 }
@@ -56,6 +57,15 @@ function makeCanvas(width, height) {
   canvas.width = normalizeCanvasDimension(width, 1);
   canvas.height = normalizeCanvasDimension(height, 1);
   return canvas;
+}
+function createOffscreenCanvas(width, height) {
+  if (typeof OffscreenCanvas !== "undefined") {
+    try {
+      return new OffscreenCanvas(normalizeCanvasDimension(width, 1), normalizeCanvasDimension(height, 1));
+    } catch {
+    }
+  }
+  return makeCanvas(width, height);
 }
 function resizeCanvasPreserve(source, width, height) {
   const target = makeCanvas(width, height);
@@ -267,15 +277,15 @@ function makeSolidBackgroundCanvas(width, height, bgColor) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   return canvas;
 }
-async function renderDrawPreview(node, baseCanvas = null) {
-  const width = baseCanvas?.width || clampDrawDimension(widgetNumber(node, "width", 1024));
-  const height = baseCanvas?.height || clampDrawDimension(widgetNumber(node, "height", 1024));
+async function renderDrawPreview(node, baseCanvas = null, inputSize = null) {
+  const width = inputSize?.width || baseCanvas?.width || clampDrawDimension(widgetNumber(node, "width", 1024));
+  const height = inputSize?.height || baseCanvas?.height || clampDrawDimension(widgetNumber(node, "height", 1024));
   if (baseCanvas) {
     const widgets = node?.widgets ?? [];
     const ww = widgets.find((entry) => entry?.name === "width");
     const hw = widgets.find((entry) => entry?.name === "height");
-    if (ww && ww.value !== width) ww.value = width;
-    if (hw && hw.value !== height) hw.value = height;
+    setWidgetValue(ww, width);
+    setWidgetValue(hw, height);
   }
   const output = baseCanvas ? resizeCanvasPreserve(baseCanvas, width, height) : makeSolidBackgroundCanvas(width, height, widgetString(node, "bg_color", "#000000"));
   if (widgetBoolean(node, "bypass", false)) {
@@ -295,6 +305,7 @@ export {
   clampDrawOpacity,
   clampDrawSize,
   clampDrawSoftness,
+  createOffscreenCanvas,
   loadOverlayCanvas,
   makeCanvas,
   makeSolidBackgroundCanvas,

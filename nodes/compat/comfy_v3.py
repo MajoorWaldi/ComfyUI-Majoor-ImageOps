@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -22,26 +23,19 @@ class V3NodeBase(_comfy_node_base):
     @classmethod
     def define_schema(cls):
         """Native V3 schema definition."""
-        import sys
-        from pathlib import Path
-        import importlib.util
-        
-        import sys
-        
-        # ComfyUI's __init__.py registers the root as 'majoor_imageops'.
+        # The custom-node entrypoint exposes its schema helpers on the private
+        # package used by the node modules. ComfyUI itself loads that entrypoint
+        # under a synthetic name, so importing __init__.py again here would
+        # create a second registry and duplicate route registration.
         root_init = sys.modules.get("majoor_imageops")
-        if root_init is None:
-            # Fallback for dynamic loading
-            from pathlib import Path
-            import importlib.util
-            root_path = Path(__file__).resolve().parent.parent.parent
-            spec = importlib.util.spec_from_file_location("majoor_root", root_path / "__init__.py")
-            root_init = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(root_init)
+        schema_builder = getattr(root_init, "_build_legacy_schema", None)
+        display_names = getattr(root_init, "NODE_DISPLAY_NAME_MAPPINGS", None)
+        if not callable(schema_builder) or not isinstance(display_names, dict):
+            raise RuntimeError("ImageOps V3 schema bridge is not initialized")
 
         node_id = cls.__name__
-        display_name = root_init.NODE_DISPLAY_NAME_MAPPINGS.get(node_id, node_id)
-        return root_init._build_legacy_schema(node_id, cls, display_name)
+        display_name = display_names.get(node_id, node_id)
+        return schema_builder(node_id, cls, display_name)
 
     @classmethod
     def execute(cls, **kwargs) -> Any:

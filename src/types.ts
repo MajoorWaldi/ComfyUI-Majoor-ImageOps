@@ -29,7 +29,7 @@ export interface ComfyWidget {
   value: string | number | boolean | null;
   element?: HTMLElement | null;
   callback?: (...args: any[]) => any;
-  computeSize?: () => [number, number];
+  computeSize?: (size?: [number, number] | number) => [number, number];
   origComputeSize?: () => [number, number];
   linkedWidgets?: ComfyWidget[];
   serializeValue?: () => unknown;
@@ -86,6 +86,7 @@ export interface ComfyNode {
   onConfigure?(...args: any[]): any;
   onExecuted?(...args: any[]): any;
   onNodeCreated?(...args: any[]): any;
+  computeSize?(size?: [number, number] | number): [number, number];
   setSize?(size: [number, number]): void;
   addDOMWidget?(name: string, type: string, el: HTMLElement, opts: any): void;
   addInput?(name: string, type?: string, extra_info?: any): void;
@@ -112,6 +113,7 @@ export interface AdapterApplyContext {
   inputInfos?: RenderInputInfo[];
   outputSlot?: number | null;
   tick?: number;
+  renderInputAt?: (inputInfo: RenderInputInfo, tick: number) => Promise<HTMLCanvasElement | null>;
 }
 
 export interface AdapterRegistry {
@@ -143,6 +145,12 @@ export interface RenderInputInfo {
 
 export interface NodeState {
   hooked: boolean;
+  _ownerNode?: ComfyNode;
+  _ownerNodeId?: number;
+  _abortController?: AbortController | null;
+  previewRoot: HTMLDivElement | null;
+  previewMetaRow: HTMLDivElement | null;
+  previewControls: HTMLElement | null;
   canvas: HTMLCanvasElement | null;
   info: HTMLDivElement | null;
   progressWrap: HTMLDivElement | null;
@@ -168,11 +176,15 @@ export interface NodeState {
   previewLastSource: CanvasImageSource | null;
   previewSourceWidth: number;
   previewSourceHeight: number;
+  previewFrameIndex: number | null;
   cropAspectRatio: number | null;
   cropGeometry: CropPreviewGeometry | null;
   cropDrag: CropDragState | null;
   cropResetButton: HTMLButtonElement | null;
   cropInteractiveHooked: boolean;
+  rampGeometry: RampPreviewGeometry | null;
+  rampDrag: RampDragState | null;
+  rampInteractiveHooked: boolean;
   drawAspectRatio: number | null;
   drawGeometry: DrawPreviewGeometry | null;
   drawHover: { canvasX: number; canvasY: number; inside: boolean } | null;
@@ -242,9 +254,11 @@ export interface NodeState {
   compSelectedSlot: string | null;
   compDrag: CompDragState | null;
   compAddButton: HTMLButtonElement | null;
+  compRemoveButton: HTMLButtonElement | null;
   compResetButton: HTMLButtonElement | null;
   compResizeButton: HTMLButtonElement | null;
   compCornerPinButton: HTMLButtonElement | null;
+  compAspectRatioSelect: HTMLSelectElement | null;
   compModeSelect: HTMLSelectElement | null;
   compOpacityInput: HTMLInputElement | null;
   compOpacityLabel: HTMLDivElement | null;
@@ -264,6 +278,37 @@ export interface NodeState {
   padOutBackendSourceH: number;
   padOutBackendPadL: number;
   padOutBackendPadT: number;
+  joinBackendClipCounts?: Array<{ slot: number; source_count: number; trimmed_count: number; start: number; end: number }>;
+  frameSelectorControls: HTMLDivElement | null;
+  frameSelectorLabel: HTMLDivElement | null;
+  frameSelectorTrimStart: HTMLInputElement | null;
+  frameSelectorTrimEnd: HTMLInputElement | null;
+  frameSelectorHoldFrame: HTMLInputElement | null;
+  frameSelectorRuler: HTMLDivElement | null;
+  frameSelectorSliderBox: HTMLDivElement | null;
+  frameSelectorFill: HTMLDivElement | null;
+  frameSelectorStartHandle: HTMLDivElement | null;
+  frameSelectorEndHandle: HTMLDivElement | null;
+  frameSelectorPlayhead: HTMLDivElement | null;
+  frameSelectorHoldToggle: HTMLButtonElement | null;
+  frameSelectorRepeatToggle: HTMLButtonElement | null;
+  frameSelectorRepeatModeSelect: HTMLSelectElement | null;
+  frameSelectorRepeatCountInput: HTMLInputElement | null;
+  frameSelectorSourceCount: number;
+  frameSelectorHooked: boolean;
+  keyerControls: HTMLDivElement | null;
+  keyerModeButtons: HTMLButtonElement[];
+  keyerInvertButton: HTMLButtonElement | null;
+  keyerInvertMaskButton: HTMLButtonElement | null;
+  keyerBypassButton: HTMLButtonElement | null;
+  keyerPickButton: HTMLButtonElement | null;
+  keyerColorInput: HTMLInputElement | null;
+  keyerToleranceInput: HTMLInputElement | null;
+  keyerSoftnessInput: HTMLInputElement | null;
+  keyerGainInput: HTMLInputElement | null;
+  keyerBlurInput: HTMLInputElement | null;
+  keyerPicking?: boolean;
+  keyerHooked?: boolean;
 }
 
 export interface CropPreviewGeometry {
@@ -313,6 +358,22 @@ export interface DrawPreviewGeometry {
   fitDy: number;
   fitDrawWidth: number;
   fitDrawHeight: number;
+}
+
+export interface RampPreviewGeometry {
+  sourceWidth: number;
+  sourceHeight: number;
+  fitDx: number;
+  fitDy: number;
+  fitDrawWidth: number;
+  fitDrawHeight: number;
+}
+
+export type RampHandle = "start" | "end";
+
+export interface RampDragState {
+  pointerId: number;
+  handle: RampHandle;
 }
 
 export interface DrawStrokeState {
@@ -453,6 +514,8 @@ export interface NodeInteractionContext {
   startLoopIfVideo(node: ComfyNode): void;
   /** Schedules a re-render of all downstream dependents. */
   refreshDependents(node: ComfyNode): void;
+  /** Refreshes only this node's live preview during high-frequency pointer interaction. */
+  refreshPreviewOnly(node: ComfyNode, delayMs?: number): void;
   /**
    * Convenience: sets nativeDirty, extends the interaction hold window,
    * marks canvas dirty, and schedules startLoopIfVideo + refreshDependents.
@@ -461,14 +524,14 @@ export interface NodeInteractionContext {
 }
 
 export interface CropInteractionContext extends NodeInteractionContext {
-  setCropOutputDimensions(node: ComfyNode, width: number, height: number): void;
+  setCropOutputDimensions(node: ComfyNode, width: number, height: number, notify?: boolean): void;
 }
 
 export interface CompInteractionContext extends NodeInteractionContext {
   markPreviewInteraction(node: ComfyNode, holdMs?: number): void;
   ensureCompState(node: ComfyNode): any[];
   updateCompControls(node: ComfyNode): void;
-  updateSelectedCompLayer(node: ComfyNode, updater: (layer: any) => void): void;
+  updateSelectedCompLayer(node: ComfyNode, updater: (layer: any) => void, notify?: boolean): void;
   compCanvasToOutputPoint(node: ComfyNode, cw: number, ch: number, x: number, y: number): { x: number; y: number };
   getCompHit(node: ComfyNode, cw: number, ch: number, x: number, y: number): { layer: any; mode: any } | null;
   writeCompLayerCorners(node: ComfyNode, layer: any, corners: any): void;

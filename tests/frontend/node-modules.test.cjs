@@ -4,9 +4,9 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 
 test("Frontend blend preview matches golden fixture", async () => {
-    // Dynamically import the compiled ESM module
-    const ops = await import("../../js/preview/ops.js");
-    const blendChannel01 = ops.blendChannel01;
+    // Import the pure blend module so the test does not depend on ComfyUI's
+    // browser-only app module.
+    const { blendChannel01 } = await import("../../js/preview/shared/blend-modes.js");
     
     // Load the golden fixture
     const fixturePath = path.join(__dirname, "..", "golden", "blend_modes.json");
@@ -19,15 +19,10 @@ test("Frontend blend preview matches golden fixture", async () => {
             const top = testCase.top;
             const expectedValue = testCase.expected;
             
-            try {
-                const actual = blendChannel01(base, top, mode);
-                if (actual !== undefined) {
-                    assert.ok(Math.abs(actual - expectedValue) < 1e-4, 
-                        `Blend ${mode} failed for base=${base}, top=${top}. Expected ${expectedValue}, got ${actual}`);
-                }
-            } catch (e) {
-                // Skip unsupported modes
-            }
+            const actual = blendChannel01(base, top, mode);
+            assert.ok(Number.isFinite(actual), `Blend ${mode} must return a finite value`);
+            assert.ok(Math.abs(actual - expectedValue) < 1e-4,
+                `Blend ${mode} failed for base=${base}, top=${top}. Expected ${expectedValue}, got ${actual}`);
         }
     }
 });

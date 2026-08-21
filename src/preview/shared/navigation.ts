@@ -3,18 +3,21 @@ import { ensureState, markPreviewInteraction } from "./state.js";
 import { clampPreviewZoom } from "./geometry.js";
 import { blit } from "./bounds.js";
 import { isNode as isDrawNode } from "../nodes/draw.js";
+import { isNode as isTextNode } from "../nodes/text.js";
 
 function isInteractiveNode(node: ComfyNode): boolean {
-  // Only Draw uses the wheel event (brush size) — all other nodes can use zoom/pan.
-  return isDrawNode(node);
+  // Draw uses wheel for brush size; Text uses wheel for font size — skip zoom/pan for both.
+  return isDrawNode(node) || isTextNode(node);
 }
 
 export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): void {
   const st = ensureState(node);
-  if (st.previewNavigationHooked) return;
-  st.previewNavigationHooked = true;
   const canvas = st.canvas;
   if (!canvas) return;
+  if (st.previewNavigationHooked && (st as any).previewNavigationCanvas === canvas) return;
+  st.previewNavigationHooked = true;
+  (st as any).previewNavigationCanvas = canvas;
+  const listenerOptions = st._abortController?.signal ? { signal: st._abortController.signal } : undefined;
 
   const reblitNow = (): void => {
     if (!st.previewLastSource) return;
@@ -28,9 +31,9 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
     return { rect, sx: canvas.width / rect.width, sy: canvas.height / rect.height };
   };
 
-  // ── Middle-button pan ──
+  // ── Left-drag pan ──
   canvas.addEventListener("pointerdown", (event: PointerEvent) => {
-    if (event.button !== 1) return;
+    if (event.button !== 0 || !(event.ctrlKey || event.metaKey) || isInteractiveNode(node)) return;
     event.preventDefault();
     event.stopPropagation();
     try { canvas.setPointerCapture(event.pointerId); } catch {}
@@ -43,7 +46,8 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
       startPanX: st.previewPanX,
       startPanY: st.previewPanY,
     };
-  });
+    canvas.style.cursor = "grabbing";
+  }, listenerOptions);
 
   let panRafPending = false;
   canvas.addEventListener("pointermove", (event: PointerEvent) => {
@@ -59,20 +63,19 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
       panRafPending = true;
       requestAnimationFrame(() => { panRafPending = false; reblitNow(); });
     }
-  });
+  }, listenerOptions);
 
-  canvas.addEventListener("pointerup", (event: PointerEvent) => {
+  const releasePanDrag = (event: PointerEvent): void => {
     if (st.previewPanDrag?.pointerId === event.pointerId) {
       st.previewPanDrag = null;
+      canvas.style.cursor = "";
       try { canvas.releasePointerCapture(event.pointerId); } catch {}
     }
-  });
+  };
 
-  canvas.addEventListener("pointercancel", (event: PointerEvent) => {
-    if (st.previewPanDrag?.pointerId === event.pointerId) {
-      st.previewPanDrag = null;
-    }
-  });
+  canvas.addEventListener("pointerup", releasePanDrag, listenerOptions);
+  canvas.addEventListener("pointercancel", releasePanDrag, listenerOptions);
+  canvas.addEventListener("lostpointercapture", releasePanDrag, listenerOptions);
 
   // ── Wheel: zoom toward cursor (disabled for interactive nodes — they handle wheel themselves) ──
   // In Node 2.0, graph-canvas-container intercepts wheel events in capture phase
@@ -83,6 +86,7 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
     if (target !== canvas && !canvas.contains(target)) return;
     // Let interactive nodes (Draw) handle wheel themselves — don't block their handlers.
     if (isInteractiveNode(node)) return;
+    if (!(event.ctrlKey || event.metaKey)) return;
     // Prevent the graph from zooming when the cursor is over our preview canvas.
     event.stopImmediatePropagation();
     event.preventDefault();
@@ -102,7 +106,8 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
     markPreviewInteraction(node);
     reblitNow();
   };
-  document.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+  const signal = st?._abortController?.signal;
+  document.addEventListener("wheel", handleWheel, { capture: true, passive: false, signal } as any);
   // Store cleanup ref so onRemoved can deregister the document-level listener.
   (st as any)._navWheelCleanup = () => document.removeEventListener("wheel", handleWheel, { capture: true } as EventListenerOptions);
 
@@ -114,5 +119,5 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
     st.previewPanX = 0;
     st.previewPanY = 0;
     reblitNow();
-  });
+  }, listenerOptions);
 }
