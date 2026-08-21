@@ -318,6 +318,7 @@ ImageOpsChannel = _load_module(f"{_PKG}.nodes.channel", _nodes_dir / "channel.py
 ImageOpsCornerPin = _load_module(f"{_PKG}.nodes.corner_pin", _nodes_dir / "corner_pin.py").ImageOpsCornerPin
 ImageOpsComp = _load_module(f"{_PKG}.nodes.comp", _nodes_dir / "comp.py").ImageOpsComp
 ImageOpsCrop = _load_module(f"{_PKG}.nodes.crop", _nodes_dir / "crop.py").ImageOpsCrop
+ImageOpsCropStitch = _load_module(f"{_PKG}.nodes.crop_stitch", _nodes_dir / "crop_stitch.py").ImageOpsCropStitch
 ImageOpsDistort = _load_module(f"{_PKG}.nodes.distort", _nodes_dir / "distort.py").ImageOpsDistort
 ImageOpsDraw = _load_module(f"{_PKG}.nodes.draw", _nodes_dir / "draw.py").ImageOpsDraw
 ImageOpsTransform = _load_module(f"{_PKG}.nodes.transform", _nodes_dir / "transform.py").ImageOpsTransform
@@ -330,6 +331,14 @@ ImageOpsNoise = _load_module(f"{_PKG}.nodes.noise", _nodes_dir / "noise.py").Ima
 ImageOpsPadOut = _load_module(f"{_PKG}.nodes.padout", _nodes_dir / "padout.py").ImageOpsPadOut
 ImageOpsPreview = _load_module(f"{_PKG}.nodes.preview", _nodes_dir / "preview.py").ImageOpsPreview
 ImageOpsSpherize = _load_module(f"{_PKG}.nodes.spherize", _nodes_dir / "spherize.py").ImageOpsSpherize
+ImageOpsConstant = _load_module(f"{_PKG}.nodes.constant", _nodes_dir / "constant.py").ImageOpsConstant
+ImageOpsRamp = _load_module(f"{_PKG}.nodes.ramp", _nodes_dir / "ramp.py").ImageOpsRamp
+ImageOpsGrain = _load_module(f"{_PKG}.nodes.grain", _nodes_dir / "grain.py").ImageOpsGrain
+ImageOpsCameraShake = _load_module(f"{_PKG}.nodes.camera_shake", _nodes_dir / "camera_shake.py").ImageOpsCameraShake
+ImageOpsKeyer = _load_module(f"{_PKG}.nodes.keyer", _nodes_dir / "keyer.py").ImageOpsKeyer
+ImageOpsText = _load_module(f"{_PKG}.nodes.text", _nodes_dir / "text.py").ImageOpsText
+ImageOpsFrameRange = _load_module(f"{_PKG}.nodes.frame_range", _nodes_dir / "frame_range.py").ImageOpsFrameRange
+ImageOpsAppend = _load_module(f"{_PKG}.nodes.append", _nodes_dir / "append.py").ImageOpsAppend
 
 NODE_CLASS_MAPPINGS = {
     "ImageOpsBlur": ImageOpsBlur,
@@ -337,6 +346,7 @@ NODE_CLASS_MAPPINGS = {
     "ImageOpsCornerPin": ImageOpsCornerPin,
     "ImageOpsComp": ImageOpsComp,
     "ImageOpsCrop": ImageOpsCrop,
+    "ImageOpsCropStitch": ImageOpsCropStitch,
     "ImageOpsDistort": ImageOpsDistort,
     "ImageOpsDraw": ImageOpsDraw,
     "ImageOpsTransform": ImageOpsTransform,
@@ -349,6 +359,14 @@ NODE_CLASS_MAPPINGS = {
     "ImageOpsPadOut": ImageOpsPadOut,
     "ImageOpsPreview": ImageOpsPreview,
     "ImageOpsSpherize": ImageOpsSpherize,
+    "ImageOpsConstant": ImageOpsConstant,
+    "ImageOpsRamp": ImageOpsRamp,
+    "ImageOpsGrain": ImageOpsGrain,
+    "ImageOpsCameraShake": ImageOpsCameraShake,
+    "ImageOpsKeyer": ImageOpsKeyer,
+    "ImageOpsText": ImageOpsText,
+    "ImageOpsFrameRange": ImageOpsFrameRange,
+    "ImageOpsAppend": ImageOpsAppend,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -357,6 +375,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageOpsCornerPin": "〽️ ImageOps Corner Pin",
     "ImageOpsComp": "〽️ ImageOps Comp",
     "ImageOpsCrop": "〽️ ImageOps Resize/Crop",
+    "ImageOpsCropStitch": "〽️ ImageOps Crop Stitch",
     "ImageOpsDistort": "〽️ ImageOps Distort",
     "ImageOpsDraw": "〽️ ImageOps Paint",
     "ImageOpsTransform": "〽️ ImageOps Transform",
@@ -371,6 +390,14 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageOpsPadOut": "〽️ ImageOps PadOut",
     "ImageOpsPreview": "〽️ ImageOps Preview",
     "ImageOpsSpherize": "〽️ ImageOps Spherize",
+    "ImageOpsConstant": "〽️ ImageOps Constant",
+    "ImageOpsRamp": "〽️ ImageOps Ramp",
+    "ImageOpsGrain": "〽️ ImageOps Grain",
+    "ImageOpsCameraShake": "〽️ ImageOps Camera Shake",
+    "ImageOpsKeyer": "〽️ ImageOps Keyer",
+    "ImageOpsText": "〽️ ImageOps Text",
+    "ImageOpsFrameRange": "〽️ ImageOps Frame Range",
+    "ImageOpsAppend": "〽️ ImageOps Append",
 }
 
 for _node_id, _node_cls in list(NODE_CLASS_MAPPINGS.items()):
