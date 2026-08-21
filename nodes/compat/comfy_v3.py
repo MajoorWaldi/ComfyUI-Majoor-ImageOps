@@ -26,11 +26,14 @@ class V3NodeBase(_comfy_node_base):
         from pathlib import Path
         import importlib.util
         
-        # Load __init__.py dynamically if relative import fails due to how ComfyUI loads modules
-        try:
-            from .. import __init__ as root_init
-        except ImportError:
+        import sys
+        
+        # ComfyUI's __init__.py registers the root as 'majoor_imageops'.
+        root_init = sys.modules.get("majoor_imageops")
+        if root_init is None:
             # Fallback for dynamic loading
+            from pathlib import Path
+            import importlib.util
             root_path = Path(__file__).resolve().parent.parent.parent
             spec = importlib.util.spec_from_file_location("majoor_root", root_path / "__init__.py")
             root_init = importlib.util.module_from_spec(spec)
