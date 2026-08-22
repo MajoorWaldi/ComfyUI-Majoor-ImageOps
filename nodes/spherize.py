@@ -244,6 +244,13 @@ class ImageOpsSpherize:
             src = _resize(src, tgt_w, tgt_h, mode="bilinear", antialias=True)
         prepared_mask = _prepare_effect_mask(mask, src) if (mask is not None and src is not None) else None
 
+        from .core.memory import check_budget
+        if src is not None:
+            check_budget(
+                int(src.shape[0]), int(src.shape[1]), int(src.shape[2]),
+                int(src.shape[3]), multiplier=3.0, label="ImageOps Spherize",
+            )
+
         frames = []
         warped_masks = [] if prepared_mask is not None else None
         for fi in range(src.shape[0]):

@@ -282,6 +282,10 @@ class ImageOpsDraw:
             progress.finish()
             return build_node_preview_result(source, (source, source, mask), prefix="imageops_draw")
 
+        from .core.memory import check_budget
+        # multiplier=2.0 covers source + overlay RGBA workspace
+        check_budget(batch, target_h, target_w, 4, multiplier=2.0, label="ImageOps Draw")
+
         overlay = _decode_overlay_rgba(
             overlay_data,
             overlay_layers,

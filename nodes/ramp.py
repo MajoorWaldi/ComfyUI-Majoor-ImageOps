@@ -115,6 +115,8 @@ class ImageOpsRamp:
         frame_count_source = frame_count if frame_count is not None else (frame_length if frame_length is not None else (batch_size if batch_size is not None else 1))
         batch = max(1, _scalar(frame_count_source, int))
         opacity = max(0.0, min(1.0, _scalar(alpha)))
+        from .core.memory import check_budget
+        check_budget(batch, out_h, out_w, 4, multiplier=1.5, label="ImageOps Ramp")
         image = _ramp_image(
             batch,
             out_h,

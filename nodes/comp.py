@@ -188,6 +188,8 @@ class ImageOpsComp(io.ComfyNode):
             progress = start_progress(unique_id=progress_unique_id)
             out_w = max(1, _scalar(width, int))
             out_h = max(1, _scalar(height, int))
+            from .core.memory import check_budget
+            check_budget(1, out_h, out_w, 4, multiplier=1.5, label="ImageOps Comp (empty)")
             blank = _make_comp_canvas(1, out_h, out_w, device="cpu", dtype=torch.float32, background_color=background_color)
             output_mask = blank[..., 3]
             if _scalar(invert_mask, bool):
@@ -216,6 +218,9 @@ class ImageOpsComp(io.ComfyNode):
         batch = max(int(image.shape[0]) for _, image, _ in tensors)
         device = tensors[0][1].device
         dtype = tensors[0][1].dtype
+        from .core.memory import check_budget
+        # multiplier=2.0 covers canvas + per-layer accumulation during compositing
+        check_budget(batch, out_h, out_w, 4, multiplier=2.0, label="ImageOps Comp")
         enabled_layers = [(layer, image_tensor, mask_value) for layer, image_tensor, mask_value in tensors if bool(layer.get("enabled", True))]
 
         if _scalar(bypass, bool):

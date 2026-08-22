@@ -76,6 +76,12 @@ class ImageOpsBlur:
             progress.finish()
             return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_blur")
 
+        from .core.memory import check_budget
+        if source is not None:
+            check_budget(
+                int(source.shape[0]), int(source.shape[1]), int(source.shape[2]),
+                int(source.shape[3]), multiplier=3.0, label="ImageOps Blur",
+            )
         bt = str(blur_type) if blur_type in _BLUR_TYPES else "gaussian"
 
         if input_mask is not None:

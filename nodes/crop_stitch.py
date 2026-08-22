@@ -1,20 +1,11 @@
 import json
-import math
 
 import torch
 
 from ._helpers import MEDIA_INPUT_TYPE, _alpha_mask_from_image, _coerce_media_to_tensor, _prepare_mask_tensor, _resize, _scalar
 from ._preview import build_node_preview_result
 from ._progress import start_progress
-
-
-def _match_batch(tensor: torch.Tensor, batch: int) -> torch.Tensor:
-    if tensor.shape[0] == batch:
-        return tensor
-    if tensor.shape[0] == 1:
-        return tensor.expand(batch, -1, -1, -1) if tensor.dim() == 4 else tensor.expand(batch, -1, -1)
-    reps = math.ceil(batch / tensor.shape[0])
-    return tensor.repeat((reps, 1, 1, 1))[:batch] if tensor.dim() == 4 else tensor.repeat((reps, 1, 1))[:batch]
+from .core.batch import match_batch
 
 
 def _parse_bbox_frames(crop_bbox):
@@ -121,9 +112,12 @@ class ImageOpsCropStitch:
             progress.finish()
             return build_node_preview_result(original, (original, output_mask), prefix="imageops_crop_stitch")
 
-        batch = max(int(original.shape[0]), int(crop.shape[0]))
-        original = _match_batch(original, batch)
-        crop = _match_batch(crop, batch)
+        original, crop = match_batch(
+            original, crop,
+            name_a="original", name_b="crop",
+            policy="hold_last",
+        )
+        batch = int(original.shape[0])
         source_h = int(original.shape[1])
         source_w = int(original.shape[2])
 

@@ -26,5 +26,6 @@ PublisherId = "majoor-waldi"
 DisplayName = "ComfyUI-Majoor-ImageOps"
 Icon = ""
 includes = [] 
-# "requires-comfyui" = ">=1.0.0"  # ComfyUI version compatibility
-
+# Minimum ComfyUI version required for V3 node schema (comfy_api.latest.io).
+# Exact minimum will be pinned once integration tests are run against ComfyUI releases.
+# "requires-comfyui" = ">=0.3.0"  # uncomment and set after integration CI is in place

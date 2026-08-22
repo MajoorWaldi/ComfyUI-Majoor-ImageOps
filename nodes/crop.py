@@ -19,21 +19,36 @@ def _list_param_length(*values):
 
 
 def _is_noop_crop(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale):
+    """Return True only when every frame's crop box maps to the full source and output size unchanged.
+
+    Uses _compute_crop_box as the single geometric source of truth — avoids the
+    previous bug where aspect_ratio='1:1' on a 1920×1080 source was incorrectly
+    classified as a no-op when output W/H happened to equal source W/H.
+    """
     if source is None or source.dim() != 4:
         return False
+    source_h = int(source.shape[1])
+    source_w = int(source.shape[2])
     count = _list_param_length(width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
     for index in range(count):
         target_w = max(1, _scalar(width, int, index=index))
         target_h = max(1, _scalar(height, int, index=index))
-        if int(source.shape[2]) != target_w or int(source.shape[1]) != target_h:
-            return False
-        if abs(_scalar(crop_center_x, index=index) - 0.5) > 1e-6 or abs(_scalar(crop_center_y, index=index) - 0.5) > 1e-6:
-            return False
-        if abs(_scalar(crop_scale, index=index) - 1.0) > 1e-6:
-            return False
-        if str(_scalar(aspect_ratio, str, index=index)).lower() not in ASPECT_RATIO_PRESETS:
+        ratio = _scalar(aspect_ratio, str, index=index)
+        center_x = _scalar(crop_center_x, index=index)
+        center_y = _scalar(crop_center_y, index=index)
+        scale = _scalar(crop_scale, index=index)
+        crop_x, crop_y, crop_w, crop_h = _compute_crop_box(
+            source_w, source_h, ratio, target_w, target_h,
+            center_x=center_x, center_y=center_y, scale=scale,
+        )
+        # A crop is a no-op only when the box covers the full source
+        # AND the output size equals the source size.
+        if (crop_x != 0 or crop_y != 0
+                or crop_w != source_w or crop_h != source_h
+                or target_w != source_w or target_h != source_h):
             return False
     return True
+
 
 
 def _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale):

@@ -193,19 +193,6 @@ export function setInfo(st: NodeState, text: string): void {
     : text;
 }
 
-export function schedule(node: ComfyNode, fn: () => void, delayMs: number = 120): void {
-  const st = ensureState(node);
-  if (st.debounceTimer) clearTimeout(st.debounceTimer);
-  st.debounceTimer = setTimeout(fn, delayMs);
-}
-
-export function stopRAF(st: NodeState): void {
-  if (st?.rafId) {
-    cancelAnimationFrame(st.rafId);
-    st.rafId = null;
-  }
-}
-
 export function markPreviewInteraction(node: ComfyNode, holdMs: number = 350): void {
   const st = ensureState(node);
   st.interactionUntil = Math.max(st.interactionUntil ?? 0, performance.now() + holdMs);

@@ -239,6 +239,12 @@ class ImageOpsCornerPin:
         resolved_fill_mode = _normalize_fill_mode(fill_mode, edge_mode)
         progress = start_progress(total=max(1, batch), unique_id=unique_id)
 
+        supersample_val = max(1, min(_CORNER_PIN_SUPERSAMPLE_MAX, _scalar(supersample, int)))
+        from .core.memory import check_budget
+        # supersample^2 amplifies memory; multiplier=4.0 covers supersampled warp workspace
+        check_budget(batch, height * supersample_val, width * supersample_val, channels,
+                     multiplier=4.0, label="ImageOps CornerPin")
+
         if _scalar(bypass, bool):
             mask = torch.ones((batch, height, width), device=source.device, dtype=source.dtype)
             invert = _param_tensor(invert_mask, batch, source.device, source.dtype).view(batch, 1, 1)

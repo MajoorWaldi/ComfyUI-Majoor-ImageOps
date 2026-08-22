@@ -116,6 +116,12 @@ def _make_schema_input(name: str, spec, optional: bool = False):
         return factory.Input(name, options=list(raw_type), **kwargs)
 
     type_name = str(raw_type or "STRING").upper()
+    if type_name == "IMAGE,VIDEO" and getattr(_node20_io, "MultiType", None) is not None:
+        existing = kwargs.pop("extra_dict", {}) or {}
+        if force_input_val is not None:
+            kwargs["extra_dict"] = {"forceInput": force_input_val, **existing}
+        return _node20_io.MultiType.Input(name, types=[_node20_io.Image, _node20_io.Video], **kwargs)
+
     if "," in type_name or type_name == "VIDEO":
         factory = _custom_field_factory(type_name) or _field_factory("Image")
     elif type_name == "COLOR" or ("COLOR" in name.lower() and type_name == "STRING"):
@@ -164,9 +170,16 @@ def _make_schema_output(name: str, output_type: str):
         factory = _field_factory("Mask")
     elif "IMAGE" in kind or "VIDEO" in kind:
         factory = _field_factory("Image")
+    elif kind == "INT":
+        factory = _field_factory("Int")
+    elif kind == "FLOAT":
+        factory = _field_factory("Float")
+    elif kind in {"BOOLEAN", "BOOL"}:
+        factory = _field_factory("Boolean")
     else:
         factory = _field_factory("String")
     return factory.Output(name, display_name=name) if factory else None
+
 
 
 def _make_hidden_fields(hidden_spec: dict | None):
@@ -232,13 +245,16 @@ def _build_legacy_schema(node_id: str, cls, display_name: str):
         if field is not None:
             outputs.append(field)
 
+    # Only Append and Comp genuinely need accept_all_inputs=True (dynamic slot inputs).
+    # Enabling it globally weakens V3 input validation on all other nodes for no gain.
+    _DYNAMIC_INPUT_NODES = {"ImageOpsAppend", "ImageOpsComp"}
     schema_kwargs = {
         "node_id": node_id,
         "display_name": display_name,
         "category": getattr(cls, "CATEGORY", "image/imageops"),
         "inputs": inputs,
         "outputs": outputs,
-        "accept_all_inputs": True,
+        "accept_all_inputs": node_id in _DYNAMIC_INPUT_NODES,
     }
     hidden_fields = _make_hidden_fields(hidden)
     if hidden_fields:

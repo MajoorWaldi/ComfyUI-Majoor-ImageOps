@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from ._helpers import _hex_to_rgb01, _scalar, ASPECT_RATIO_PRESETS
+from ._helpers import _hex_to_rgb01, _resolve_aspect_ratio, _scalar, ASPECT_RATIO_PRESETS
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 
@@ -84,12 +84,26 @@ class ImageOpsConstant:
         unique_id=None,
     ):
         progress = start_progress(unique_id=unique_id)
-        from .comp import _resolve_custom_comp_size
-        out_w, out_h = _resolve_custom_comp_size(width, height, aspect_ratio)
+        out_w = max(1, _scalar(width, int))
+        out_h = max(1, _scalar(height, int))
+        # Apply aspect ratio constraint when a preset is selected.
+        ratio_str = _scalar(aspect_ratio, str) if isinstance(aspect_ratio, str) else "custom"
+        preset = ASPECT_RATIO_PRESETS.get(str(ratio_str).lower())
+        if preset is not None and preset[1] > 0:
+            # Constrain the smaller dimension to match the target ratio.
+            target_ratio = float(preset[0]) / float(preset[1])
+            src_ratio = float(out_w) / float(max(1, out_h))
+            if src_ratio > target_ratio:
+                out_w = max(1, int(round(out_h * target_ratio)))
+            elif src_ratio < target_ratio:
+                out_h = max(1, int(round(out_w / target_ratio)))
         frame_count_source = frame_count if frame_count is not None else (frame_length if frame_length is not None else (batch_size if batch_size is not None else 1))
         batch = max(1, _scalar(frame_count_source, int))
         opacity = max(0.0, min(1.0, _scalar(alpha)))
         normalized_mode = str(mode or "constant").strip().lower().replace("-", "_").replace(" ", "_")
+
+        from .core.memory import check_budget
+        check_budget(batch, out_h, out_w, 4, multiplier=1.5, label="ImageOps Constant")
 
         if normalized_mode == "checkerboard":
             image = _checkerboard_image(

@@ -351,6 +351,13 @@ class ImageOpsTransform:
         sample_padding = _padding_mode_from_fill(safe_fill_mode)
         progress = start_progress(unique_id=unique_id)
 
+        from .core.memory import check_budget
+        if source is not None:
+            check_budget(
+                int(source.shape[0]), int(source.shape[1]), int(source.shape[2]),
+                int(source.shape[3]), multiplier=2.0, label="ImageOps Transform",
+            )
+
         if _scalar(bypass, bool):
             progress.finish()
             return build_node_preview_result(source, (source, output_mask_source), prefix="imageops_transform")
