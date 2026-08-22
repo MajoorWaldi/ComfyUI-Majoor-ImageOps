@@ -11,7 +11,6 @@ import {
   makeCanvas,
   markPreparedMaskCanvas,
   numAny,
-  ops,
   renderConstantCanvas,
   renderCornerPinCanvases,
   renderCropStitchCanvases,
@@ -24,10 +23,8 @@ import {
   resolvePreviewMaskCanvas,
   strAny
 } from "./implementation.js";
-const maskOps = {
-  imageOpsMask: ops.imageOpsMask,
-  channelApply: ops.channelApply
-};
+import { crop, transform } from "./geometry.js";
+import { comp, merge } from "./blend.js";
 function channelApply(ctx, W, node, inputs) {
   const base = fitCanvas(inputs[0] ?? ctx.canvas, (inputs[0] ?? ctx.canvas).width || 1, (inputs[0] ?? ctx.canvas).height || 1);
   const mask = inputs[1] ? fitCanvas(inputs[1], base.width, base.height) : null;
@@ -68,10 +65,10 @@ function imageOpsMask(ctx, W, node, cls, inputs = [], frameIndex = 0) {
     return resolvedMask ?? alphaMaskCanvas(source);
   }
   if (cls === "ImageOpsTransform") {
-    return ops.transform(ctx, W, node, [resolvedMask ?? alphaMaskCanvas(source)], frameIndex);
+    return transform(ctx, W, node, [resolvedMask ?? alphaMaskCanvas(source)], frameIndex);
   }
   if (cls === "ImageOpsCrop") {
-    return ops.crop(ctx, W, node, [resolvedMask ?? alphaMaskCanvas(source)], frameIndex);
+    return crop(ctx, W, node, [resolvedMask ?? alphaMaskCanvas(source)], frameIndex);
   }
   if (cls === "ImageOpsCropStitch") {
     return renderCropStitchCanvases(node, inputs, frameIndex).mask;
@@ -124,11 +121,11 @@ function imageOpsMask(ctx, W, node, cls, inputs = [], frameIndex = 0) {
       const mergeResolvedMask = resolvePreviewMaskCanvas(node, source, mergeMaskInput, frameIndex);
       if (mergeResolvedMask) return mergeResolvedMask;
     }
-    const merged = ops.merge(ctx, W, node, inputs, void 0, frameIndex);
+    const merged = merge(ctx, W, node, inputs, void 0, frameIndex);
     return alphaMaskCanvas(merged);
   }
   if (cls === "ImageOpsComp") {
-    const mask = alphaMaskCanvas(ops.comp(ctx, W, node, inputs));
+    const mask = alphaMaskCanvas(comp(ctx, W, node, inputs));
     return boolAny(node, ["invert_mask"], false, frameIndex) ? invertMaskCanvas(mask) : mask;
   }
   if (cls === "ImageOpsColorAjust") {
@@ -136,6 +133,7 @@ function imageOpsMask(ctx, W, node, cls, inputs = [], frameIndex = 0) {
   }
   return resolvedMask ?? alphaMaskCanvas(source);
 }
+const maskOps = { imageOpsMask, channelApply };
 export {
   channelApply,
   imageOpsMask,

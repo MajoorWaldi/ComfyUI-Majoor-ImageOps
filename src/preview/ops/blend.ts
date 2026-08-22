@@ -8,7 +8,6 @@ import {
     invertMaskCanvas,
     num,
     numAny,
-    ops,
     premultLayerWithMask,
     renderCompPreview,
     resolveCompPreviewInputs,
@@ -18,13 +17,6 @@ import {
 } from "./implementation.js";
 import type { ComfyNode } from "../../types.js";
 export { blendChannel01 } from "../shared/blend-modes.js";
-
-export const blendOps = {
-  merge: ops.merge,
-  composite: ops.composite,
-  comp: ops.comp,
-};
-
 
 // Extracted with ts-morph
 
@@ -68,4 +60,6 @@ export function comp(ctx: CanvasRenderingContext2D, W: number, node: ComfyNode, 
       resolveCompPreviewInputs(node, inputs),
     ).canvas;
   }
+
+export const blendOps = { merge, composite, comp };
 

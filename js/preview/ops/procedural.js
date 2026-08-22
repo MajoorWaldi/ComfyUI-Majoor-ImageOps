@@ -5,7 +5,6 @@ import {
   makeCanvas,
   markPreparedMaskCanvas,
   numAny,
-  ops,
   renderConstantCanvas,
   renderGrainCanvas,
   renderKeyerCanvases,
@@ -15,13 +14,6 @@ import {
   stitchCanvases,
   strAny
 } from "./implementation.js";
-const proceduralOps = {
-  constant: ops.constant,
-  ramp: ops.ramp,
-  noise: ops.noise,
-  grain: ops.grain,
-  text: ops.text
-};
 function grain(ctx, W, node, inputs = [], frameIndex = 0) {
   const source = inputs[0] ?? ctx.canvas;
   return renderGrainCanvas(node, source, inputs[1] ?? null, frameIndex);
@@ -82,6 +74,7 @@ async function drawMask(ctx, W, node, inputs) {
   const mask = markPreparedMaskCanvas(matte);
   return boolAny(node, ["invert_mask"], false) ? invertMaskCanvas(mask) : mask;
 }
+const proceduralOps = { constant, ramp, noise, grain, text };
 export {
   constant,
   draw,

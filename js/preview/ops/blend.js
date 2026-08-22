@@ -8,7 +8,6 @@ import {
   invertMaskCanvas,
   num,
   numAny,
-  ops,
   premultLayerWithMask,
   renderCompPreview,
   resolveCompPreviewInputs,
@@ -17,11 +16,6 @@ import {
   w
 } from "./implementation.js";
 import { blendChannel01 } from "../shared/blend-modes.js";
-const blendOps = {
-  merge: ops.merge,
-  composite: ops.composite,
-  comp: ops.comp
-};
 function merge(ctx, W, node, topCanvasOrInputs, _opts, frameIndex = 0) {
   const inputs = Array.isArray(topCanvasOrInputs) ? topCanvasOrInputs : [ctx.canvas, topCanvasOrInputs];
   const base = inputs[0] ?? ctx.canvas;
@@ -58,6 +52,7 @@ function comp(ctx, W, node, inputs) {
     resolveCompPreviewInputs(node, inputs)
   ).canvas;
 }
+const blendOps = { merge, composite, comp };
 export {
   blendChannel01,
   blendOps,

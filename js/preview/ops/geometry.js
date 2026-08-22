@@ -17,7 +17,6 @@ import {
   normalizeFilterName,
   num,
   numAny,
-  ops,
   parseHexColor,
   renderCornerPinCanvases,
   renderCropStitchCanvases,
@@ -35,21 +34,6 @@ import {
   wAny
 } from "./implementation.js";
 export * from "../shared/geometry.js";
-const geometryOps = {
-  crop: ops.crop,
-  cropGeneric: ops.cropGeneric,
-  cropReformat: ops.cropReformat,
-  cropStitch: ops.cropStitch,
-  pad: ops.pad,
-  padOut: ops.padOut,
-  resize: ops.resize,
-  transform: ops.transform,
-  flipRotate: ops.flipRotate,
-  cornerPin: ops.cornerPin,
-  cameraShake: ops.cameraShake,
-  distort: ops.distort,
-  spherize: ops.spherize
-};
 function crop(ctx, W, node, inputs = [], frameIndex = 0) {
   const source = inputs[0] ?? ctx.canvas;
   const rawMask = inputs[1] ?? null;
@@ -276,6 +260,21 @@ function spherize(ctx, W, node, inputs = [], frameIndex = 0) {
     );
   });
 }
+const geometryOps = {
+  crop,
+  cropGeneric,
+  cropReformat,
+  cropStitch,
+  pad,
+  padOut,
+  resize,
+  transform,
+  flipRotate,
+  cornerPin,
+  cameraShake,
+  distort,
+  spherize
+};
 export {
   cameraShake,
   cornerPin,

@@ -8,7 +8,7 @@ class ImageOpsChannel(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsChannel', display_name='〽️ Image Ops Channel', category='image/imageops', inputs=[io.Boolean.Input('bypass', default=False), io.String.Input('channel', default='Red'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsChannel', display_name='〽️ Image Ops Channel', category='image/imageops', inputs=[io.Boolean.Input('bypass', default=False), io.String.Input('channel', default='Red'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True})], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
 
     @classmethod
     def execute(cls, image=None, bypass=False, channel='Red', video=None, unique_id=None, **kwargs):

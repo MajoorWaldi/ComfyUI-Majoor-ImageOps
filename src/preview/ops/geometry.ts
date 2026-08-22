@@ -17,7 +17,6 @@ import {
     normalizeFilterName,
     num,
     numAny,
-    ops,
     parseHexColor,
     renderCornerPinCanvases,
     renderCropStitchCanvases,
@@ -36,23 +35,6 @@ import {
 } from "./implementation.js";
 import type { ComfyNode, RenderInputInfo } from "../../types.js";
 export * from "../shared/geometry.js";
-
-export const geometryOps = {
-  crop: ops.crop,
-  cropGeneric: ops.cropGeneric,
-  cropReformat: ops.cropReformat,
-  cropStitch: ops.cropStitch,
-  pad: ops.pad,
-  padOut: ops.padOut,
-  resize: ops.resize,
-  transform: ops.transform,
-  flipRotate: ops.flipRotate,
-  cornerPin: ops.cornerPin,
-  cameraShake: ops.cameraShake,
-  distort: ops.distort,
-  spherize: ops.spherize,
-};
-
 
 // Extracted with ts-morph
 
@@ -296,4 +278,9 @@ export function spherize(ctx: CanvasRenderingContext2D, W: number, node: ComfyNo
       );
     });
   }
+
+export const geometryOps = {
+  crop, cropGeneric, cropReformat, cropStitch, pad, padOut, resize,
+  transform, flipRotate, cornerPin, cameraShake, distort, spherize,
+};
 

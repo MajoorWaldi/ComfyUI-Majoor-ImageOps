@@ -94,6 +94,7 @@ import { attachInteractions as attachJoinInteractionsExt, syncJoinControls } fro
 console.info("[ImageOps] LivePreview v6 loaded");
 
 const EXT_NAME = "ImageOps.LivePreview.v6";
+let extensionRegistered = false;
 
 function getNodeInputDefault(nodeData: any, inputName: string): unknown {
   const entry = nodeData?.input?.required?.[inputName] ?? nodeData?.input?.optional?.[inputName];
@@ -119,6 +120,9 @@ function hydrateKeyerDefaults(node: ComfyNode, nodeData: any): void {
 }
 
 export function registerImageOpsLivePreview(): void {
+  if (extensionRegistered) return;
+  extensionRegistered = true;
+
   if (typeof document !== "undefined" && !document.getElementById("comfyui-imageops-styles")) {
     const style = document.createElement("style");
     style.id = "comfyui-imageops-styles";
@@ -1047,6 +1051,17 @@ export function registerImageOpsLivePreview(): void {
 
   function hookNode(node: ComfyNode): void {
 
+    // Node 2.0 instances may not expose the legacy comfyClass field. Keep the
+    // rest of the preview host on one stable class-name contract.
+    const nodeAny = node as any;
+    if (!nodeAny.comfyClass) {
+      nodeAny.comfyClass = nodeAny.type
+        ?? nodeAny.constructor?.nodeData?.name
+        ?? nodeAny.constructor?.nodeData?.id
+        ?? nodeAny.constructor?.comfyClass
+        ?? "";
+    }
+
     const st = ensureState(node);
     if (st.hooked) return;
     st.hooked = true;
@@ -1438,3 +1453,8 @@ export function registerImageOpsLivePreview(): void {
     },
   } as any);
 }
+
+// ComfyUI discovers every JavaScript file below WEB_DIRECTORY. Register from
+// this module directly so extension ordering cannot make the dynamic entrypoint
+// arrive after node definitions have already been created.
+registerImageOpsLivePreview();

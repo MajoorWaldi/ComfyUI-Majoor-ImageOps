@@ -8,7 +8,7 @@ class ImageOpsInvert(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsInvert', display_name='〽️ Image Ops Invert', category='image/imageops', inputs=[io.Boolean.Input('bypass', default=False), io.Boolean.Input('invert_mask', default=False), io.Boolean.Input('invert_alpha', default=False, tooltip='Also invert the alpha channel (only applies to RGBA images).'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsInvert', display_name='〽️ Image Ops Invert', category='image/imageops', inputs=[io.Boolean.Input('bypass', default=False), io.Boolean.Input('invert_mask', default=False), io.Boolean.Input('invert_alpha', default=False, tooltip='Also invert the alpha channel (only applies to RGBA images).'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
 
     @classmethod
     def execute(cls, image=None, bypass=False, invert_mask=False, invert_alpha=False, video=None, mask=None, unique_id=None, **kwargs):

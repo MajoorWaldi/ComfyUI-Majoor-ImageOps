@@ -7,7 +7,6 @@ import {
     makeCanvas,
     markPreparedMaskCanvas,
     numAny,
-    ops,
     putImageData,
     renderConstantCanvas,
     renderGrainCanvas,
@@ -19,15 +18,6 @@ import {
     strAny
 } from "./implementation.js";
 import type { ComfyNode } from "../../types.js";
-
-export const proceduralOps = {
-  constant: ops.constant,
-  ramp: ops.ramp,
-  noise: ops.noise,
-  grain: ops.grain,
-  text: ops.text,
-};
-
 
 // Extracted with ts-morph
 
@@ -103,4 +93,6 @@ export async function drawMask(ctx: CanvasRenderingContext2D, W: number, node: C
     const mask = markPreparedMaskCanvas(matte);
     return boolAny(node, ["invert_mask"], false) ? invertMaskCanvas(mask) : mask;
   }
+
+export const proceduralOps = { constant, ramp, noise, grain, text };
 

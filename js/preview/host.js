@@ -80,6 +80,7 @@ import { attachInteractions as attachCompInteractionsExt } from "./interactions/
 import { attachInteractions as attachJoinInteractionsExt, syncJoinControls } from "./interactions/append.js";
 console.info("[ImageOps] LivePreview v6 loaded");
 const EXT_NAME = "ImageOps.LivePreview.v6";
+let extensionRegistered = false;
 function getNodeInputDefault(nodeData, inputName) {
   const entry = nodeData?.input?.required?.[inputName] ?? nodeData?.input?.optional?.[inputName];
   if (!Array.isArray(entry)) return void 0;
@@ -97,6 +98,8 @@ function hydrateKeyerDefaults(node, nodeData) {
   }
 }
 function registerImageOpsLivePreview() {
+  if (extensionRegistered) return;
+  extensionRegistered = true;
   if (typeof document !== "undefined" && !document.getElementById("comfyui-imageops-styles")) {
     const style = document.createElement("style");
     style.id = "comfyui-imageops-styles";
@@ -926,6 +929,10 @@ function registerImageOpsLivePreview() {
     }
   }
   function hookNode(node) {
+    const nodeAny = node;
+    if (!nodeAny.comfyClass) {
+      nodeAny.comfyClass = nodeAny.type ?? nodeAny.constructor?.nodeData?.name ?? nodeAny.constructor?.nodeData?.id ?? nodeAny.constructor?.comfyClass ?? "";
+    }
     const st = ensureState(node);
     if (st.hooked) return;
     st.hooked = true;
@@ -1348,6 +1355,7 @@ function registerImageOpsLivePreview() {
     }
   });
 }
+registerImageOpsLivePreview();
 export {
   registerImageOpsLivePreview
 };
