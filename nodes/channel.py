@@ -1,48 +1,25 @@
-from ._helpers import (
-    CHANNEL_OPTIONS,
-    MEDIA_INPUT_TYPE,
-    _alpha_mask_from_image,
-    _channel_mask_to_image,
-    _extract_channel_mask,
-    _scalar,
-    _select_media_tensor,
-)
+from comfy_api.latest import io
+from ._helpers import CHANNEL_OPTIONS, MEDIA_INPUT_TYPE, _alpha_mask_from_image, _channel_mask_to_image, _extract_channel_mask, _scalar, _select_media_tensor
 from .compat.comfy_v3 import V3NodeBase
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 
-
-class ImageOpsChannel(V3NodeBase):
-    CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("image", "mask")
-    FUNCTION = "apply"
+class ImageOpsChannel(io.ComfyNode):
 
     @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "bypass": ("BOOLEAN", {"default": False}),
-                "channel": (CHANNEL_OPTIONS, {"default": "Red"}),
-            },
-            "optional": {
-                "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input. Accepts IMAGE batches and VIDEO frame sources.", "forceInput": True, "display_name": "Images/Video"}),
-            },
-            "hidden": {
-                "unique_id": "UNIQUE_ID",
-            },
-        }
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(node_id='ImageOpsChannel', display_name='〽️ Image Ops Channel', category='image/imageops', inputs=[io.Boolean.Input('bypass', default=False), io.String.Input('channel', default='Red'), io.String.Input('image', tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', force_input=True, display_name='Images/Video', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
 
-    def apply(self, image=None, bypass=False, channel="Red", video=None, unique_id=None):
+    @classmethod
+    def execute(cls, image=None, bypass=False, channel='Red', video=None, unique_id=None, **kwargs):
         source = _select_media_tensor(image, video)
         progress = start_progress(unique_id=unique_id)
         if _scalar(bypass, bool):
             output_mask = _alpha_mask_from_image(source)
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask), prefix="imageops_channel")
-
+            return build_node_preview_result(source, (source, output_mask), prefix='imageops_channel')
         extracted = _extract_channel_mask(source, channel)
-        if str(_scalar(channel, str)).strip().lower() == "alpha":
+        if str(_scalar(channel, str)).strip().lower() == 'alpha':
             result = source.clone()
             if result.shape[-1] < 4:
                 result = _channel_mask_to_image(extracted, source)
@@ -52,4 +29,4 @@ class ImageOpsChannel(V3NodeBase):
         else:
             result = _channel_mask_to_image(extracted, source)
         progress.finish()
-        return build_node_preview_result(result, (result, extracted), prefix="imageops_channel")
+        return build_node_preview_result(result, (result, extracted), prefix='imageops_channel')

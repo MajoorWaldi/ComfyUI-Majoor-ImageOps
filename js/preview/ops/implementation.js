@@ -1,11 +1,16 @@
 import { getOpsConstants, initOpsConstants } from "../constants.js";
 import { clampCropCenter, clampCropScale, computeCropRect, resolveCropAspectRatio } from "../crop.js";
 import { computeCompRect, getCompLayerOutputCorners, getCompSlots, hasCompLayerCornerPin, syncCompLayers } from "../comp.js";
-import { renderDrawPreview, resolveDrawOverlayCanvas } from "../draw.js";
+import { renderDrawPreview } from "../draw.js";
 import { acquireCanvas, releaseCanvas } from "../shared/canvas-pool.js";
 import { applyColorCorrectGL } from "../shared/webgl-color.js";
 import { setWidgetValue } from "../shared/widgets.js";
 import { blendChannel01 } from "../shared/blend-modes.js";
+import { crop, cropStitch, padOut, cornerPin, cropGeneric, transform, cameraShake, cropReformat, resize, pad, flipRotate, distort, spherize } from "./geometry.js";
+import { merge, composite, comp } from "./blend.js";
+import { channelApply, imageOpsMask } from "./masks.js";
+import { grain, text, keyer, stitch, constant, ramp, noise, draw, drawMask } from "./procedural.js";
+import { channelSplit, channelMerge } from "./video.js";
 initOpsConstants();
 function w(node, name) {
   return node?.widgets?.find((x) => x?.name === name) ?? null;
@@ -404,9 +409,9 @@ function grainRandom01(seed, x, y, channel, frame) {
   v ^= v >>> 16;
   return (v >>> 0) / 4294967295;
 }
-function blendGrainValue(base, noise, amount, mode) {
+function blendGrainValue(base, noise2, amount, mode) {
   const normalized = String(mode || "add").toLowerCase().replace(/[-\s]+/g, "_");
-  const top = Math.max(0, Math.min(1, 0.5 + noise * amount));
+  const top = Math.max(0, Math.min(1, 0.5 + noise2 * amount));
   if (normalized === "overlay") {
     const blended = base <= 0.5 ? 2 * base * top : 1 - 2 * (1 - base) * (1 - top);
     return base * (1 - amount) + blended * amount;
@@ -416,7 +421,7 @@ function blendGrainValue(base, noise, amount, mode) {
     const blended = top <= 0.5 ? base - (1 - 2 * top) * base * (1 - base) : base + (2 * top - 1) * (curve - base);
     return base * (1 - amount) + blended * amount;
   }
-  return base + noise * amount;
+  return base + noise2 * amount;
 }
 function renderGrainCanvas(node, source, rawMask, frameIndex) {
   const width = source.width || 1;
@@ -442,8 +447,8 @@ function renderGrainCanvas(node, source, rawMask, frameIndex) {
       const monoNoise = grainRandom01(seed, x, y, 0, grainFrame) - 0.5;
       for (let c = 0; c < 3; c++) {
         const base = data[i + c] / 255;
-        const noise = mono ? monoNoise : grainRandom01(seed, x, y, c, grainFrame) - 0.5;
-        const grained = Math.max(0, Math.min(1, blendGrainValue(base, noise, amount, mode)));
+        const noise2 = mono ? monoNoise : grainRandom01(seed, x, y, c, grainFrame) - 0.5;
+        const grained = Math.max(0, Math.min(1, blendGrainValue(base, noise2, amount, mode)));
         const mixed = base * (1 - weight) + grained * weight;
         data[i + c] = Math.round(mixed * 255);
       }
@@ -458,9 +463,9 @@ function renderTextCanvas(node, source, rawMask, frameIndex) {
   const output = makeCanvas(width, height);
   const octx = output.getContext("2d", { willReadFrequently: true });
   octx.drawImage(source, 0, 0, width, height);
-  const text = resolveConnectedString(node, "text") ?? strAny(node, ["text"], "ImageOps Text", frameIndex);
+  const text2 = resolveConnectedString(node, "text") ?? strAny(node, ["text"], "ImageOps Text", frameIndex);
   const opacity = Math.max(0, Math.min(1, numAny(node, ["opacity"], 1, frameIndex)));
-  if (!text || opacity <= 0) return output;
+  if (!text2 || opacity <= 0) return output;
   const mask = resolvePreviewMaskCanvas(node, source, rawMask, frameIndex);
   const layer = makeCanvas(width, height);
   const lctx = layer.getContext("2d", { willReadFrequently: true });
@@ -477,7 +482,7 @@ function renderTextCanvas(node, source, rawMask, frameIndex) {
   lctx.fillStyle = parseHexColor(strAny(node, ["color"], "#ffffff", frameIndex));
   lctx.strokeStyle = parseHexColor(strAny(node, ["stroke_color"], "#000000", frameIndex));
   lctx.lineWidth = strokeWidth;
-  const lines = String(text).split(/\r?\n/);
+  const lines = String(text2).split(/\r?\n/);
   for (let index = 0; index < lines.length; index++) {
     const ty = y + index * (fontSize + lineSpacing);
     if (strokeWidth > 0) lctx.strokeText(lines[index], x, ty);
@@ -1422,13 +1427,13 @@ function applyGlow(ctx, W, H, threshold, intensity, blurPx) {
 function applyCropReformat(ctx, W, H, x, y, cw, ch, padding, outW, outH, mode) {
   const cropW = Math.max(1, Math.round(cw));
   const cropH = Math.max(1, Math.round(ch));
-  const pad = Math.max(0, Math.round(padding));
+  const pad2 = Math.max(0, Math.round(padding));
   const tmp = document.createElement("canvas");
-  tmp.width = cropW + pad * 2;
-  tmp.height = cropH + pad * 2;
+  tmp.width = cropW + pad2 * 2;
+  tmp.height = cropH + pad2 * 2;
   const tctx = tmp.getContext("2d", { willReadFrequently: true });
   tctx.clearRect(0, 0, tmp.width, tmp.height);
-  tctx.drawImage(ctx.canvas, -Math.round(x) + pad, -Math.round(y) + pad);
+  tctx.drawImage(ctx.canvas, -Math.round(x) + pad2, -Math.round(y) + pad2);
   const finalW = outW > 0 ? Math.round(outW) : tmp.width;
   const finalH = outH > 0 ? Math.round(outH) : tmp.height;
   const dst = document.createElement("canvas");
@@ -1453,7 +1458,7 @@ function applyCrop(ctx, node, sourceWidth, sourceHeight, aspectRatio, outW, outH
   const finalW = Math.max(1, Math.round(outW));
   const finalH = Math.max(1, Math.round(outH));
   const ratio = resolveCropAspectRatio(aspectRatio, finalW, finalH);
-  const crop = computeCropRect(
+  const crop2 = computeCropRect(
     sourceWidth,
     sourceHeight,
     ratio,
@@ -1468,10 +1473,10 @@ function applyCrop(ctx, node, sourceWidth, sourceHeight, aspectRatio, outW, outH
   octx.clearRect(0, 0, finalW, finalH);
   octx.drawImage(
     ctx.canvas,
-    crop.x,
-    crop.y,
-    crop.cropWidth,
-    crop.cropHeight,
+    crop2.x,
+    crop2.y,
+    crop2.cropWidth,
+    crop2.cropHeight,
     0,
     0,
     finalW,
@@ -2490,8 +2495,8 @@ function resolveResizeDimensions(node, sourceWidth, sourceHeight) {
   const megapixels = numAny(node, ["megapixels"], 0);
   const size = Math.round(numAny(node, ["size", "longer_size", "shorter_size"], 0));
   const filter = normalizeFilterName(strAny(node, ["upscale_method", "interpolation", "transform_method", "filter"], "bilinear"));
-  const crop = strAny(node, ["crop", "crop_method"], "disabled");
-  const method = strAny(node, ["keep_proportion", "method", "resize_type"], crop === "center" ? "crop" : "stretch");
+  const crop2 = strAny(node, ["crop", "crop_method"], "disabled");
+  const method = strAny(node, ["keep_proportion", "method", "resize_type"], crop2 === "center" ? "crop" : "stretch");
   const keepProportion = boolAny(node, ["keep_proportion"], false);
   const fillColor = strAny(node, ["pad_color", "padding_color", "background_color", "color"], "#000000");
   const cropPosition = strAny(node, ["crop_position"], "center");
@@ -2524,10 +2529,10 @@ function resolveResizeDimensions(node, sourceWidth, sourceHeight) {
   }
   let mode = "stretch";
   const normalizedMethod = String(method).toLowerCase();
-  if (keepProportion && normalizedMethod === "stretch" && crop !== "center") mode = "fit";
+  if (keepProportion && normalizedMethod === "stretch" && crop2 !== "center") mode = "fit";
   else if (normalizedMethod.includes("pad") || normalizedMethod.includes("pillarbox")) mode = "pad";
   else if (normalizedMethod.includes("keep proportion") || normalizedMethod === "resize" || normalizedMethod.includes("fit")) mode = "fit";
-  else if (normalizedMethod.includes("fill") || normalizedMethod.includes("crop") || crop === "center") mode = "crop";
+  else if (normalizedMethod.includes("fill") || normalizedMethod.includes("crop") || crop2 === "center") mode = "crop";
   return {
     width: Math.max(1, width),
     height: Math.max(1, height),
@@ -2549,11 +2554,11 @@ function extractMaskDrivenCrop(source, maskCanvas, padding, targetWidth, targetH
   const fittedMask = fitCanvas(maskCanvas, source.width || 1, source.height || 1);
   const bounds = computeMaskBounds(fittedMask);
   if (!bounds) return resizeWithMode(source, targetWidth, targetHeight, "bicubic", "crop");
-  const pad = Math.max(0, Math.round(padding));
-  const x = Math.max(0, bounds.x - pad);
-  const y = Math.max(0, bounds.y - pad);
-  const right = Math.min(source.width, bounds.x + bounds.width + pad);
-  const bottom = Math.min(source.height, bounds.y + bounds.height + pad);
+  const pad2 = Math.max(0, Math.round(padding));
+  const x = Math.max(0, bounds.x - pad2);
+  const y = Math.max(0, bounds.y - pad2);
+  const right = Math.min(source.width, bounds.x + bounds.width + pad2);
+  const bottom = Math.min(source.height, bounds.y + bounds.height + pad2);
   const cropped = cropRectCanvas(source, x, y, Math.max(1, right - x), Math.max(1, bottom - y));
   return resizeWithMode(cropped, targetWidth, targetHeight, "bicubic", "crop");
 }
@@ -2594,12 +2599,12 @@ function makeCropStitchRectMask(width, height, bbox) {
 }
 function renderCropStitchCanvases(node, inputs, frameIndex = 0) {
   const original = inputs[0] ?? makeCanvas(1, 1);
-  const crop = inputs[1] ?? original;
+  const crop2 = inputs[1] ?? original;
   const width = Math.max(1, original.width || 1);
   const height = Math.max(1, original.height || 1);
   const cropMaskInput = inputs[2] ?? null;
   const bbox = parseCropStitchBBox(node, width, height, frameIndex) ?? cropStitchBBoxFromMask(cropMaskInput, width, height);
-  const fittedCrop = fitCanvas(crop, bbox.width, bbox.height);
+  const fittedCrop = fitCanvas(crop2, bbox.width, bbox.height);
   const stitchLayer = makeCanvas(width, height);
   const layerCtx = stitchLayer.getContext("2d", { willReadFrequently: true });
   layerCtx.clearRect(0, 0, width, height);
@@ -2641,7 +2646,7 @@ function drawCropStitchPanel(ctx, source, x, y, width, height, label, bbox) {
   ctx.fillText(label, x + 7, y + 10);
   ctx.restore();
 }
-function composeCropStitchPreview(image, crop, mask, bbox) {
+function composeCropStitchPreview(image, crop2, mask, bbox) {
   const maskPreview = maskCanvasToPreviewCanvas(mask);
   const mainW = Math.max(1, image.width || 1);
   const mainH = Math.max(1, image.height || 1);
@@ -2653,7 +2658,7 @@ function composeCropStitchPreview(image, crop, mask, bbox) {
   octx.fillStyle = "#111111";
   octx.fillRect(0, 0, output.width, output.height);
   drawCropStitchPanel(octx, image, 0, 0, mainW, output.height, "Stitched", bbox);
-  drawCropStitchPanel(octx, crop, mainW + gap, 0, sideW, sideH, "Edited crop");
+  drawCropStitchPanel(octx, crop2, mainW + gap, 0, sideW, sideH, "Edited crop");
   drawCropStitchPanel(octx, maskPreview, mainW + gap, sideH + gap, sideW, sideH, "Crop mask");
   return output;
 }
@@ -2998,156 +3003,13 @@ const ops = {
     ectx.putImageData(img, 0, 0);
     return extracted;
   },
-  crop(ctx, W, node, inputs = [], frameIndex = 0) {
-    const source = inputs[0] ?? ctx.canvas;
-    const rawMask = inputs[1] ?? null;
-    return renderMaskedEffectPreview(
-      node,
-      source,
-      rawMask,
-      (input) => applyEffectToCanvas(input, (effectCtx, width, height) => applyCrop(
-        effectCtx,
-        node,
-        width,
-        height,
-        str(node, "aspect_ratio", "custom", frameIndex),
-        num(node, "width", width, frameIndex),
-        num(node, "height", height, frameIndex)
-      )),
-      {
-        frameIndex,
-        premultBeforeProcess: true,
-        compositeWithBase: false
-      }
-    );
-  },
-  cropStitch(ctx, W, node, inputs = [], frameIndex = 0) {
-    if (inputs.length < 2) return inputs[0] ?? ctx.canvas;
-    const rendered = renderCropStitchCanvases(node, inputs, frameIndex);
-    return composeCropStitchPreview(rendered.image, rendered.crop, rendered.mask, rendered.bbox);
-  },
-  padOut(ctx, W, node, inputs = [], frameIndex = 0) {
-    const source = inputs[0] ?? ctx.canvas;
-    return renderPadOutCanvases(node, source, frameIndex).image;
-  },
-  cornerPin(ctx, W, node, inputs = [], frameIndex = 0) {
-    const source = inputs[0] ?? ctx.canvas;
-    return renderCornerPinCanvases(node, source, frameIndex).image;
-  },
-  cropGeneric(ctx, W, node, inputs = [], inputInfos = []) {
-    const source = inputs[0] ?? ctx.canvas;
-    const sourceWidth = source.width || 1;
-    const sourceHeight = source.height || 1;
-    let targetWidth = Math.max(1, Math.round(numAny(node, ["width", "target_width", "base_resolution"], sourceWidth)));
-    let targetHeight = Math.max(1, Math.round(numAny(node, ["height", "target_height", "base_resolution"], sourceHeight)));
-    const maskInput = inputs[1] ?? null;
-    if (maskInput) {
-      if (!wAny(node, ["width", "target_width", "height", "target_height"]) && !!w(node, "base_resolution")) {
-        const fittedMask = fitCanvas(maskInput, sourceWidth, sourceHeight);
-        const bounds = computeMaskBounds(fittedMask);
-        if (bounds) {
-          const aspect = bounds.width / Math.max(1, bounds.height);
-          const baseResolution = Math.max(1, Math.round(numAny(node, ["base_resolution"], Math.max(bounds.width, bounds.height))));
-          if (aspect >= 1) {
-            targetWidth = baseResolution;
-            targetHeight = Math.max(1, Math.round(baseResolution / aspect));
-          } else {
-            targetHeight = baseResolution;
-            targetWidth = Math.max(1, Math.round(baseResolution * aspect));
-          }
-        }
-      }
-      return extractMaskDrivenCrop(source, maskInput, numAny(node, ["padding"], 0), targetWidth, targetHeight);
-    }
-    const cropRegion = w(node, "crop_region")?.value;
-    const bboxNode = inputInfos[1]?.upstreamNode ?? null;
-    const x = Math.max(0, Math.round(cropRegion?.x ?? numAny(bboxNode ?? node, ["x", "x_offset"], 0)));
-    const y = Math.max(0, Math.round(cropRegion?.y ?? numAny(bboxNode ?? node, ["y", "y_offset"], 0)));
-    const width = Math.max(1, Math.round(cropRegion?.width ?? numAny(bboxNode ?? node, ["width", "crop_w"], sourceWidth)));
-    const height = Math.max(1, Math.round(cropRegion?.height ?? numAny(bboxNode ?? node, ["height", "crop_h"], sourceHeight)));
-    return cropRectCanvas(source, x, y, Math.min(width, sourceWidth - x), Math.min(height, sourceHeight - y));
-  },
-  transform(ctx, W, node, inputs = [], frameIndex = 0) {
-    const source = inputs[0] ?? ctx.canvas;
-    const rawMask = inputs[1] ?? null;
-    const transformImage = (input) => {
-      let working = input;
-      const flip = strAny(node, ["flip", "mirror"], "none", frameIndex).toLowerCase();
-      const flipMethod = strAny(node, ["flip_method"], "", frameIndex);
-      const horizontal = flip === "horizontal" || flipMethod.startsWith("y");
-      const vertical = flip === "vertical" || flipMethod.startsWith("x");
-      working = flipCanvas(working, horizontal, vertical);
-      const rotationLabel = strAny(node, ["rotation"], "", frameIndex);
-      if (rotationLabel.startsWith("90")) working = rotateDiscrete(working, 1);
-      else if (rotationLabel.startsWith("180")) working = rotateDiscrete(working, 2);
-      else if (rotationLabel.startsWith("270")) working = rotateDiscrete(working, 3);
-      const aspectRatio = numAny(node, ["aspect_ratio"], 1, frameIndex);
-      if (Math.abs(aspectRatio - 1) > 1e-4) {
-        const scaled = makeCanvas(working.width || 1, Math.max(1, Math.round((working.height || 1) * aspectRatio)));
-        const sctx = scaled.getContext("2d", { willReadFrequently: true });
-        setResampleMode(sctx, normalizeFilterName(strAny(node, ["upscale_method", "interpolation", "transform_method", "filter"], "bilinear", frameIndex)));
-        sctx.drawImage(working, 0, 0, scaled.width, scaled.height);
-        working = scaled;
-      }
-      const tx = numAny(node, ["translate_x", "x", "shift_x"], 0, frameIndex);
-      const ty = numAny(node, ["translate_y", "y", "shift_y"], 0, frameIndex);
-      const rot = numAny(node, ["rotate_deg", "rotate"], 0, frameIndex);
-      const scale = numAny(node, ["scale"], 1, frameIndex);
-      const filter = normalizeFilterName(strAny(node, ["filter", "upscale_method", "interpolation", "transform_method"], "bilinear", frameIndex));
-      const expand = boolAny(node, ["expand"], false, frameIndex);
-      const fillMode = strAny(node, ["fill_mode", "edge_mode"], "transparent", frameIndex);
-      const fillColor = strAny(node, ["fill_color", "background_color", "color"], "#000000", frameIndex);
-      return applyEffectToCanvas(working, (effectCtx, width, height) => {
-        return applyTransform(effectCtx, width, height, tx, ty, rot, scale, filter, expand, fillMode, fillColor);
-      });
-    };
-    return renderMaskedEffectPreview(
-      node,
-      source,
-      rawMask,
-      transformImage,
-      {
-        frameIndex,
-        premultBeforeProcess: true,
-        compositeWithBase: false
-      }
-    );
-  },
-  cameraShake(ctx, W, node, inputs = [], frameIndex = 0) {
-    const source = inputs[0] ?? ctx.canvas;
-    const transformImage = (input) => {
-      const translate = Math.max(0, numAny(node, ["translate_px"], 12, frameIndex));
-      const rotate = Math.max(0, numAny(node, ["rotate_deg"], 1.5, frameIndex));
-      const zoom = Math.max(0, numAny(node, ["zoom"], 0.03, frameIndex));
-      const smoothing = numAny(node, ["smoothing"], 0.65, frameIndex);
-      const frequency = Math.max(0.01, numAny(node, ["shake_frequency", "frequency"], 1, frameIndex));
-      const seed = Math.max(0, Math.round(numAny(node, ["seed"], 12345, frameIndex)));
-      const tx = smoothShakeValue(seed + 11, frameIndex, 1, translate, smoothing, frequency);
-      const ty = smoothShakeValue(seed + 23, frameIndex, 2, translate, smoothing, frequency);
-      const rot = smoothShakeValue(seed + 37, frameIndex, 3, rotate, smoothing, frequency);
-      const scale = Math.max(0.01, 1 + smoothShakeValue(seed + 53, frameIndex, 4, zoom, smoothing, frequency));
-      return applyEffectToCanvas(input, (effectCtx, width, height) => {
-        return applyTransform(
-          effectCtx,
-          width,
-          height,
-          tx,
-          ty,
-          rot,
-          scale,
-          strAny(node, ["filter"], "bilinear", frameIndex),
-          false,
-          strAny(node, ["fill_mode"], "mirror", frameIndex),
-          strAny(node, ["fill_color"], "#000000", frameIndex)
-        );
-      });
-    };
-    return renderMaskedEffectPreview(node, source, inputs[1] ?? null, transformImage, {
-      frameIndex,
-      premultBeforeProcess: true,
-      compositeWithBase: false
-    });
-  },
+  crop,
+  cropStitch,
+  padOut,
+  cornerPin,
+  cropGeneric,
+  transform,
+  cameraShake,
   levels(ctx, W, node, _opts) {
     const { width, height } = getCanvasDimensions(ctx);
     applyLevels(
@@ -3184,18 +3046,9 @@ const ops = {
       applyClamp(effectCtx, width, height, numAny(node, ["min_v", "min"], 0, frameIndex), numAny(node, ["max_v", "max"], 1, frameIndex));
     });
   },
-  grain(ctx, W, node, inputs = [], frameIndex = 0) {
-    const source = inputs[0] ?? ctx.canvas;
-    return renderGrainCanvas(node, source, inputs[1] ?? null, frameIndex);
-  },
-  text(ctx, W, node, inputs = [], frameIndex = 0) {
-    const source = inputs[0] ?? ctx.canvas;
-    return renderTextCanvas(node, source, inputs[1] ?? null, frameIndex);
-  },
-  keyer(ctx, W, node, inputs = [], frameIndex = 0) {
-    const source = inputs[0] ?? ctx.canvas;
-    return renderKeyerCanvases(node, source, inputs[1] ?? null, frameIndex).image;
-  },
+  grain,
+  text,
+  keyer,
   sharpen(ctx, W, node) {
     const { width, height } = getCanvasDimensions(ctx);
     applyUnsharp(ctx, width, height, numAny(node, ["amount", "strength", "factor"], 1));
@@ -3208,292 +3061,174 @@ const ops = {
     const { width, height } = getCanvasDimensions(ctx);
     applyGlow(ctx, width, height, numAny(node, ["threshold"], 0.8), numAny(node, ["intensity"], 0.75), Math.round(numAny(node, ["blur_px", "blur", "radius"], 6)));
   },
-  cropReformat(ctx, W, node) {
-    const { width, height } = getCanvasDimensions(ctx);
-    applyCropReformat(
-      ctx,
-      width,
-      height,
-      numAny(node, ["x"], 0),
-      numAny(node, ["y"], 0),
-      numAny(node, ["crop_w", "width"], width),
-      numAny(node, ["crop_h", "height"], height),
-      numAny(node, ["padding"], 0),
-      numAny(node, ["out_w", "target_width"], 0),
-      numAny(node, ["out_h", "target_height"], 0),
-      strAny(node, ["mode", "method"], "fit")
-    );
-  },
+  cropReformat,
   lumaKey(ctx, W, node) {
     const { width, height } = getCanvasDimensions(ctx);
     applyLumaKey(ctx, width, height, numAny(node, ["low"], 0.1), numAny(node, ["high"], 0.9), numAny(node, ["softness"], 0.05));
   },
-  merge(ctx, W, node, topCanvasOrInputs, _opts, frameIndex = 0) {
-    const inputs = Array.isArray(topCanvasOrInputs) ? topCanvasOrInputs : [ctx.canvas, topCanvasOrInputs];
-    const base = inputs[0] ?? ctx.canvas;
-    const topCanvas = inputs[1] ?? null;
-    if (!topCanvas) return fitCanvas(base, base.width || 1, base.height || 1);
-    const mode = strAny(node, ["mode", "blend_mode"], "over", frameIndex);
-    const foregroundFit = strAny(node, ["foreground_fit", "fit_mode"], "stretch", frameIndex);
-    const blendSpace = strAny(node, ["blend_space", "color_space"], "linear", frameIndex);
-    const rawOpacity = w(node, "opacity") ? num(node, "opacity", 100, frameIndex) : numAny(node, ["mix", "factor", "fade_factor", "blend_factor", "start_level", "end_level"], 1, frameIndex);
-    const opacity = rawOpacity > 1 ? rawOpacity / 100 : rawOpacity;
-    const merged = applyEffectToCanvas(base, (effectCtx, width, height) => {
-      blend(effectCtx, width, height, topCanvas, mode, opacity, foregroundFit, blendSpace);
-    });
-    const effectMask = resolvePreviewMaskCanvas(node, base, inputs[2] ?? null, frameIndex);
-    return effectMask ? compositeProcessedWithMask(base, merged, effectMask) : merged;
-  },
-  resize(ctx, W, node) {
-    const { width, height } = getCanvasDimensions(ctx);
-    const resolved = resolveResizeDimensions(node, width, height);
-    return resizeWithMode(ctx.canvas, resolved.width, resolved.height, resolved.filter, resolved.mode, resolved.fillColor, resolved.cropPosition);
-  },
-  pad(ctx, W, node, inputs = []) {
-    const source = inputs[0] ?? ctx.canvas;
-    const top = Math.max(0, Math.round(numAny(node, ["top"], 0)));
-    const bottom = Math.max(0, Math.round(numAny(node, ["bottom"], 0)));
-    const left = Math.max(0, Math.round(numAny(node, ["left"], 0)));
-    const right = Math.max(0, Math.round(numAny(node, ["right"], 0)));
-    const output = makeCanvas((source.width || 1) + left + right, (source.height || 1) + top + bottom);
-    const octx = output.getContext("2d", { willReadFrequently: true });
-    octx.fillStyle = parseHexColor(strAny(node, ["color", "background_color", "pad_color", "padding_color"], "#808080"));
-    octx.fillRect(0, 0, output.width, output.height);
-    octx.drawImage(source, left, top, source.width || 1, source.height || 1);
-    return output;
-  },
-  flipRotate(ctx, W, node) {
-    const flipMethod = strAny(node, ["flip_method"], "");
-    const horizontal = flipMethod.startsWith("y");
-    const vertical = flipMethod.startsWith("x");
-    let working = flipCanvas(ctx.canvas, horizontal, vertical);
-    const rotation = strAny(node, ["rotation"], "");
-    if (rotation.startsWith("90")) working = rotateDiscrete(working, 1);
-    else if (rotation.startsWith("180")) working = rotateDiscrete(working, 2);
-    else if (rotation.startsWith("270")) working = rotateDiscrete(working, 3);
-    return working;
-  },
+  merge,
+  resize,
+  pad,
+  flipRotate,
   desaturate(ctx, W, node) {
     const { width, height } = getCanvasDimensions(ctx);
     const factor = numAny(node, ["factor", "amount"], 1);
     applyDesaturate(ctx, width, height, factor);
   },
-  composite(ctx, W, node, inputs) {
-    const base = inputs[0] ?? ctx.canvas;
-    const topInput = inputs[1] ?? null;
-    if (!topInput) return base;
-    const rawMask = inputs[2] ?? null;
-    const maskInput = rawMask && boolAny(node, ["invert_mask"], false) ? invertMaskCanvas(rawMask) : rawMask;
-    const top = premultLayerWithMask(topInput, maskInput);
-    const x = Math.round(numAny(node, ["x"], 0) + numAny(node, ["offset_x"], 0));
-    const y = Math.round(numAny(node, ["y"], 0) + numAny(node, ["offset_y"], 0));
-    const mode = strAny(node, ["mode", "blend_mode"], "over");
-    const rawOpacity = w(node, "opacity") ? num(node, "opacity", 100) : numAny(node, ["mix", "factor", "blend_factor", "start_level", "end_level"], 1);
-    const opacity = rawOpacity > 1 ? rawOpacity / 100 : rawOpacity;
-    return compositeAt(base, top, mode, opacity, x, y, top.width || 1, top.height || 1);
-  },
-  stitch(ctx, W, node, inputs) {
-    const first = inputs[0] ?? ctx.canvas;
-    const second = inputs[1] ?? null;
-    if (!second) return first;
-    return stitchCanvases(
-      first,
-      second,
-      strAny(node, ["direction"], "right"),
-      numAny(node, ["spacing_width"], 0),
-      strAny(node, ["spacing_color"], "black"),
-      boolAny(node, ["match_image_size"], true)
-    );
-  },
-  channelSplit(ctx, W, node, outputSlot) {
-    return extractSplitChannelCanvas(ctx.canvas, outputSlot, strAny(node, ["mode"], "RGBA"));
-  },
-  channelMerge(ctx, W, node, inputs) {
-    return mergeChannelInputs(inputs, strAny(node, ["mode"], "RGBA")) ?? (inputs[0] ?? ctx.canvas);
-  },
-  channelApply(ctx, W, node, inputs) {
-    const base = fitCanvas(inputs[0] ?? ctx.canvas, (inputs[0] ?? ctx.canvas).width || 1, (inputs[0] ?? ctx.canvas).height || 1);
-    const mask = inputs[1] ? fitCanvas(inputs[1], base.width, base.height) : null;
-    if (!mask) return base;
-    const bctx = base.getContext("2d", { willReadFrequently: true });
-    const image = bctx.getImageData(0, 0, base.width, base.height);
-    const data = image.data;
-    const matte = mask.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, base.width, base.height).data;
-    const channel = strAny(node, ["channel"], "A").toLowerCase();
-    const channelIndex = channel === "g" || channel === "green" ? 1 : channel === "b" || channel === "blue" ? 2 : channel === "a" || channel === "alpha" ? 3 : 0;
-    for (let i = 0; i < data.length; i += 4) {
-      const value = Math.round(clamp01(matte[i] / 255 * (matte[i + 3] / 255)) * 255);
-      data[i + channelIndex] = value;
-    }
-    bctx.putImageData(image, 0, 0);
-    return base;
-  },
-  comp(ctx, W, node, inputs) {
-    return renderCompPreview(
-      node,
-      resolveCompPreviewInputs(node, inputs)
-    ).canvas;
-  },
-  distort(ctx, W, node, inputs, frameIndex = 0) {
-    return renderDistortCanvas(node, inputs, frameIndex).image;
-  },
-  spherize(ctx, W, node, inputs = [], frameIndex = 0) {
-    let source = inputs[0] ?? ctx.canvas;
-    const sizeMode = strAny(node, ["size_mode"], "from_input", frameIndex).toLowerCase().trim();
-    if (sizeMode === "custom") {
-      const tw = Math.max(64, Math.round(numAny(node, ["width"], 512, frameIndex)));
-      const th = Math.max(64, Math.round(numAny(node, ["height"], 512, frameIndex)));
-      if (tw !== source.width || th !== source.height) {
-        const resized = makeCanvas(tw, th);
-        resized.getContext("2d", { willReadFrequently: true }).drawImage(source, 0, 0, tw, th);
-        source = resized;
-      }
-    } else {
-      const ww = w(node, "width");
-      const hw = w(node, "height");
-      setWidgetValue(ww, Math.max(64, source.width));
-      setWidgetValue(hw, Math.max(64, source.height));
-    }
-    return applyEffectToCanvas(source, (effectCtx, width, height) => {
-      applySpherize(
-        effectCtx,
-        width,
-        height,
-        strAny(node, ["mode"], "spherize", frameIndex),
-        numAny(node, ["strength"], 1, frameIndex),
-        boolAny(node, ["invert"], false, frameIndex)
-      );
-    });
-  },
-  constant(ctx, W, node) {
-    return renderConstantCanvas(node, false);
-  },
-  ramp(ctx, W, node) {
-    return renderRampCanvas(node, false);
-  },
-  noise(ctx, W, node, frameIndex = 0) {
-    return renderNoiseCanvas(node, false, frameIndex, W);
-  },
-  async draw(ctx, W, node, inputs) {
-    return await renderDrawPreview(node, inputs[0] ?? null);
-  },
-  async drawMask(ctx, W, node, inputs) {
-    const base = inputs[0] ?? null;
-    const width = base?.width || Math.max(1, Math.round(numAny(node, ["width"], 1024)));
-    const height = base?.height || Math.max(1, Math.round(numAny(node, ["height"], 1024)));
-    const overlay = await resolveDrawOverlayCanvas(node, width, height);
-    const ow = overlay.width || 1;
-    const oh = overlay.height || 1;
-    const matte = makeCanvas(ow, oh);
-    const mctx = matte.getContext("2d", { willReadFrequently: true });
-    mctx.drawImage(overlay, 0, 0);
-    const img = mctx.getImageData(0, 0, ow, oh);
-    const data = img.data;
-    for (let i = 0; i < data.length; i += 4) {
-      const a = data[i + 3];
-      data[i] = 255;
-      data[i + 1] = 255;
-      data[i + 2] = 255;
-      data[i + 3] = a;
-    }
-    mctx.putImageData(img, 0, 0);
-    const mask = markPreparedMaskCanvas(matte);
-    return boolAny(node, ["invert_mask"], false) ? invertMaskCanvas(mask) : mask;
-  },
-  imageOpsMask(ctx, W, node, cls, inputs = [], frameIndex = 0) {
-    const source = inputs[0] ?? ctx.canvas;
-    const rawMask = inputs[1] ?? null;
-    const resolvedMask = resolvePreviewMaskCanvas(node, source, rawMask, frameIndex);
-    if (cls === "ImageOpsMaskConvert") {
-      return boolAny(node, ["reverse"], false, frameIndex) ? imageToMaskPreviewCanvas(source, node, frameIndex) : buildMaskAlphaCanvas(source, source.width || 1, source.height || 1);
-    }
-    if (cls === "ImageOpsNoise") {
-      return renderNoiseCanvas(node, true, frameIndex, W);
-    }
-    if (cls === "ImageOpsConstant") {
-      return renderConstantCanvas(node, true);
-    }
-    if (cls === "ImageOpsRamp") {
-      return renderRampCanvas(node, true);
-    }
-    if (cls === "ImageOpsDistort") {
-      return renderDistortCanvas(node, inputs, frameIndex).mask;
-    }
-    if (cls === "ImageOpsBlur") {
-      return resolvedMask ?? alphaMaskCanvas(source);
-    }
-    if (cls === "ImageOpsTransform") {
-      return ops.transform(ctx, W, node, [resolvedMask ?? alphaMaskCanvas(source)], frameIndex);
-    }
-    if (cls === "ImageOpsCrop") {
-      return ops.crop(ctx, W, node, [resolvedMask ?? alphaMaskCanvas(source)], frameIndex);
-    }
-    if (cls === "ImageOpsCropStitch") {
-      return renderCropStitchCanvases(node, inputs, frameIndex).mask;
-    }
-    if (cls === "ImageOpsPadOut") {
-      return renderPadOutCanvases(node, source, frameIndex).mask;
-    }
-    if (cls === "ImageOpsCornerPin") {
-      return renderCornerPinCanvases(node, source, frameIndex).mask;
-    }
-    if (cls === "ImageOpsChannel") {
-      const extracted = applyEffectToCanvas(source, (effectCtx, width, height) => {
-        applyChannel(effectCtx, width, height, strAny(node, ["channel"], "Red", frameIndex));
-      });
-      return buildMaskAlphaCanvas(extracted, extracted.width || 1, extracted.height || 1);
-    }
-    if (cls === "ImageOpsClamp") {
-      if (!resolvedMask) return alphaMaskCanvas(source);
-      const lo = numAny(node, ["min_v", "min"], 0, frameIndex);
-      const hi = numAny(node, ["max_v", "max"], 1, frameIndex);
-      const mn = Math.round(clamp01(Math.min(lo, hi)) * 255);
-      const mx = Math.round(clamp01(Math.max(lo, hi)) * 255);
-      const clampMaskOut = makeCanvas(resolvedMask.width || 1, resolvedMask.height || 1);
-      const clampMaskCtx = clampMaskOut.getContext("2d", { willReadFrequently: true });
-      clampMaskCtx.drawImage(resolvedMask, 0, 0);
-      const clampImg = clampMaskCtx.getImageData(0, 0, clampMaskOut.width, clampMaskOut.height);
-      const clampData = clampImg.data;
-      for (let ci = 0; ci < clampData.length; ci += 4) {
-        clampData[ci] = 255;
-        clampData[ci + 1] = 255;
-        clampData[ci + 2] = 255;
-        clampData[ci + 3] = Math.max(mn, Math.min(mx, clampData[ci + 3]));
-      }
-      clampMaskCtx.putImageData(clampImg, 0, 0);
-      return markPreparedMaskCanvas(clampMaskOut);
-    }
-    if (cls === "ImageOpsKeyer") {
-      return renderKeyerCanvases(node, source, rawMask, frameIndex).mask;
-    }
-    if (cls === "ImageOpsInvert") {
-      const mask = resolvedMask ?? alphaMaskCanvas(source);
-      return mask;
-    }
-    if (cls === "ImageOpsSpherize") {
-      return renderSpherizeMaskCanvas(node, source, rawMask, frameIndex);
-    }
-    if (cls === "ImageOpsMerge") {
-      const mergeMaskInput = inputs[2] ?? null;
-      if (mergeMaskInput) {
-        const mergeResolvedMask = resolvePreviewMaskCanvas(node, source, mergeMaskInput, frameIndex);
-        if (mergeResolvedMask) return mergeResolvedMask;
-      }
-      const merged = ops.merge(ctx, W, node, inputs, void 0, frameIndex);
-      return alphaMaskCanvas(merged);
-    }
-    if (cls === "ImageOpsComp") {
-      const mask = alphaMaskCanvas(ops.comp(ctx, W, node, inputs));
-      return boolAny(node, ["invert_mask"], false, frameIndex) ? invertMaskCanvas(mask) : mask;
-    }
-    if (cls === "ImageOpsColorAjust") {
-      return resolvedMask ?? alphaMaskCanvas(source);
-    }
-    return resolvedMask ?? alphaMaskCanvas(source);
-  }
+  composite,
+  stitch,
+  channelSplit,
+  channelMerge,
+  channelApply,
+  comp,
+  distort,
+  spherize,
+  constant,
+  ramp,
+  noise,
+  draw,
+  drawMask,
+  imageOpsMask
 };
 export {
+  _spherizeMapFwd,
+  _spherizeMapInv,
+  alphaMaskCanvas,
+  applyBlur,
+  applyChannel,
+  applyClamp,
+  applyColorCorrect,
+  applyColorCorrectReference,
+  applyCrop,
+  applyCropReformat,
+  applyDesaturate,
+  applyEdgeDetect,
+  applyEffectToCanvas,
+  applyGlow,
+  applyHueSat,
+  applyInvert,
+  applyLevels,
+  applyLumaKey,
+  applyMaskConvertLevels,
+  applyRampCurve,
+  applySpherize,
+  applyTransform,
+  applyUnsharp,
+  bilinearSample,
+  blend,
+  blendGrainValue,
+  blurField,
+  blurMaskAlphaCanvas,
+  blurMaskCanvas,
+  bool,
+  boolAny,
+  buildMaskAlphaCanvas,
+  buildNoiseField,
+  canvasHasVisibleTransparency,
+  clamp01,
+  compModeToCanvasOp,
+  composeCropStitchPreview,
+  compositeAt,
+  compositeProcessedWithMask,
+  computeMaskBounds,
+  cropRectCanvas,
+  cropStitchBBoxFromMask,
+  cubicHermite,
+  distortConnectedInputs,
+  drawCropStitchPanel,
+  emptyMaskCanvas,
+  extractCanvasField,
+  extractMaskDrivenCrop,
+  extractSplitChannelCanvas,
+  fitCanvas,
+  fitMergeForeground,
+  flipCanvas,
+  getCanvasDimensions,
+  getImageData,
+  getPreferredInputIndexes,
+  gradientDot3,
+  grainRandom01,
+  hexToRgb01,
+  imageLikeInputName,
+  imageToMaskPreviewCanvas,
+  invert3x3,
+  invertMaskAlphaCanvas,
+  invertMaskCanvas,
+  isPreparedMaskCanvas,
+  linearToSrgb01,
+  luma01,
+  makeCanvas,
+  makeCropStitchRectMask,
+  markPreparedMaskCanvas,
+  maskCanvasToPreviewCanvas,
+  maskConvertSourceValue,
+  mergeChannelInputs,
+  neutralField,
+  noiseFade,
+  noiseHash3D,
+  noiseLerp,
+  normalizeAffineFillMode,
+  normalizeBlendModeName,
+  normalizeFilterName,
+  normalizePreparedMaskCanvas,
+  num,
+  numAny,
   ops,
+  parseCropStitchBBox,
+  parseHexColor,
+  parseKeyColors,
+  premultLayerWithMask,
+  prepareMaskCanvasInPlace,
+  putImageData,
+  reflectCoord,
+  reflectCoordinate,
   renderCompPreview,
-  renderDrawNodePreview
+  renderConstantCanvas,
+  renderCornerPinCanvases,
+  renderCropStitchCanvases,
+  renderDistortCanvas,
+  renderDrawNodePreview,
+  renderGrainCanvas,
+  renderKeyerCanvases,
+  renderMaskedEffectPreview,
+  renderNoiseCanvas,
+  renderNoiseFieldCanvas,
+  renderPadOutCanvases,
+  renderRampCanvas,
+  renderSpherizeMaskCanvas,
+  renderTextCanvas,
+  resizeWithMode,
+  resolveBlurRadiusPx,
+  resolveCompPreviewInputs,
+  resolveConnectedString,
+  resolvePadOutGeometry,
+  resolvePreviewMaskCanvas,
+  resolveResizeDimensions,
+  rgbToHsv01,
+  rotateDiscrete,
+  sampleChannel,
+  sampleChannelBicubic,
+  sampleChannelBilinear,
+  sampleChannelNearest,
+  sampleNoiseBasis,
+  samplePerlinNoise,
+  sampleValueNoise,
+  sampleWhiteNoise,
+  setResampleMode,
+  shakeRandom,
+  smoothRange01,
+  smoothShakeValue,
+  softKeyDistance,
+  solveCornerPinInverseHomography,
+  solveInverseHomographyFromCorners,
+  solveLinear8x8,
+  srgbToLinear01,
+  stitchCanvases,
+  str,
+  strAny,
+  w,
+  wAny,
+  warpCanvasToQuad,
+  widgetScalarValue,
+  wrapNoiseIndex
 };

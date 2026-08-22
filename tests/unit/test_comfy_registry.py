@@ -10,8 +10,10 @@ from pathlib import Path
 import pytest
 
 
+import os
+
 ROOT = Path(__file__).resolve().parent.parent.parent
-COMFY_ROOT = ROOT.parent.parent
+COMFY_ROOT = Path(os.environ.get("COMFYUI_ROOT", ROOT.parent.parent))
 
 
 class _Routes:
