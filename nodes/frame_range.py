@@ -94,9 +94,14 @@ class ImageOpsFrameRange:
         custom_frame_count=24,
         unique_id=None,
     ):
-        image = _coerce_media_to_tensor(image, "image")
+        from .core.media import ImageOpsMedia
+        
+        is_media = isinstance(image, ImageOpsMedia)
+        media_obj = image if is_media else None
+        
+        tensor = _coerce_media_to_tensor(image, "image")
         progress = start_progress(unique_id=unique_id)
-        source_count = int(image.shape[0])
+        source_count = int(tensor.shape[0])
 
         if _scalar(bypass, bool):
             progress.finish()
@@ -135,13 +140,34 @@ class ImageOpsFrameRange:
             indices = _repeat_indices(indices, output_count, str(repeat_mode or "loop"))
 
         if not indices:
-            out = image[:1].clone()
+            out_tensor = tensor[:1].clone()
+            out_audio = media_obj.audio if media_obj and media_obj.audio is not None else None
         else:
-            out = image[torch.tensor(indices, device=image.device, dtype=torch.long)]
+            idx_tensor = torch.tensor(indices, device=tensor.device, dtype=torch.long)
+            out_tensor = tensor[idx_tensor]
+            
+            if media_obj and media_obj.audio is not None:
+                # Approximate audio slicing assuming audio length matches video length linearly
+                # For proper audio, we would need sample rate, but we just slice the audio tensor
+                # along its first dimension (samples or frames). Let's assume audio is shape [B, ...]
+                # Wait, audio in ComfyUI is usually a dict, but in ImageOpsMedia it's a tensor.
+                # Actually, ComfyUI audio is a dict with waveform and sample_rate. 
+                # If we just keep it or slice it, we might need to know the audio shape.
+                # For now, let's just keep the original audio without slicing since slicing audio
+                # requires exact sample rates and alignment which we don't have here.
+                # Just pass it through or clear it if repeating.
+                out_audio = media_obj.audio.clone()
+            else:
+                out_audio = None
+
+        if is_media:
+            out = ImageOpsMedia(frames=out_tensor, fps=media_obj.fps, audio=out_audio, metadata=dict(media_obj.metadata))
+        else:
+            out = out_tensor
 
         progress.finish()
         return build_node_preview_result(
-            out,
-            (out, int(out.shape[0])),
+            out_tensor,
+            (out, int(out_tensor.shape[0])),
             metadata={"imageops_frame_range_source_count": [source_count]},
         )

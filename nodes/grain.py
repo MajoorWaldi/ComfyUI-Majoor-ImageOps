@@ -10,6 +10,7 @@ from ._helpers import (
     _scalar,
     _select_media_tensor,
 )
+from comfy_api.latest import io
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 
@@ -55,7 +56,7 @@ def _apply_synthetic_grain(source: torch.Tensor, amount, seed: int, monochrome: 
         raise ValueError("image is None")
     if source.dim() != 4:
         raise ValueError(f"Expected [B,H,W,C], got {tuple(source.shape)}")
-    x = source.float().clamp(0.0, 1.0)
+    x = source.float()
     rgb = x[..., :3]
     batch = int(x.shape[0])
     amount_t = torch.tensor(float(max(0.0, _scalar(amount))), device=x.device, dtype=x.dtype).view(1, 1, 1, 1)
@@ -77,53 +78,51 @@ def _apply_synthetic_grain(source: torch.Tensor, amount, seed: int, monochrome: 
         out_rgb = rgb * (1.0 - amount_t.clamp(0.0, 1.0)) + blended * amount_t.clamp(0.0, 1.0)
     else:
         out_rgb = rgb + grain
-    out_rgb = out_rgb.clamp(0.0, 1.0)
     if x.shape[-1] > 3:
-        return torch.cat([out_rgb, x[..., 3:]], dim=-1).to(device=source.device, dtype=source.dtype)
+        return torch.cat([out_rgb, x[..., 3:].clamp(0.0, 1.0)], dim=-1).to(device=source.device, dtype=source.dtype)
     return out_rgb.to(device=source.device, dtype=source.dtype)
 
 
-class ImageOpsGrain:
-    CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("image", "mask")
-    FUNCTION = "apply"
+class ImageOpsGrain(io.ComfyNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="ImageOpsGrain",
+            display_name="〽️ ImageOps Grain",
+            category="image/imageops",
+            inputs=[
+                io.Boolean.Input("bypass", default=False),
+                io.Float.Input("amount", default=0.08, min=0.0, max=1.0, step=0.001),
+                io.Combo.Input("blend_mode", options=_BLEND_MODES, default="add"),
+                io.Boolean.Input("monochrome", default=True),
+                io.Boolean.Input("animated", default=True),
+                io.Int.Input("frame_length", default=1, min=1, max=256, step=1, tooltip="Number of output frames when animating grain over a still image."),
+                io.Float.Input("fps", default=12.0, min=1.0, max=120.0, step=0.1),
+                io.Int.Input("seed", default=12345, min=0, max=0xffffffffffffffff),
+                io.Boolean.Input("invert_mask", default=False),
+                io.MultiType.Input("image", types=[io.Image, io.Video], optional=True, display_name="Images/Video", tooltip="Images/Video input."),
+                io.Mask.Input("mask", optional=True),
+            ],
+            outputs=[
+                io.Image.Output("image", display_name="image"),
+                io.Mask.Output("mask", display_name="mask"),
+            ],
+            hidden=[io.Hidden.unique_id],
+        )
 
     @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "bypass": ("BOOLEAN", {"default": False}),
-                "amount": ("FLOAT", {"default": 0.08, "min": 0.0, "max": 1.0, "step": 0.001}),
-                "blend_mode": (_BLEND_MODES, {"default": "add"}),
-                "monochrome": ("BOOLEAN", {"default": True}),
-                "animated": ("BOOLEAN", {"default": True}),
-                "frame_length": ("INT", {"default": 1, "min": 1, "max": 256, "step": 1, "tooltip": "Number of output frames when animating grain over a still image."}),
-                "fps": ("FLOAT", {"default": 12.0, "min": 1.0, "max": 120.0, "step": 0.1, "round": 0.001}),
-                "seed": ("INT", {"default": 12345, "min": 0, "max": 0xffffffffffffffff}),
-                "invert_mask": ("BOOLEAN", {"default": False}),
-            },
-            "optional": {
-                "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input.", "forceInput": True, "display_name": "Images/Video"}),
-                "mask": ("MASK",),
-            },
-            "hidden": {
-                "unique_id": "UNIQUE_ID",
-            },
-        }
-
-    def apply(
-        self,
+    def execute(
+        cls,
+        bypass: bool = False,
+        amount: float = 0.08,
+        blend_mode: str = "add",
+        monochrome: bool = True,
+        animated: bool = True,
+        frame_length: int = 1,
+        fps: float = 12.0,
+        seed: int = 12345,
+        invert_mask: bool = False,
         image=None,
-        bypass=False,
-        amount=0.08,
-        blend_mode="add",
-        monochrome=True,
-        animated=True,
-        frame_length=1,
-        fps=12.0,
-        seed=12345,
-        invert_mask=False,
         video=None,
         mask=None,
         unique_id=None,

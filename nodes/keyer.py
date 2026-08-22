@@ -10,6 +10,7 @@ from ._helpers import (
     _scalar,
     _select_media_tensor,
 )
+from comfy_api.latest import io
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 
@@ -87,20 +88,20 @@ def _apply_keyer(
     if image.dim() != 4:
         raise ValueError(f"Expected [B,H,W,C], got {tuple(image.shape)}")
 
-    source = image.float().clamp(0.0, 1.0)
+    source = image.float()
     batch = source.shape[0]
-    rgb = source[..., :3]
+    rgb_for_key = source[..., :3].clamp(0.0, 1.0)
     mode_value = str(mode or "color").strip().lower()
 
     if mode_value in ("luma", "luminance"):
-        weights = torch.tensor(LUMA_WEIGHTS, device=rgb.device, dtype=rgb.dtype)
-        distance = (rgb * weights).sum(dim=-1).clamp(0.0, 1.0)
+        weights = torch.tensor(LUMA_WEIGHTS, device=rgb_for_key.device, dtype=rgb_for_key.dtype)
+        distance = (rgb_for_key * weights).sum(dim=-1).clamp(0.0, 1.0)
     else:
                 colors = _parse_key_colors(key_colors)
                 if not colors:
                     colors = [_hex_to_rgb(key_color)]
-                targets = torch.tensor(colors, device=rgb.device, dtype=rgb.dtype).view(1, 1, 1, len(colors), 3)
-                rgb_expanded = rgb.unsqueeze(-2)
+                targets = torch.tensor(colors, device=rgb_for_key.device, dtype=rgb_for_key.dtype).view(1, 1, 1, len(colors), 3)
+                rgb_expanded = rgb_for_key.unsqueeze(-2)
                 distance = torch.linalg.vector_norm(rgb_expanded - targets, dim=-1).amin(dim=-1) / (3.0 ** 0.5)
 
     matte = 1.0 - _soft_threshold(distance, tolerance, softness, batch)
@@ -118,39 +119,53 @@ def _apply_keyer(
     return out.to(dtype=image.dtype), matte.to(dtype=image.dtype)
 
 
-class ImageOpsKeyer:
-    CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("image", "mask")
-    FUNCTION = "apply"
+class ImageOpsKeyer(io.ComfyNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="ImageOpsKeyer",
+            display_name="〽️ ImageOps Keyer",
+            category="image/imageops",
+            inputs=[
+                io.Boolean.Input("bypass", default=False),
+                io.Combo.Input("mode", options=["color", "luma"], default="color"),
+                io.Color.Input("key_color", default="#00ff00"),
+                io.String.Input("key_colors", default="", multiline=False),
+                io.Float.Input("tolerance", default=0.25, min=0.0, max=1.0, step=0.01),
+                io.Float.Input("softness", default=0.10, min=0.0, max=1.0, step=0.01),
+                io.Float.Input("gain", default=1.0, min=0.0, max=4.0, step=0.01),
+                io.Float.Input("blur", default=0.0, min=0.0, max=64.0, step=0.1),
+                io.Boolean.Input("invert", default=False),
+                io.Boolean.Input("invert_mask", default=False),
+                io.MultiType.Input("image", types=[io.Image, io.Video], optional=True, display_name="Images/Video", tooltip="Images/Video input. Accepts IMAGE batches and VIDEO frame sources."),
+                io.Mask.Input("mask", optional=True, tooltip="Optional matte multiplied into the key."),
+            ],
+            outputs=[
+                io.Image.Output("image", display_name="image"),
+                io.Mask.Output("mask", display_name="mask"),
+            ],
+            hidden=[io.Hidden.unique_id],
+        )
 
     @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "bypass": ("BOOLEAN", {"default": False}),
-                "mode": (["color", "luma"], {"default": "color"}),
-                "key_color": ("COLOR", {"default": "#00ff00"}),
-                "key_colors": ("STRING", {"default": "", "multiline": False}),
-                "tolerance": ("FLOAT", {"default": 0.25, "min": 0.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001}),
-                "softness": ("FLOAT", {"default": 0.10, "min": 0.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001}),
-                "gain": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 4.0, "step": 0.01, "display": "slider", "round": 0.001}),
-                "blur": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 64.0, "step": 0.1, "display": "slider", "round": 0.001}),
-                "invert": ("BOOLEAN", {"default": False}),
-                "invert_mask": ("BOOLEAN", {"default": False}),
-            },
-            "optional": {
-                "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input. Accepts IMAGE batches and VIDEO frame sources.", "forceInput": True, "display_name": "Images/Video"}),
-                "mask": ("MASK", {"tooltip": "Optional matte multiplied into the key."}),
-            },
-            "hidden": {
-                "unique_id": "UNIQUE_ID",
-            },
-        }
-
-    def apply(self, image=None, bypass=False, mode="color", key_color="#00ff00", key_colors="", tolerance=0.25, softness=0.1,
-              gain=1.0, blur=0.0,
-              invert=False, invert_mask=False, video=None, mask=None, unique_id=None, **_legacy):
+    def execute(
+        cls,
+        bypass: bool = False,
+        mode: str = "color",
+        key_color: str = "#00ff00",
+        key_colors: str = "",
+        tolerance: float = 0.25,
+        softness: float = 0.1,
+        gain: float = 1.0,
+        blur: float = 0.0,
+        invert: bool = False,
+        invert_mask: bool = False,
+        image=None,
+        video=None,
+        mask=None,
+        unique_id=None,
+        **_legacy
+    ):
         source = _select_media_tensor(image, video)
         progress = start_progress(unique_id=unique_id)
         effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)

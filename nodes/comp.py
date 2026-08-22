@@ -201,7 +201,7 @@ class ImageOpsComp(io.ComfyNode):
         progress = start_progress(total=max(1, len(connected_layers) + enabled_count), unique_id=progress_unique_id)
         tensors: list[tuple[dict[str, Any], Any, Any]] = []
         for layer, image_value, mask_value in connected_layers:
-            image_tensor = _coerce_media_to_tensor(image_value, layer["slot"]).float().clamp(0.0, 1.0)
+            image_tensor = _coerce_media_to_tensor(image_value, layer["slot"]).float()
             tensors.append((layer, image_tensor, mask_value))
             progress.update()
 

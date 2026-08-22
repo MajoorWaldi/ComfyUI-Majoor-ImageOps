@@ -154,6 +154,8 @@ class ImageOpsAppend:
         }
 
     def apply(self, bypass=False, fit_mode="strict", trims_json='{"version":1,"clips":[]}', unique_id=None, **inputs):
+        from .core.media import ImageOpsMedia
+        
         progress = start_progress(unique_id=unique_id)
         clips = _sorted_clip_inputs(inputs)
         if not clips:
@@ -162,7 +164,20 @@ class ImageOpsAppend:
         trims = _parse_trims(trims_json)
         tensors: list[torch.Tensor] = []
         clip_metadata: list[dict[str, int]] = []
+        
+        has_media = False
+        fps = 24.0
+        audio_list = []
+        
         for clip_index, value in clips:
+            is_media = isinstance(value, ImageOpsMedia)
+            if is_media:
+                if not has_media:
+                    fps = value.fps
+                has_media = True
+                if value.audio is not None:
+                    audio_list.append(value.audio)
+            
             tensor = _select_media_tensor(value, None).float().clamp(0.0, 1.0)
             start, end = trims.get(clip_index, (0, -1))
             trimmed = _trim_clip(tensor, start, end)
@@ -180,7 +195,7 @@ class ImageOpsAppend:
         tensors = [_coerce_channels(t, max_channels) for t in tensors]
 
         if bool(bypass) or len(tensors) == 1:
-            out = tensors[0]
+            out_tensor = tensors[0]
         else:
             aligned = [tensors[0]]
             for tensor in tensors[1:]:
@@ -188,14 +203,22 @@ class ImageOpsAppend:
                 if first is not aligned[0]:
                     aligned = [first] + [_align_pair(first, item, fit_mode)[1] for item in aligned[1:]]
                 aligned.append(current)
-            out = torch.cat(aligned, dim=0)
+            out_tensor = torch.cat(aligned, dim=0)
+
+        if has_media:
+            # We skip proper audio concatenation for now since it requires exact sample rates and alignment,
+            # we just take the first audio or None if there isn't any
+            out_audio = audio_list[0] if audio_list else None
+            out = ImageOpsMedia(frames=out_tensor, fps=fps, audio=out_audio)
+        else:
+            out = out_tensor
 
         progress.finish()
-        frame_count = int(out.shape[0])
-        height = int(out.shape[1])
-        width = int(out.shape[2])
+        frame_count = int(out_tensor.shape[0])
+        height = int(out_tensor.shape[1])
+        width = int(out_tensor.shape[2])
         return build_node_preview_result(
-            out,
+            out_tensor,
             (out, frame_count, width, height),
             prefix="imageops_append",
             metadata={

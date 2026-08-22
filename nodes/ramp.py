@@ -57,8 +57,8 @@ def _ramp_image(
     rgb_a = torch.tensor(_hex_to_rgb01(color_a), dtype=torch.float32).view(1, 1, 1, 3)
     rgb_b = torch.tensor(_hex_to_rgb01(color_b), dtype=torch.float32).view(1, 1, 1, 3)
     rgb = (rgb_a * (1.0 - t) + rgb_b * t).expand(batch, height, width, 3).clone()
-    a = torch.full((batch, height, width, 1), float(alpha), dtype=torch.float32)
-    return torch.cat([rgb, a], dim=-1).clamp(0.0, 1.0)
+    a = torch.full((batch, height, width, 1), float(alpha), dtype=torch.float32).clamp(0.0, 1.0)
+    return torch.cat([rgb, a], dim=-1)
 
 
 class ImageOpsRamp:

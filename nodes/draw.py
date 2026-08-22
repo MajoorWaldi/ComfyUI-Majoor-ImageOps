@@ -10,6 +10,7 @@ import torch
 from PIL import Image
 
 from ._helpers import MEDIA_INPUT_TYPE, _expand_image_batch, _hex_to_rgb01, _scalar, _select_media_tensor
+from comfy_api.latest import io
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 
@@ -178,7 +179,7 @@ def _composite_overlay(base: torch.Tensor, overlay_rgba: torch.Tensor) -> tuple[
     if overlay_rgba.dim() != 4 or overlay_rgba.shape[-1] < 4:
         raise ValueError(f"Expected overlay image as [B,H,W,4], got {tuple(overlay_rgba.shape)}")
 
-    base = base.float().clamp(0.0, 1.0)
+    base = base.float()
     overlay_rgba = overlay_rgba.float().clamp(0.0, 1.0)
 
     if base.shape[0] != overlay_rgba.shape[0]:
@@ -192,71 +193,71 @@ def _composite_overlay(base: torch.Tensor, overlay_rgba: torch.Tensor) -> tuple[
     if base.shape[-1] >= 4:
         base_alpha = base[..., 3:4].clamp(0.0, 1.0)
         out_alpha = overlay_alpha + base_alpha * (1.0 - overlay_alpha)
-        result = torch.cat([out_rgb, out_alpha], dim=-1)
+        result = torch.cat([out_rgb, out_alpha.clamp(0.0, 1.0)], dim=-1)
     else:
         result = out_rgb
 
-    return result.clamp(0.0, 1.0), overlay_alpha[..., 0].clamp(0.0, 1.0)
+    return result, overlay_alpha[..., 0].clamp(0.0, 1.0)
 
 
-class ImageOpsDraw:
-    CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE", "IMAGE", "MASK")
-    RETURN_NAMES = ("image", "source_image", "mask")
-    FUNCTION = "apply"
+class ImageOpsDraw(io.ComfyNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="ImageOpsDraw",
+            display_name="〽️ ImageOps Paint",
+            category="image/imageops",
+            inputs=[
+                io.Boolean.Input("bypass", default=False),
+                io.Int.Input("width", default=1024, min=64, max=4096, step=64),
+                io.Int.Input("height", default=1024, min=64, max=4096, step=64),
+                io.Boolean.Input("sync_dimensions", default=True, label_on="Linked", label_off="Free"),
+                io.Color.Input("bg_color", default="#000000"),
+                io.Combo.Input("tool", options=["brush", "eraser"], default="brush"),
+                io.Combo.Input("brush_edge", options=["hard", "soft"], default="hard"),
+                io.Float.Input("brush_softness", default=0.5, min=0.0, max=1.0, step=0.01, tooltip="How feathered the soft brush is. 0 = nearly hard, 1 = max falloff. Ignored when brush_edge=hard."),
+                io.Color.Input("brush_color", default="#FFFFFF"),
+                io.Float.Input("brush_opacity", default=1.0, min=0.0, max=1.0, step=0.01),
+                io.Int.Input("brush_size", default=10, min=1, max=256, step=1),
+                io.Boolean.Input("brush_pressure_size", default=True),
+                io.Boolean.Input("brush_pressure_opacity", default=True),
+                io.Boolean.Input("brush_tilt_size", default=False),
+                io.Combo.Input("overlay_format", options=["png", "webp"], default="png"),
+                io.String.Input("overlay_data", default="", multiline=False),
+                io.String.Input("overlay_layers", default="", multiline=False),
+                io.Boolean.Input("invert_mask", default=False),
+                io.MultiType.Input("image", types=[io.Image, io.Video], optional=True, display_name="Images/Video", tooltip="Images/Video input. Accepts IMAGE batches and VIDEO frame sources."),
+            ],
+            outputs=[
+                io.Image.Output("image", display_name="image"),
+                io.Image.Output("source_image", display_name="source_image"),
+                io.Mask.Output("mask", display_name="mask"),
+            ],
+            hidden=[io.Hidden.unique_id],
+        )
 
     @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "bypass": ("BOOLEAN", {"default": False}),
-                "width": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 64}),
-                "height": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 64}),
-                "sync_dimensions": ("BOOLEAN", {"default": True, "label_on": "Linked", "label_off": "Free"}),
-                "bg_color": ("COLOR", {"default": "#000000"}),
-                "tool": (["brush", "eraser"], {"default": "brush"}),
-                "brush_edge": (["hard", "soft"], {"default": "hard"}),
-                "brush_softness": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001, "tooltip": "How feathered the soft brush is. 0 = nearly hard, 1 = max falloff. Ignored when brush_edge=hard."}),
-                "brush_color": ("COLOR", {"default": "#FFFFFF"}),
-                "brush_opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "display": "slider", "round": 0.001}),
-                "brush_size": ("INT", {"default": 10, "min": 1, "max": 256, "step": 1, "display": "slider"}),
-                "brush_pressure_size": ("BOOLEAN", {"default": True}),
-                "brush_pressure_opacity": ("BOOLEAN", {"default": True}),
-                "brush_tilt_size": ("BOOLEAN", {"default": False}),
-                "overlay_format": (["png", "webp"], {"default": "png"}),
-                "overlay_data": ("STRING", {"default": "", "multiline": False}),
-                "overlay_layers": ("STRING", {"default": "", "multiline": False}),
-                "invert_mask": ("BOOLEAN", {"default": False}),
-            },
-            "optional": {
-                "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input. Accepts IMAGE batches and VIDEO frame sources.", "forceInput": True, "display_name": "Images/Video"}),
-            },
-            "hidden": {
-                "unique_id": "UNIQUE_ID",
-            },
-        }
-
-    def apply(
-        self,
+    def execute(
+        cls,
+        bypass: bool = False,
+        width: int = 1024,
+        height: int = 1024,
+        sync_dimensions: bool = True,
+        bg_color: str = "#000000",
+        tool: str = "brush",
+        brush_edge: str = "hard",
+        brush_softness: float = 0.5,
+        brush_color: str = "#FFFFFF",
+        brush_opacity: float = 1.0,
+        brush_size: int = 10,
+        brush_pressure_size: bool = True,
+        brush_pressure_opacity: bool = True,
+        brush_tilt_size: bool = False,
+        overlay_format: str = "png",
+        overlay_data: str = "",
+        overlay_layers: str = "",
+        invert_mask: bool = False,
         image=None,
-        bypass=False,
-        width=1024,
-        height=1024,
-        sync_dimensions=True,
-        bg_color="#000000",
-        tool="brush",
-        brush_edge="hard",
-        brush_softness=0.5,
-        brush_color="#FFFFFF",
-        brush_opacity=1.0,
-        brush_size=10,
-        brush_pressure_size=True,
-        brush_pressure_opacity=True,
-        brush_tilt_size=False,
-        overlay_format="png",
-        overlay_data="",
-        overlay_layers="",
-        invert_mask=False,
         video=None,
         unique_id=None,
     ):
@@ -267,7 +268,7 @@ class ImageOpsDraw:
 
         source = None
         if image is not None or video is not None:
-            source = _select_media_tensor(image, video).float().clamp(0.0, 1.0)
+            source = _select_media_tensor(image, video).float()
         else:
             source = _blank_draw_base(width, height, bg_color)
 

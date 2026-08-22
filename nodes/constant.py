@@ -12,8 +12,8 @@ _MODES = ["constant", "checkerboard"]
 def _constant_image(batch: int, height: int, width: int, color: str, alpha: float) -> torch.Tensor:
     rgb = torch.tensor(_hex_to_rgb01(color), dtype=torch.float32).view(1, 1, 1, 3)
     image = rgb.expand(batch, height, width, 3).clone()
-    a = torch.full((batch, height, width, 1), float(alpha), dtype=torch.float32)
-    return torch.cat([image, a], dim=-1).clamp(0.0, 1.0)
+    a = torch.full((batch, height, width, 1), float(alpha), dtype=torch.float32).clamp(0.0, 1.0)
+    return torch.cat([image, a], dim=-1)
 
 
 def _checkerboard_image(
@@ -35,8 +35,8 @@ def _checkerboard_image(
     rgb_b = torch.tensor(_hex_to_rgb01(color_b), dtype=torch.float32).view(1, 1, 1, 3)
     rgb = rgb_a * (1.0 - pattern) + rgb_b * pattern
     rgb = rgb.expand(batch, height, width, 3).clone()
-    a = torch.full((batch, height, width, 1), float(alpha), dtype=torch.float32)
-    return torch.cat([rgb, a], dim=-1).clamp(0.0, 1.0)
+    a = torch.full((batch, height, width, 1), float(alpha), dtype=torch.float32).clamp(0.0, 1.0)
+    return torch.cat([rgb, a], dim=-1)
 
 
 class ImageOpsConstant:

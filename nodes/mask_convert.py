@@ -12,7 +12,7 @@ from ._helpers import (
     _scalar,
     _select_media_tensor,
 )
-from .compat.comfy_v3 import V3NodeBase
+from comfy_api.latest import io
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 
@@ -96,32 +96,42 @@ def _image_to_mask(
     return _apply_mask_points(mask, black_point, white_point).clamp(0.0, 1.0)
 
 
-class ImageOpsMaskConvert(V3NodeBase):
-    CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("image", "mask")
-    FUNCTION = "apply"
+class ImageOpsMaskConvert(io.ComfyNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="ImageOpsMaskConvert",
+            display_name="〽️ ImageOps Mask Convert",
+            category="image/imageops",
+            inputs=[
+                io.Boolean.Input("reverse", default=False, label_on="image -> mask", label_off="mask -> image"),
+                io.Combo.Input("mask_source", options=["auto", "luma", "max_rgb", "saturation", "red", "green", "blue", "alpha"], default="auto"),
+                io.Float.Input("black_point", default=0.0, min=0.0, max=1.0, step=0.01),
+                io.Float.Input("white_point", default=1.0, min=0.0, max=1.0, step=0.01),
+                io.Float.Input("antialias_radius", default=0.0, min=0.0, max=4.0, step=0.1),
+                io.MultiType.Input("image", types=[io.Image, io.Video], optional=True, display_name="Images/Video", tooltip="Images/Video input used when reverse is enabled."),
+                io.Mask.Input("mask", optional=True),
+            ],
+            outputs=[
+                io.Image.Output("image", display_name="image"),
+                io.Mask.Output("mask", display_name="mask"),
+            ],
+            hidden=[io.Hidden.unique_id],
+        )
 
     @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "reverse": ("BOOLEAN", {"default": False, "label_on": "image -> mask", "label_off": "mask -> image"}),
-                "mask_source": (["auto", "luma", "max_rgb", "saturation", "red", "green", "blue", "alpha"], {"default": "auto"}),
-                "black_point": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "round": 0.001}),
-                "white_point": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "round": 0.001}),
-                "antialias_radius": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 4.0, "step": 0.1, "round": 0.001}),
-            },
-            "optional": {
-                "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input used when reverse is enabled.", "forceInput": True, "display_name": "Images/Video"}),
-                "mask": ("MASK",),
-            },
-            "hidden": {
-                "unique_id": "UNIQUE_ID",
-            },
-        }
-
-    def apply(self, reverse=False, mask_source="auto", black_point=0.0, white_point=1.0, antialias_radius=0.0, image=None, video=None, mask=None, unique_id=None):
+    def execute(
+        cls,
+        reverse: bool = False,
+        mask_source: str = "auto",
+        black_point: float = 0.0,
+        white_point: float = 1.0,
+        antialias_radius: float = 0.0,
+        image=None,
+        video=None,
+        mask=None,
+        unique_id=None,
+    ):
         progress = start_progress(unique_id=unique_id)
 
         if _scalar(reverse, bool):

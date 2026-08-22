@@ -442,7 +442,7 @@ class ImageOpsNoise:
                     frame_gray,
                     low_color=_scalar(low_color, str, index=frame_index),
                     high_color=_scalar(high_color, str, index=frame_index),
-                ).unsqueeze(0).clamp(0.0, 1.0).cpu()
+                ).unsqueeze(0).cpu()
             )
             progress.update()
 
