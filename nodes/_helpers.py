@@ -137,35 +137,33 @@ def _apply_color_correct(image, brightness, contrast, gamma, saturation):
     st = _param_tensor(saturation, B, d, dt)
     x = x + br
     x = (x - 0.5) * ct + 0.5
-    x = torch.clamp(x, 0, 1) ** (1.0 / gm)
+    x = torch.clamp(x, min=0.0) ** (1.0 / gm)
 
     rgb = x[..., :3]
     lr, lg, lb = LUMA_WEIGHTS
     luma = (lr * rgb[..., 0] + lg * rgb[..., 1] + lb * rgb[..., 2]).unsqueeze(-1)
     rgb = luma + (rgb - luma) * st
     if x.shape[-1] == 4:
-        x = torch.cat([rgb, x[..., 3:4]], dim=-1)
+        x = torch.cat([rgb, x[..., 3:4].clamp(0.0, 1.0)], dim=-1)
     else:
         x = rgb
 
-    return x.clamp(0.0, 1.0)
+    return x
 
 
 def _srgb_to_linear(rgb: torch.Tensor) -> torch.Tensor:
-    rgb = rgb.clamp(0.0, 1.0)
     return torch.where(
         rgb <= 0.04045,
         rgb / 12.92,
-        ((rgb + 0.055) / 1.055).pow(2.4),
+        ((rgb.clamp(min=0.0) + 0.055) / 1.055).pow(2.4),
     )
 
 
 def _linear_to_srgb(rgb: torch.Tensor) -> torch.Tensor:
-    rgb = rgb.clamp(0.0, 1.0)
     return torch.where(
         rgb <= 0.0031308,
         rgb * 12.92,
-        1.055 * rgb.pow(1.0 / 2.4) - 0.055,
+        1.055 * rgb.clamp(min=0.0).pow(1.0 / 2.4) - 0.055,
     )
 
 
@@ -322,7 +320,7 @@ def _apply_color_adjust(
     ):
         return image
 
-    x = image.float().clamp(0.0, 1.0)
+    x = image.float()
     B = x.shape[0]
     C = x.shape[-1]
     d, dt = image.device, image.dtype
@@ -390,23 +388,23 @@ def _apply_color_adjust(
     rgb = rgb_src_linear
     extra = x[..., 3:] if C > 3 else None
 
-    rgb = (rgb * brightness_t).clamp(0.0, 1.0)
+    rgb = rgb * brightness_t
     if has_temperature:
-        rgb = _apply_temperature_linear(rgb, temperature_t).clamp(0.0, 1.0)
+        rgb = _apply_temperature_linear(rgb, temperature_t)
     if has_tint:
-        rgb = _apply_tint_linear(rgb, tint_t).clamp(0.0, 1.0)
+        rgb = _apply_tint_linear(rgb, tint_t)
 
     if has_contrast:
         mean_luma = _linear_luma(rgb).mean(dim=(1, 2), keepdim=True)
-        rgb = (mean_luma + (rgb - mean_luma) * contrast_t).clamp(0.0, 1.0)
+        rgb = mean_luma + (rgb - mean_luma) * contrast_t
 
     if has_saturation:
         luma = _linear_luma(rgb)
-        rgb = (luma + (rgb - luma) * saturation_t).clamp(0.0, 1.0)
+        rgb = luma + (rgb - luma) * saturation_t
     if has_vibrance:
-        rgb = _apply_vibrance_linear(rgb, vibrance_t).clamp(0.0, 1.0)
+        rgb = _apply_vibrance_linear(rgb, vibrance_t)
     if has_hue:
-        rgb = _apply_hue_shift_rgb(rgb, hue_shift_t).clamp(0.0, 1.0)
+        rgb = _apply_hue_shift_rgb(rgb, hue_shift_t)
     if has_three_way:
         rgb = _apply_three_way_color_grade(
             rgb,
@@ -418,10 +416,12 @@ def _apply_color_adjust(
             highlights_amount,
         )
     if has_gamma:
-        rgb = rgb.pow(1.0 / gamma_t).clamp(0.0, 1.0)
+        # Prevent pow() crash on negative values
+        rgb = rgb.clamp(min=0.0).pow(1.0 / gamma_t)
     rgb = _linear_to_srgb(rgb)
 
     if extra is not None:
+        extra = extra.clamp(0.0, 1.0)
         return torch.cat([rgb, extra], dim=-1).to(device=d, dtype=dt)
     return rgb.to(device=d, dtype=dt)
 
@@ -756,6 +756,10 @@ def _dispatch_blur(
 def _coerce_media_to_tensor(media, input_name="media"):
     if media is None:
         return None
+
+    from .core.media import ImageOpsMedia
+    if isinstance(media, ImageOpsMedia):
+        return media.frames
 
     if torch.is_tensor(media):
         if media.dim() != 4:

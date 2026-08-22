@@ -15,6 +15,7 @@ from ._helpers import (
     _scalar,
     _select_media_tensor,
 )
+from comfy_api.latest import io
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 
@@ -80,10 +81,10 @@ def _draw_text_overlay(
         normalized_align = "left"
 
     for frame in source:
-        base = _tensor_to_pil_rgba(frame)
-        overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        # frame is [H, W, C]
+        height, width = int(frame.shape[0]), int(frame.shape[1])
+        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
-        width, height = base.size
         px = float(x) * max(1, width - 1)
         py = float(y) * max(1, height - 1)
         lines = str(text).splitlines() or [str(text)]
@@ -112,65 +113,69 @@ def _draw_text_overlay(
             stroke_width=max(0, int(stroke_width)),
             stroke_fill=stroke_fill,
         )
-        composited = Image.alpha_composite(base, overlay)
-        out.append(_pil_rgba_to_tensor(composited, device, dtype).unsqueeze(0))
-    return torch.cat(out, dim=0).clamp(0.0, 1.0)
+        overlay_t = _pil_rgba_to_tensor(overlay, device, dtype)
+        alpha = overlay_t[..., 3:4]
+        rgb = frame[..., :3]
+        extra = frame[..., 3:] if frame.shape[-1] > 3 else torch.ones_like(frame[..., 0:1])
+        out_rgb = rgb * (1.0 - alpha) + overlay_t[..., :3] * alpha
+        out_alpha = (extra + alpha - extra * alpha).clamp(0.0, 1.0)
+        out.append(torch.cat([out_rgb, out_alpha], dim=-1).unsqueeze(0))
+    return torch.cat(out, dim=0)
 
 
-class ImageOpsText:
-    CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("image", "mask")
-    FUNCTION = "apply"
+class ImageOpsText(io.ComfyNode):
+    @classmethod
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="ImageOpsText",
+            display_name="〽️ ImageOps Text",
+            category="image/imageops",
+            inputs=[
+                io.Boolean.Input("bypass", default=False),
+                io.String.Input("text", default="ImageOps Text", multiline=True),
+                io.Float.Input("x", default=0.5, min=-2.0, max=3.0, step=0.001),
+                io.Float.Input("y", default=0.5, min=-2.0, max=3.0, step=0.001),
+                io.Int.Input("font_size", default=64, min=1, max=512, step=1),
+                io.Color.Input("color", default="#ffffff"),
+                io.Float.Input("opacity", default=1.0, min=0.0, max=1.0, step=0.01),
+                io.Combo.Input("align", options=_ALIGN, default="center"),
+                io.Int.Input("line_spacing", default=4, min=0, max=256, step=1),
+                io.Int.Input("stroke_width", default=0, min=0, max=64, step=1),
+                io.Color.Input("stroke_color", default="#000000"),
+                io.Boolean.Input("invert_mask", default=False),
+                io.MultiType.Input("image", types=[io.Image, io.Video], optional=True, display_name="Images/Video", tooltip="Images/Video input."),
+                io.Mask.Input("mask", optional=True),
+                io.String.Input("font_path", default="", optional=True),
+            ],
+            outputs=[
+                io.Image.Output("image", display_name="image"),
+                io.Mask.Output("mask", display_name="mask"),
+            ],
+            hidden=[io.Hidden.unique_id],
+        )
 
     @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "bypass": ("BOOLEAN", {"default": False}),
-                "text": ("STRING", {"default": "ImageOps Text", "multiline": True}),
-                "x": ("FLOAT", {"default": 0.5, "min": -2.0, "max": 3.0, "step": 0.001}),
-                "y": ("FLOAT", {"default": 0.5, "min": -2.0, "max": 3.0, "step": 0.001}),
-                "font_size": ("INT", {"default": 64, "min": 1, "max": 512, "step": 1}),
-                "color": ("COLOR", {"default": "#ffffff"}),
-                "opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "align": (_ALIGN, {"default": "center"}),
-                "line_spacing": ("INT", {"default": 4, "min": 0, "max": 256, "step": 1}),
-                "stroke_width": ("INT", {"default": 0, "min": 0, "max": 64, "step": 1}),
-                "stroke_color": ("COLOR", {"default": "#000000"}),
-                "invert_mask": ("BOOLEAN", {"default": False}),
-            },
-            "optional": {
-                "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input.", "forceInput": True, "display_name": "Images/Video"}),
-                "mask": ("MASK",),
-                "font_path": ("STRING", {"default": ""}),
-            },
-            "hidden": {
-                "unique_id": "UNIQUE_ID",
-            },
-        }
-
-    def apply(
-        self,
+    def execute(
+        cls,
+        bypass: bool = False,
+        text: str = "ImageOps Text",
+        x: float = 0.5,
+        y: float = 0.5,
+        font_size: int = 64,
+        color: str = "#ffffff",
+        opacity: float = 1.0,
+        align: str = "center",
+        line_spacing: int = 4,
+        stroke_width: int = 0,
+        stroke_color: str = "#000000",
+        invert_mask: bool = False,
         image=None,
-        bypass=False,
-        text="ImageOps Text",
-        x=0.5,
-        y=0.5,
-        font_size=64,
-        color="#ffffff",
-        opacity=1.0,
-        align="center",
-        line_spacing=4,
-        stroke_width=0,
-        stroke_color="#000000",
-        invert_mask=False,
         video=None,
         mask=None,
-        font_path="",
+        font_path: str = "",
         unique_id=None,
     ):
-        source = _select_media_tensor(image, video).float().clamp(0.0, 1.0)
+        source = _select_media_tensor(image, video).float()
         effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         progress = start_progress(unique_id=unique_id)

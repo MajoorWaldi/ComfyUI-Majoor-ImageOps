@@ -1,27 +1,17 @@
 from __future__ import annotations
-
+from comfy_api.latest import io
 import math
 import torch
 import torch.nn.functional as F
-
 from ._helpers import MEDIA_INPUT_TYPE, _prepare_effect_mask, _resize, _scalar, _select_media_tensor
 from ._progress import start_progress
 from ._preview import build_node_preview_result
+_SPHERIZE_MODES = ['spherize', 'fisheye', 'defisheye', 'latlong', 'unlatlong']
+_SPHERIZE_EDGE_MODES = ['border', 'reflection', 'zeros']
+_SPHERIZE_FILTER_MODES = ['bilinear', 'bicubic', 'nearest']
+_SPHERIZE_SIZE_MODES = ['from_input', 'custom']
 
-_SPHERIZE_MODES = ["spherize", "fisheye", "defisheye", "latlong", "unlatlong"]
-_SPHERIZE_EDGE_MODES = ["border", "reflection", "zeros"]
-_SPHERIZE_FILTER_MODES = ["bilinear", "bicubic", "nearest"]
-_SPHERIZE_SIZE_MODES = ["from_input", "custom"]
-
-
-def _spherize_frame(
-    frame: torch.Tensor,
-    mode: str,
-    strength: float,
-    invert: bool,
-    filter_mode: str,
-    edge_mode: str,
-) -> torch.Tensor:
+def _spherize_frame(frame: torch.Tensor, mode: str, strength: float, invert: bool, filter_mode: str, edge_mode: str) -> torch.Tensor:
     """
     Apply spherize distortion to a single frame [1, H, W, C].
 
@@ -36,196 +26,113 @@ def _spherize_frame(
     B, H, W, C = frame.shape
     device = frame.device
     dtype = frame.dtype
-
-    # Normalised coords in [-1, 1]
     ys = torch.linspace(-1.0, 1.0, H, device=device, dtype=torch.float32)
     xs = torch.linspace(-1.0, 1.0, W, device=device, dtype=torch.float32)
-    grid_y, grid_x = torch.meshgrid(ys, xs, indexing="ij")  # [H, W]
-
+    grid_y, grid_x = torch.meshgrid(ys, xs, indexing='ij')
     s = float(strength)
     m = str(mode).strip().lower()
     inv = bool(invert)
 
     def _apply_forward(gx: torch.Tensor, gy: torch.Tensor):
         r = torch.sqrt(gx * gx + gy * gy).clamp(max=1.4142135)
-
-        if m == "spherize":
-            # barrel: map r → sin(r * pi/2).  strength scales the effect.
+        if m == 'spherize':
             t = (r * (math.pi * 0.5)).clamp(0.0, math.pi * 0.5)
-            scale = torch.where(r > 1e-6, torch.sin(t) / r.clamp(min=1e-6), torch.ones_like(r))
-            # blend between identity (s=0) and full warp (s=1)
+            scale = torch.where(r > 1e-06, torch.sin(t) / r.clamp(min=1e-06), torch.ones_like(r))
             blend = scale * s + (1.0 - s)
-            return gx * blend, gy * blend
-
-        elif m == "fisheye":
-            if abs(s) <= 1e-6:
-                return gx, gy
-            # equidistant: angle from centre → r_out = r_in (already linear),
-            # but source UV is r_in = sin(θ) while we want θ for the projection.
-            # Forward: r_src = sin(r_dst * pi/2 * s) / (r_dst * pi/2 * s + 1e-6) * r_dst
+            return (gx * blend, gy * blend)
+        elif m == 'fisheye':
+            if abs(s) <= 1e-06:
+                return (gx, gy)
             angle = r * (math.pi * 0.5) * s
-            r_src = torch.where(r > 1e-6, torch.sin(angle) / r.clamp(min=1e-6) * r, torch.zeros_like(r))
-            scale = torch.where(r > 1e-6, r_src / r.clamp(min=1e-6), torch.ones_like(r))
-            return gx * scale, gy * scale
-
-        elif m == "defisheye":
-            if abs(s) <= 1e-6:
-                return gx, gy
-            # Inverse equidistant: flatten a fish-eye – expand centre outward.
+            r_src = torch.where(r > 1e-06, torch.sin(angle) / r.clamp(min=1e-06) * r, torch.zeros_like(r))
+            scale = torch.where(r > 1e-06, r_src / r.clamp(min=1e-06), torch.ones_like(r))
+            return (gx * scale, gy * scale)
+        elif m == 'defisheye':
+            if abs(s) <= 1e-06:
+                return (gx, gy)
             angle = r * (math.pi * 0.5) * s
-            r_dst = torch.where(angle.abs() > 1e-6, torch.tan(angle.clamp(-1.5, 1.5)) / (math.pi * 0.5 * s + 1e-8), r)
-            scale = torch.where(r > 1e-6, r_dst / r.clamp(min=1e-6), torch.ones_like(r))
-            return gx * scale, gy * scale
-
-        elif m == "latlong":
-            # Equirectangular → rectilinear (barrel-like: centre magnified).
-            # Each output pixel is in rectilinear perspective space.
-            # lon = atan(gx * fov_tan), normalised so corners reach ±1.
-            fov_tan = max(s * 2.0, 1e-6)
+            r_dst = torch.where(angle.abs() > 1e-06, torch.tan(angle.clamp(-1.5, 1.5)) / (math.pi * 0.5 * s + 1e-08), r)
+            scale = torch.where(r > 1e-06, r_dst / r.clamp(min=1e-06), torch.ones_like(r))
+            return (gx * scale, gy * scale)
+        elif m == 'latlong':
+            fov_tan = max(s * 2.0, 1e-06)
             atan_fov = float(torch.atan(torch.tensor(fov_tan)))
             lon = torch.atan(gx * fov_tan)
             lat = torch.atan(gy * fov_tan)
-            return lon / atan_fov, lat / atan_fov
-
-        elif m == "unlatlong":
-            # Rectilinear → equirectangular (pincushion-like: edges stretched).
-            # Inverse of latlong: src = tan(gx * atan_fov) / fov_tan.
-            fov_tan = max(s * 2.0, 1e-6)
+            return (lon / atan_fov, lat / atan_fov)
+        elif m == 'unlatlong':
+            fov_tan = max(s * 2.0, 1e-06)
             atan_fov = float(torch.atan(torch.tensor(fov_tan)))
             clamp_val = atan_fov * 0.9999
             src_x = torch.tan((gx * atan_fov).clamp(-clamp_val, clamp_val)) / fov_tan
             src_y = torch.tan((gy * atan_fov).clamp(-clamp_val, clamp_val)) / fov_tan
-            return src_x, src_y
-
-        return gx, gy
+            return (src_x, src_y)
+        return (gx, gy)
 
     def _apply_inverse(gx: torch.Tensor, gy: torch.Tensor):
         """Swap forward ↔ inverse for invert mode by running the complementary projection."""
         r = torch.sqrt(gx * gx + gy * gy).clamp(max=1.4142135)
-
-        if m == "spherize":
-            # Inverse of barrel → pincushion (asin instead of sin).
+        if m == 'spherize':
             t = (r * (math.pi * 0.5)).clamp(0.0, math.pi * 0.5)
-            scale = torch.where(r > 1e-6, torch.asin(r.clamp(0.0, 1.0)) / r.clamp(min=1e-6) / (math.pi * 0.5), torch.ones_like(r))
+            scale = torch.where(r > 1e-06, torch.asin(r.clamp(0.0, 1.0)) / r.clamp(min=1e-06) / (math.pi * 0.5), torch.ones_like(r))
             blend = scale * s + (1.0 - s)
-            return gx * blend, gy * blend
-
-        elif m == "fisheye":
-            if abs(s) <= 1e-6:
-                return gx, gy
-            # Inverse fisheye = defisheye
+            return (gx * blend, gy * blend)
+        elif m == 'fisheye':
+            if abs(s) <= 1e-06:
+                return (gx, gy)
             angle = r * (math.pi * 0.5) * s
-            r_dst = torch.where(angle.abs() > 1e-6, torch.tan(angle.clamp(-1.5, 1.5)) / (math.pi * 0.5 * s + 1e-8), r)
-            scale = torch.where(r > 1e-6, r_dst / r.clamp(min=1e-6), torch.ones_like(r))
-            return gx * scale, gy * scale
-
-        elif m == "defisheye":
-            if abs(s) <= 1e-6:
-                return gx, gy
-            # Inverse defisheye = fisheye
+            r_dst = torch.where(angle.abs() > 1e-06, torch.tan(angle.clamp(-1.5, 1.5)) / (math.pi * 0.5 * s + 1e-08), r)
+            scale = torch.where(r > 1e-06, r_dst / r.clamp(min=1e-06), torch.ones_like(r))
+            return (gx * scale, gy * scale)
+        elif m == 'defisheye':
+            if abs(s) <= 1e-06:
+                return (gx, gy)
             angle = r * (math.pi * 0.5) * s
-            r_src = torch.where(r > 1e-6, torch.sin(angle) / r.clamp(min=1e-6) * r, torch.zeros_like(r))
-            scale = torch.where(r > 1e-6, r_src / r.clamp(min=1e-6), torch.ones_like(r))
-            return gx * scale, gy * scale
-
-        elif m == "latlong":
-            # Inverse of latlong = unlatlong forward
-            fov_tan = max(s * 2.0, 1e-6)
+            r_src = torch.where(r > 1e-06, torch.sin(angle) / r.clamp(min=1e-06) * r, torch.zeros_like(r))
+            scale = torch.where(r > 1e-06, r_src / r.clamp(min=1e-06), torch.ones_like(r))
+            return (gx * scale, gy * scale)
+        elif m == 'latlong':
+            fov_tan = max(s * 2.0, 1e-06)
             atan_fov = float(torch.atan(torch.tensor(fov_tan)))
             clamp_val = atan_fov * 0.9999
             src_x = torch.tan((gx * atan_fov).clamp(-clamp_val, clamp_val)) / fov_tan
             src_y = torch.tan((gy * atan_fov).clamp(-clamp_val, clamp_val)) / fov_tan
-            return src_x, src_y
-
-        elif m == "unlatlong":
-            # Inverse of unlatlong = latlong forward
-            fov_tan = max(s * 2.0, 1e-6)
+            return (src_x, src_y)
+        elif m == 'unlatlong':
+            fov_tan = max(s * 2.0, 1e-06)
             atan_fov = float(torch.atan(torch.tensor(fov_tan)))
             lon = torch.atan(gx * fov_tan)
             lat = torch.atan(gy * fov_tan)
-            return lon / atan_fov, lat / atan_fov
-
-        return gx, gy
-
+            return (lon / atan_fov, lat / atan_fov)
+        return (gx, gy)
     fn = _apply_inverse if inv else _apply_forward
     src_x, src_y = fn(grid_x, grid_y)
-
-    # grid_sample expects [B, H, W, 2] with values in [-1, 1].
-    grid = torch.stack([src_x, src_y], dim=-1).unsqueeze(0)  # [1, H, W, 2]
-
+    grid = torch.stack([src_x, src_y], dim=-1).unsqueeze(0)
     safe_filter = str(filter_mode).strip().lower()
-    if safe_filter not in ("nearest", "bilinear", "bicubic"):
-        safe_filter = "bilinear"
+    if safe_filter not in ('nearest', 'bilinear', 'bicubic'):
+        safe_filter = 'bilinear'
     safe_edge = str(edge_mode).strip().lower()
-    if safe_edge not in ("border", "reflection", "zeros"):
-        safe_edge = "border"
-
-    img = frame.float().permute(0, 3, 1, 2)  # [B, C, H, W]
+    if safe_edge not in ('border', 'reflection', 'zeros'):
+        safe_edge = 'border'
+    img = frame.float().permute(0, 3, 1, 2)
     warped = F.grid_sample(img, grid, mode=safe_filter, padding_mode=safe_edge, align_corners=True)
     warped = warped.permute(0, 2, 3, 1).clamp(0.0, 1.0).to(device=device, dtype=dtype)
-
-    # Mask out pixels outside the unit circle (the sphere boundary), but only
-    # for projections that actually map onto a disk. Rectangular projections
-    # (latlong/unlatlong) fill the whole canvas.
-    if m not in ("latlong", "unlatlong"):
-        r2 = grid_x * grid_x + grid_y * grid_y  # [H, W]
-        circle = (r2 <= 1.0).to(dtype=warped.dtype)  # 1 inside, 0 outside
-        warped = warped * circle.unsqueeze(0).unsqueeze(-1)  # [B, H, W, C]
+    if m not in ('latlong', 'unlatlong'):
+        r2 = grid_x * grid_x + grid_y * grid_y
+        circle = (r2 <= 1.0).to(dtype=warped.dtype)
+        warped = warped * circle.unsqueeze(0).unsqueeze(-1)
     return warped
 
-
-class ImageOpsSpherize:
-    CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("image", "mask")
-    FUNCTION = "apply"
+class ImageOpsSpherize(io.ComfyNode):
 
     @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "bypass": ("BOOLEAN", {"default": False}),
-                "mode": (_SPHERIZE_MODES, {"default": "spherize"}),
-                "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.01, "round": 0.001,
-                                        "tooltip": "Effect intensity. 1.0 = full projection. Values > 1 push beyond the normal range."}),
-                "invert": ("BOOLEAN", {"default": False,
-                                       "tooltip": "Invert the mapping direction (e.g. barrel ↔ pincushion, latlong ↔ unlatlong)."}),
-                "filter": (_SPHERIZE_FILTER_MODES, {"default": "bilinear"}),
-                "edge_mode": (_SPHERIZE_EDGE_MODES, {"default": "border"}),
-                "size_mode": (_SPHERIZE_SIZE_MODES, {"default": "from_input",
-                               "tooltip": "from_input: use input image dimensions. custom: resize to width × height before applying spherize."}),
-                "width": ("INT", {"default": 512, "min": 64, "max": 8192, "step": 8}),
-                "height": ("INT", {"default": 512, "min": 64, "max": 8192, "step": 8}),
-            },
-            "optional": {
-                "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input.", "forceInput": True, "display_name": "Images/Video"}),
-                "mask": ("MASK",),
-            },
-            "hidden": {
-                "unique_id": "UNIQUE_ID",
-            },
-        }
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(node_id='ImageOpsSpherize', display_name='〽️ Image Ops Spherize', category='image/imageops', inputs=[io.Boolean.Input('bypass', default=False), io.String.Input('mode', default='spherize'), io.Float.Input('strength', default=1.0, min=0.0, max=2.0, step=0.01, round=0.001, tooltip='Effect intensity. 1.0 = full projection. Values > 1 push beyond the normal range.'), io.Boolean.Input('invert', default=False, tooltip='Invert the mapping direction (e.g. barrel ↔ pincushion, latlong ↔ unlatlong).'), io.String.Input('filter', default='bilinear'), io.String.Input('edge_mode', default='border'), io.String.Input('size_mode', default='from_input', tooltip='from_input: use input image dimensions. custom: resize to width × height before applying spherize.'), io.Int.Input('width', default=512, min=64, max=8192, step=8), io.Int.Input('height', default=512, min=64, max=8192, step=8), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
 
-    def apply(
-        self,
-        bypass=False,
-        mode="spherize",
-        strength=1.0,
-        invert=False,
-        filter="bilinear",
-        edge_mode="border",
-        size_mode="from_input",
-        width=512,
-        height=512,
-        image=None,
-        video=None,
-        mask=None,
-        unique_id=None,
-    ):
+    @classmethod
+    def execute(cls, bypass=False, mode='spherize', strength=1.0, invert=False, filter='bilinear', edge_mode='border', size_mode='from_input', width=512, height=512, image=None, video=None, mask=None, unique_id=None, **kwargs):
         src = _select_media_tensor(image, video)
         progress = start_progress(total=src.shape[0] if src is not None else 1, unique_id=unique_id)
-
-        # Bypass BEFORE any resize or processing — bypass means pixel identity.
         if src is None or _scalar(bypass, bool):
             if src is not None:
                 prepared_mask = _prepare_effect_mask(mask, src) if mask is not None else None
@@ -233,17 +140,16 @@ class ImageOpsSpherize:
             else:
                 out_mask = torch.ones(1, 64, 64, dtype=torch.float32)
             progress.finish()
-            return build_node_preview_result(src, (src, out_mask), prefix="imageops_spherize")
-
-        # Resolve target dimensions
-        use_custom = str(_scalar(size_mode, str)).strip().lower() == "custom"
+            return build_node_preview_result(src, (src, out_mask), prefix='imageops_spherize')
+        use_custom = str(_scalar(size_mode, str)).strip().lower() == 'custom'
         tgt_w = max(64, int(_scalar(width, int)))
         tgt_h = max(64, int(_scalar(height, int)))
-
         if use_custom:
-            src = _resize(src, tgt_w, tgt_h, mode="bilinear", antialias=True)
-        prepared_mask = _prepare_effect_mask(mask, src) if (mask is not None and src is not None) else None
-
+            src = _resize(src, tgt_w, tgt_h, mode='bilinear', antialias=True)
+        prepared_mask = _prepare_effect_mask(mask, src) if mask is not None and src is not None else None
+        from .core.memory import check_budget
+        if src is not None:
+            check_budget(int(src.shape[0]), int(src.shape[1]), int(src.shape[2]), int(src.shape[3]), multiplier=3.0, label='ImageOps Spherize')
         frames = []
         warped_masks = [] if prepared_mask is not None else None
         for fi in range(src.shape[0]):
@@ -252,51 +158,28 @@ class ImageOpsSpherize:
             frame_invert = bool(_scalar(invert, bool, index=fi))
             frame_filter = _scalar(filter, str, index=fi)
             frame_edge = _scalar(edge_mode, str, index=fi)
-            frames.append(
-                _spherize_frame(
-                    src[fi:fi + 1],
-                    mode=frame_mode,
-                    strength=frame_strength,
-                    invert=frame_invert,
-                    filter_mode=frame_filter,
-                    edge_mode=frame_edge,
-                )
-            )
-            # Warp mask through the exact same grid as the image
+            frames.append(_spherize_frame(src[fi:fi + 1], mode=frame_mode, strength=frame_strength, invert=frame_invert, filter_mode=frame_filter, edge_mode=frame_edge))
             if prepared_mask is not None:
-                mask_frame = prepared_mask[fi:fi + 1].unsqueeze(-1)  # [1, H, W, 1]
-                warped_mask_frame = _spherize_frame(
-                    mask_frame,
-                    mode=frame_mode,
-                    strength=frame_strength,
-                    invert=frame_invert,
-                    filter_mode=frame_filter,
-                    edge_mode="zeros",  # mask outside boundary is 0
-                )
-                warped_masks.append(warped_mask_frame[..., 0])  # [1, H, W]
+                mask_frame = prepared_mask[fi:fi + 1].unsqueeze(-1)
+                warped_mask_frame = _spherize_frame(mask_frame, mode=frame_mode, strength=frame_strength, invert=frame_invert, filter_mode=frame_filter, edge_mode='zeros')
+                warped_masks.append(warped_mask_frame[..., 0])
             progress.update()
-
         out = torch.cat(frames, dim=0).clamp(0.0, 1.0)
-
-        # Build per-frame mask: circle for disk projections, full rect for latlong/unlatlong
-        H, W = out.shape[1], out.shape[2]
+        H, W = (out.shape[1], out.shape[2])
         ys = torch.linspace(-1.0, 1.0, H, device=out.device, dtype=torch.float32)
         xs = torch.linspace(-1.0, 1.0, W, device=out.device, dtype=torch.float32)
-        gy, gx = torch.meshgrid(ys, xs, indexing="ij")
-        circle_mask = (gx * gx + gy * gy <= 1.0).float()  # [H, W]
+        gy, gx = torch.meshgrid(ys, xs, indexing='ij')
+        circle_mask = (gx * gx + gy * gy <= 1.0).float()
         ones_mask = torch.ones_like(circle_mask)
         per_frame = []
         for fi in range(out.shape[0]):
             frame_mode = str(_scalar(mode, str, index=fi)).strip().lower()
-            per_frame.append(ones_mask if frame_mode in ("latlong", "unlatlong") else circle_mask)
-        circle_mask_b = torch.stack(per_frame, dim=0)  # [B, H, W]
-
+            per_frame.append(ones_mask if frame_mode in ('latlong', 'unlatlong') else circle_mask)
+        circle_mask_b = torch.stack(per_frame, dim=0)
         if warped_masks is not None:
             warped_mask_b = torch.cat(warped_masks, dim=0).clamp(0.0, 1.0)
             out_mask = circle_mask_b * warped_mask_b
         else:
             out_mask = circle_mask_b
-
         progress.finish()
-        return build_node_preview_result(out, (out, out_mask), prefix="imageops_spherize")
-
+        return build_node_preview_result(out, (out, out_mask), prefix='imageops_spherize')

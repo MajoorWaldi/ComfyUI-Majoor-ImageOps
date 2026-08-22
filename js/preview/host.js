@@ -1,8 +1,8 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
-import { buildRenderer } from "./renderer.js";
+import { buildRenderer } from "./core/renderer.js";
 import { buildAdapterRegistry } from "./registry.js";
-import { detectSourceUpstream, getInputOriginSlot, getUpstreamNode, getUpstreamNodes, isGraphTooLarge, findDependents } from "./graph.js";
+import { detectSourceUpstream, getInputOriginSlot, getUpstreamNode, getUpstreamNodes, isGraphTooLarge, findDependents } from "./core/graph.js";
 import { resolveNodeStreamPreview } from "./nodestream.js";
 import { disposeMediaState, resolveNodeIntrinsicMediaSize } from "./source.js";
 import { attachProgressBus } from "./progress.js";
@@ -12,8 +12,8 @@ import { getCompSlots } from "./comp.js";
 import { renderCompPreview } from "./ops.js";
 import { findWidget, resetNodeWidgetsToDefaults, setWidgetStringValue, widgetNumber, widgetString, deduplicateColorWidgets } from "./shared/widgets.js";
 import { getProceduralFrameCount, hasProceduralAnimation, getProceduralPlaybackFps } from "./shared/animation.js";
-import { getUpstreamVideoFps } from "./shared/video.js";
-import { getInputIndexByName, getNativePreviewImage } from "./shared/media.js";
+import { getUpstreamVideoFps } from "./core/media.js";
+import { getInputIndexByName, getNativePreviewImage } from "./core/media.js";
 import { isImageOpsClass } from "./shared/classes.js";
 import { isNode as isPreviewNode, hidePreviewWidgets, syncPreviewWidgets } from "./nodes/preview.js";
 import { isNode as isConstantNode, getConstantInfoText, hideConstantWidgets, syncConstantWidgets } from "./nodes/constant.js";
@@ -40,9 +40,11 @@ import {
   syncCompWidgets
 } from "./nodes/comp.js";
 import { isNode as isCornerPinNode, getCornerPinInfoText } from "./nodes/corner-pin.js";
+import { isNode as isTransformNode, hideTransformWidgets } from "./nodes/transform.js";
 import { applyPadOutTargetFormat, attachPadOutControls, getPadOutInfoText, hidePadOutWidgets, hydratePadOutTargetFormat, isNode as isPadOutNode, syncPadOutControls } from "./nodes/pad-out.js";
 import { isNode as isJoinNode, ensureJoinInputs, hideJoinWidgets, getJoinPreviewFrameCount, getJoinSlots, getPreviewNodeFrameCount } from "./nodes/append.js";
-import { ensureState, setInfo, schedule, stopRAF, markPreviewInteraction, getRenderCanvasSize, buildPreviewRenderKey } from "./shared/state.js";
+import { ensureState, setInfo, markPreviewInteraction, getRenderCanvasSize, buildPreviewRenderKey } from "./shared/state.js";
+import { schedule, stopRAF } from "./core/scheduler.js";
 import { markCanvasDirty } from "./shared/canvas.js";
 import { noteFrame } from "./shared/fps-monitor.js";
 import { ensurePreviewWidget } from "./shared/preview-widget.js";
@@ -78,6 +80,7 @@ import { attachInteractions as attachCompInteractionsExt } from "./interactions/
 import { attachInteractions as attachJoinInteractionsExt, syncJoinControls } from "./interactions/append.js";
 console.info("[ImageOps] LivePreview v6 loaded");
 const EXT_NAME = "ImageOps.LivePreview.v6";
+let extensionRegistered = false;
 function getNodeInputDefault(nodeData, inputName) {
   const entry = nodeData?.input?.required?.[inputName] ?? nodeData?.input?.optional?.[inputName];
   if (!Array.isArray(entry)) return void 0;
@@ -95,6 +98,8 @@ function hydrateKeyerDefaults(node, nodeData) {
   }
 }
 function registerImageOpsLivePreview() {
+  if (extensionRegistered) return;
+  extensionRegistered = true;
   if (typeof document !== "undefined" && !document.getElementById("comfyui-imageops-styles")) {
     const style = document.createElement("style");
     style.id = "comfyui-imageops-styles";
@@ -924,6 +929,10 @@ function registerImageOpsLivePreview() {
     }
   }
   function hookNode(node) {
+    const nodeAny = node;
+    if (!nodeAny.comfyClass) {
+      nodeAny.comfyClass = nodeAny.type ?? nodeAny.constructor?.nodeData?.name ?? nodeAny.constructor?.nodeData?.id ?? nodeAny.constructor?.comfyClass ?? "";
+    }
     const st = ensureState(node);
     if (st.hooked) return;
     st.hooked = true;
@@ -998,6 +1007,9 @@ function registerImageOpsLivePreview() {
     if (isDrawNode(node)) {
       hideDrawWidgets(node);
       syncDrawWidgets(node);
+    }
+    if (isTransformNode(node)) {
+      hideTransformWidgets(node);
     }
     if (isColorCorrectNode(node)) {
       hideColorCorrectWidgets(node);
@@ -1343,6 +1355,7 @@ function registerImageOpsLivePreview() {
     }
   });
 }
+registerImageOpsLivePreview();
 export {
   registerImageOpsLivePreview
 };

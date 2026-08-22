@@ -1,4 +1,4 @@
-﻿// @ts-ignore
+// @ts-ignore
 import { app } from "../../../scripts/app.js";
 // @ts-ignore
 import { api } from "../../../scripts/api.js";
@@ -11,9 +11,9 @@ import type {
   DrawInteractionContext,
   CompInteractionContext,
 } from "../types.js";
-import { buildRenderer } from "./renderer.js";
+import { buildRenderer } from "./core/renderer.js";
 import { buildAdapterRegistry } from "./registry.js";
-import { detectSourceUpstream, getInputOriginSlot, getUpstreamNode, getUpstreamNodes, isGraphTooLarge, findDependents } from "./graph.js";
+import { detectSourceUpstream, getInputOriginSlot, getUpstreamNode, getUpstreamNodes, isGraphTooLarge, findDependents } from "./core/graph.js";
 import { resolveNodeStreamPreview } from "./nodestream.js";
 import { disposeMediaState, resolveNodeIntrinsicMediaSize } from "./source.js";
 import { attachProgressBus } from "./progress.js";
@@ -23,8 +23,8 @@ import { getCompSlots } from "./comp.js";
 import { renderCompPreview } from "./ops.js";
 import { findWidget, resetNodeWidgetsToDefaults, setWidgetStringValue, widgetNumber, widgetString, deduplicateColorWidgets } from "./shared/widgets.js";
 import { getProceduralFrameCount, hasProceduralAnimation, getProceduralPlaybackFps } from "./shared/animation.js";
-import { getUpstreamVideoFps } from "./shared/video.js";
-import { getInputIndexByName, getNativePreviewImage } from "./shared/media.js";
+import { getUpstreamVideoFps } from "./core/media.js";
+import { getInputIndexByName, getNativePreviewImage } from "./core/media.js";
 import { isImageOpsClass, isImageOpsNativeUiClass } from "./shared/classes.js";
 import { isNode as isPreviewNode, hidePreviewWidgets, syncPreviewWidgets } from "./nodes/preview.js";
 import { isNode as isConstantNode, getConstantInfoText, hideConstantWidgets, syncConstantWidgets } from "./nodes/constant.js";
@@ -51,9 +51,11 @@ import {
   syncCompWidgets,
 } from "./nodes/comp.js";
 import { isNode as isCornerPinNode, getCornerPinInfoText } from "./nodes/corner-pin.js";
+import { isNode as isTransformNode, hideTransformWidgets } from "./nodes/transform.js";
 import { applyPadOutTargetFormat, attachPadOutControls, getPadOutInfoText, hidePadOutWidgets, hydratePadOutTargetFormat, isNode as isPadOutNode, syncPadOutControls } from "./nodes/pad-out.js";
 import { isNode as isJoinNode, ensureJoinInputs, hideJoinWidgets, getJoinPreviewFrameCount, getJoinSlots, getPreviewNodeFrameCount } from "./nodes/append.js";
-import { ensureState, setInfo, schedule, stopRAF, markPreviewInteraction, getRenderCanvasSize, buildPreviewRenderKey } from "./shared/state.js";
+import { ensureState, setInfo, markPreviewInteraction, getRenderCanvasSize, buildPreviewRenderKey } from "./shared/state.js";
+import { schedule, stopRAF } from "./core/scheduler.js";
 import { markCanvasDirty } from "./shared/canvas.js";
 import { noteFrame } from "./shared/fps-monitor.js";
 import { ensurePreviewWidget } from "./shared/preview-widget.js";
@@ -92,6 +94,7 @@ import { attachInteractions as attachJoinInteractionsExt, syncJoinControls } fro
 console.info("[ImageOps] LivePreview v6 loaded");
 
 const EXT_NAME = "ImageOps.LivePreview.v6";
+let extensionRegistered = false;
 
 function getNodeInputDefault(nodeData: any, inputName: string): unknown {
   const entry = nodeData?.input?.required?.[inputName] ?? nodeData?.input?.optional?.[inputName];
@@ -117,6 +120,9 @@ function hydrateKeyerDefaults(node: ComfyNode, nodeData: any): void {
 }
 
 export function registerImageOpsLivePreview(): void {
+  if (extensionRegistered) return;
+  extensionRegistered = true;
+
   if (typeof document !== "undefined" && !document.getElementById("comfyui-imageops-styles")) {
     const style = document.createElement("style");
     style.id = "comfyui-imageops-styles";
@@ -1045,6 +1051,17 @@ export function registerImageOpsLivePreview(): void {
 
   function hookNode(node: ComfyNode): void {
 
+    // Node 2.0 instances may not expose the legacy comfyClass field. Keep the
+    // rest of the preview host on one stable class-name contract.
+    const nodeAny = node as any;
+    if (!nodeAny.comfyClass) {
+      nodeAny.comfyClass = nodeAny.type
+        ?? nodeAny.constructor?.nodeData?.name
+        ?? nodeAny.constructor?.nodeData?.id
+        ?? nodeAny.constructor?.comfyClass
+        ?? "";
+    }
+
     const st = ensureState(node);
     if (st.hooked) return;
     st.hooked = true;
@@ -1096,6 +1113,9 @@ export function registerImageOpsLivePreview(): void {
     if (isDrawNode(node)) {
       hideDrawWidgets(node);
       syncDrawWidgets(node);
+    }
+    if (isTransformNode(node)) {
+      hideTransformWidgets(node);
     }
     if (isColorCorrectNode(node)) {
       hideColorCorrectWidgets(node);
@@ -1433,3 +1453,8 @@ export function registerImageOpsLivePreview(): void {
     },
   } as any);
 }
+
+// ComfyUI discovers every JavaScript file below WEB_DIRECTORY. Register from
+// this module directly so extension ordering cannot make the dynamic entrypoint
+// arrive after node definitions have already been created.
+registerImageOpsLivePreview();

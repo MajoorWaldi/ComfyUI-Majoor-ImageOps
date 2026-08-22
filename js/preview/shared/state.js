@@ -186,17 +186,6 @@ function setInfo(st, text) {
   const hasSize = /\b\d+\s*x\s*\d+\b/i.test(text) || /\b\d+\s*×\s*\d+\b/i.test(text);
   st.info.textContent = !hasSize && width > 0 && height > 0 ? `${text} (${width}x${height})` : text;
 }
-function schedule(node, fn, delayMs = 120) {
-  const st = ensureState(node);
-  if (st.debounceTimer) clearTimeout(st.debounceTimer);
-  st.debounceTimer = setTimeout(fn, delayMs);
-}
-function stopRAF(st) {
-  if (st?.rafId) {
-    cancelAnimationFrame(st.rafId);
-    st.rafId = null;
-  }
-}
 function markPreviewInteraction(node, holdMs = 350) {
   const st = ensureState(node);
   st.interactionUntil = Math.max(st.interactionUntil ?? 0, performance.now() + holdMs);
@@ -264,8 +253,6 @@ export {
   getRenderCanvasSize,
   hashText,
   markPreviewInteraction,
-  schedule,
   serializePreviewValue,
-  setInfo,
-  stopRAF
+  setInfo
 };

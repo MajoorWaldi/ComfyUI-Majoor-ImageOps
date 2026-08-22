@@ -33,3 +33,6 @@ node_modules/
 REFACTO.md
 tmp_extracted_workflow_00023.json
 docs/IMAGEOPS_VNEXT_UPDATE_ROADMAP.md
+
+# Codex browser profiles
+.codex-chrome-profile*/

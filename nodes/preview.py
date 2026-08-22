@@ -1,89 +1,61 @@
+from comfy_api.latest import io
 import os
 import uuid
-
 import torch
 from PIL import Image
-
 import folder_paths
-
 from ._helpers import MEDIA_INPUT_TYPE, _alpha_mask_from_image, _coerce_mask_tensor, _mask_to_preview_image, _scalar, _select_media_tensor, _tensor_batch_to_pil_list, logger
 from ._progress import start_progress
-
 
 def _ensure_dir(p: str):
     os.makedirs(p, exist_ok=True)
     return p
 
-
-def save_temp_images(images, prefix="imageops", ext="png", quality=95):
+def save_temp_images(images, prefix='imageops', ext='png', quality=95):
     temp_dir = _ensure_dir(folder_paths.get_temp_directory())
-    subfolder = ""
+    subfolder = ''
     pil_list = _tensor_batch_to_pil_list(images)
-
     ui_items = []
     for idx, img in enumerate(pil_list):
-        name = f"{prefix}_{uuid.uuid4().hex[:10]}_{idx:03d}.{ext}"
+        name = f'{prefix}_{uuid.uuid4().hex[:10]}_{idx:03d}.{ext}'
         out_path = os.path.join(temp_dir, name)
         try:
-            if ext.lower() in ("jpg", "jpeg"):
-                img.convert("RGB").save(out_path, quality=_scalar(quality, int), optimize=True)
-            elif ext.lower() == "webp":
+            if ext.lower() in ('jpg', 'jpeg'):
+                img.convert('RGB').save(out_path, quality=_scalar(quality, int), optimize=True)
+            elif ext.lower() == 'webp':
                 img.save(out_path, quality=_scalar(quality, int), method=6)
             else:
                 img.save(out_path)
         except Exception as e:
             logger.error(f"Failed to save temp image '{out_path}': {e}")
             continue
-
-        ui_items.append({"filename": name, "subfolder": subfolder, "type": "temp"})
+        ui_items.append({'filename': name, 'subfolder': subfolder, 'type': 'temp'})
     return ui_items
 
-
-def save_temp_animated(images, prefix="imageops_anim", ext="webp", fps=12, quality=80):
+def save_temp_animated(images, prefix='imageops_anim', ext='webp', fps=12, quality=80):
     temp_dir = _ensure_dir(folder_paths.get_temp_directory())
     pil_list = _tensor_batch_to_pil_list(images)
     if not pil_list:
         return None
-
-    name = f"{prefix}_{uuid.uuid4().hex[:10]}.{ext}"
+    name = f'{prefix}_{uuid.uuid4().hex[:10]}.{ext}'
     out_path = os.path.join(temp_dir, name)
     duration_ms = int(max(1, round(1000.0 / max(1.0, _scalar(fps)))))
-
     try:
-        if ext.lower() == "gif":
-            pil_list[0].save(
-                out_path,
-                save_all=True,
-                append_images=pil_list[1:],
-                duration=duration_ms,
-                loop=0,
-                optimize=True,
-            )
+        if ext.lower() == 'gif':
+            pil_list[0].save(out_path, save_all=True, append_images=pil_list[1:], duration=duration_ms, loop=0, optimize=True)
         else:
-            pil_list[0].save(
-                out_path,
-                save_all=True,
-                append_images=pil_list[1:],
-                duration=duration_ms,
-                loop=0,
-                format="WEBP",
-                quality=_scalar(quality, int),
-                method=6,
-            )
+            pil_list[0].save(out_path, save_all=True, append_images=pil_list[1:], duration=duration_ms, loop=0, format='WEBP', quality=_scalar(quality, int), method=6)
     except Exception as e:
         logger.error(f"Failed to save animated preview '{out_path}': {e}")
         return None
+    return {'filename': name, 'subfolder': '', 'type': 'temp'}
 
-    return {"filename": name, "subfolder": "", "type": "temp"}
-
-
-def save_temp_strip(images, prefix="imageops_strip", ext="png", max_frames=16, tile_height=256, quality=95):
+def save_temp_strip(images, prefix='imageops_strip', ext='png', max_frames=16, tile_height=256, quality=95):
     temp_dir = _ensure_dir(folder_paths.get_temp_directory())
     pil_list = _tensor_batch_to_pil_list(images)
     if not pil_list:
         return None
-
-    frames = pil_list[: _scalar(max(1, _scalar(max_frames, int)), int)]
+    frames = pil_list[:_scalar(max(1, _scalar(max_frames, int)), int)]
     resized = []
     for im in frames:
         try:
@@ -97,99 +69,69 @@ def save_temp_strip(images, prefix="imageops_strip", ext="png", max_frames=16, t
             continue
     if not resized:
         return None
-
-    total_w = sum(im.size[0] for im in resized)
+    total_w = sum((im.size[0] for im in resized))
     out_h = resized[0].size[1]
-    strip = Image.new("RGB", (total_w, out_h), (0, 0, 0))
+    strip = Image.new('RGB', (total_w, out_h), (0, 0, 0))
     x = 0
     for im in resized:
-        strip.paste(im.convert("RGB"), (x, 0))
+        strip.paste(im.convert('RGB'), (x, 0))
         x += im.size[0]
-
-    name = f"{prefix}_{uuid.uuid4().hex[:10]}.{ext}"
+    name = f'{prefix}_{uuid.uuid4().hex[:10]}.{ext}'
     out_path = os.path.join(temp_dir, name)
     try:
-        if ext.lower() in ("jpg", "jpeg"):
+        if ext.lower() in ('jpg', 'jpeg'):
             strip.save(out_path, quality=_scalar(quality, int), optimize=True)
         else:
             strip.save(out_path)
     except Exception as e:
         logger.error(f"Failed to save strip preview '{out_path}': {e}")
         return None
+    return {'filename': name, 'subfolder': '', 'type': 'temp'}
 
-    return {"filename": name, "subfolder": "", "type": "temp"}
-
-
-class ImageOpsPreview:
+class ImageOpsPreview(io.ComfyNode):
     """
     Preview bridge node:
     - previews IMAGE or MASK input
     - passes IMAGE through to IMAGE output
     - passes MASK through to MASK output
     """
-    CATEGORY = "image/imageops"
-    RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("image", "mask")
-    FUNCTION = "preview"
 
     @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "preview_target": (["auto", "image", "mask"], {"default": "auto"}),
-                "mode": (["images", "strip", "animated_webp", "animated_gif"], {"default": "images"}),
-            },
-            "optional": {
-                "image": (MEDIA_INPUT_TYPE, {"tooltip": "Images/Video input. Accepts IMAGE batches and VIDEO frame sources.", "forceInput": True, "display_name": "Images/Video"}),
-                "mask": ("MASK",),
-            },
-            "hidden": {
-                "prompt": "PROMPT",
-                "extra_pnginfo": "EXTRA_PNGINFO",
-                "unique_id": "UNIQUE_ID",
-            },
-        }
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(node_id='ImageOpsPreview', display_name='〽️ Image Ops Preview', category='image/imageops', inputs=[io.String.Input('preview_target', default='auto'), io.String.Input('mode', default='images'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo, io.Hidden.unique_id])
 
-    def preview(self, image=None, preview_target="auto", mode="images", mask=None, prompt=None, extra_pnginfo=None, unique_id=None):
+    @classmethod
+    def execute(cls, image=None, preview_target='auto', mode='images', mask=None, prompt=None, extra_pnginfo=None, unique_id=None, **kwargs):
         del prompt, extra_pnginfo
         progress = start_progress(unique_id=unique_id)
         image_tensor = None
         if image is not None:
             image_tensor = _select_media_tensor(image, None)
-
-        mask_tensor = _coerce_mask_tensor(
-            mask,
-            device=image_tensor.device if image_tensor is not None else None,
-            dtype=image_tensor.dtype if image_tensor is not None else torch.float32,
-        )
-
+        mask_tensor = _coerce_mask_tensor(mask, device=image_tensor.device if image_tensor is not None else None, dtype=image_tensor.dtype if image_tensor is not None else torch.float32)
         if image_tensor is None and mask_tensor is None:
             progress.finish()
             blank_image = torch.zeros(1, 1, 1, 3)
             blank_mask = torch.zeros(1, 1, 1)
-            return {"ui": {"images": []}, "result": (blank_image, blank_mask)}
-
+            return {'ui': {'images': []}, 'result': (blank_image, blank_mask)}
         output_image = image_tensor if image_tensor is not None else _mask_to_preview_image(mask_tensor)
         output_mask = mask_tensor if mask_tensor is not None else _alpha_mask_from_image(output_image)
-
-        target = str(preview_target or "auto").strip().lower()
-        if target == "mask":
+        target = str(preview_target or 'auto').strip().lower()
+        if target == 'mask':
             preview_image = _mask_to_preview_image(output_mask, device=output_image.device, dtype=output_image.dtype)
-        elif target == "image":
+        elif target == 'image':
             preview_image = output_image
         else:
             preview_image = output_image if image_tensor is not None else _mask_to_preview_image(output_mask, device=output_image.device, dtype=output_image.dtype)
-
-        if mode == "strip":
-            item = save_temp_strip(preview_image, prefix="imageops_preview", ext="png")
-            ui = {"images": [item]} if item else {"images": save_temp_images(preview_image, prefix="imageops_preview")}
-        elif mode == "animated_webp":
-            item = save_temp_animated(preview_image, prefix="imageops_preview", ext="webp")
-            ui = {"images": [item]} if item else {"images": save_temp_images(preview_image, prefix="imageops_preview")}
-        elif mode == "animated_gif":
-            item = save_temp_animated(preview_image, prefix="imageops_preview", ext="gif")
-            ui = {"images": [item]} if item else {"images": save_temp_images(preview_image, prefix="imageops_preview")}
+        if mode == 'strip':
+            item = save_temp_strip(preview_image, prefix='imageops_preview', ext='png')
+            ui = {'images': [item]} if item else {'images': save_temp_images(preview_image, prefix='imageops_preview')}
+        elif mode == 'animated_webp':
+            item = save_temp_animated(preview_image, prefix='imageops_preview', ext='webp')
+            ui = {'images': [item]} if item else {'images': save_temp_images(preview_image, prefix='imageops_preview')}
+        elif mode == 'animated_gif':
+            item = save_temp_animated(preview_image, prefix='imageops_preview', ext='gif')
+            ui = {'images': [item]} if item else {'images': save_temp_images(preview_image, prefix='imageops_preview')}
         else:
-            ui = {"images": save_temp_images(preview_image, prefix="imageops_preview")}
+            ui = {'images': save_temp_images(preview_image, prefix='imageops_preview')}
         progress.finish()
-        return {"ui": ui, "result": (output_image, output_mask)}
+        return {'ui': ui, 'result': (output_image, output_mask)}

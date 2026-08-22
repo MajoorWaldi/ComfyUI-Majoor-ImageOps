@@ -33,6 +33,19 @@ function getWidgetNumber(node: ComfyNode | null, name: string, fallback: number)
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function inputIndex(node: ComfyNode, name: string): number {
+  return (node.inputs ?? []).findIndex((input) => String(input?.name ?? "").toLowerCase() === name.toLowerCase());
+}
+
+function connectedInput(node: ComfyNode, name: string): boolean {
+  const index = inputIndex(node, name);
+  return index >= 0 && (node.inputs?.[index]?.link ?? null) != null;
+}
+
+function namedInputIndexes(node: ComfyNode, names: string[]): number[] {
+  return names.map((name) => inputIndex(node, name)).filter((index) => index >= 0 && (node.inputs?.[index]?.link ?? null) != null);
+}
+
 function collectBranchVideos(node: ComfyNode | null, seen: Set<number> = new Set()): { node: ComfyNode; videoEl: HTMLVideoElement }[] {
   if (!node || seen.has(node.id)) return [];
   seen.add(node.id);
@@ -112,13 +125,13 @@ export function imageOpsAdapter(): Adapter {
       if (cls === "ImageOpsFrameRange") return 1;
       if (cls === "ImageOpsMaskConvert") {
         const reverse = !!(node?.widgets ?? []).find((widget) => widget?.name === "reverse")?.value;
-        const imageConnected = (node.inputs?.[0]?.link ?? null) != null;
-        const maskConnected2 = (node.inputs?.[1]?.link ?? null) != null;
+        const imageConnected = connectedInput(node, "image");
+        const maskConnected2 = connectedInput(node, "mask");
         return reverse ? Number(imageConnected) : Number(maskConnected2);
       }
       if (cls === "ImageOpsDistort") {
-        const displacementConnected = (node.inputs?.[1]?.link ?? null) != null;
-        const effectMaskConnected = (node.inputs?.[2]?.link ?? null) != null;
+        const displacementConnected = connectedInput(node, "displacement");
+        const effectMaskConnected = connectedInput(node, "mask");
         return 1 + Number(displacementConnected) + Number(effectMaskConnected);
       }
       if (cls === "ImageOpsMerge") return bypass ? 1 : (maskConnected ? 3 : 2);
@@ -130,8 +143,8 @@ export function imageOpsAdapter(): Adapter {
       if (cls === "ImageOpsComp") return getConnectedCompInputIndexes(node).length;
       if (cls === "ImageOpsDraw") return (node.inputs?.[0]?.link ?? null) != null ? 1 : 0;
       if (cls === "ImageOpsPreview") {
-        const imageConnected = (node.inputs?.[0]?.link ?? null) != null;
-        const maskConnected = (node.inputs?.[1]?.link ?? null) != null;
+        const imageConnected = connectedInput(node, "image");
+        const maskConnected = connectedInput(node, "mask");
         return Number(imageConnected) + Number(maskConnected);
       }
       return maskConnected ? 2 : 1;
@@ -140,28 +153,19 @@ export function imageOpsAdapter(): Adapter {
       const cls = resolveImageOpsClassName(node?.comfyClass);
       if (cls === "ImageOpsMaskConvert") {
         const reverse = !!(node?.widgets ?? []).find((widget) => widget?.name === "reverse")?.value;
-        if (reverse) return (node.inputs?.[0]?.link ?? null) != null ? [0] : [];
-        return (node.inputs?.[1]?.link ?? null) != null ? [1] : [];
+        return reverse ? namedInputIndexes(node, ["image"]) : namedInputIndexes(node, ["mask"]);
       }
       if (cls === "ImageOpsComp") {
         return getConnectedCompInputIndexes(node);
       }
       if (cls === "ImageOpsDistort") {
-        const indexes = [0];
-        if ((node.inputs?.[1]?.link ?? null) != null) indexes.push(1);
-        if ((node.inputs?.[2]?.link ?? null) != null) indexes.push(2);
-        return indexes;
+        return namedInputIndexes(node, ["image", "displacement", "mask"]);
       }
       if (cls === "ImageOpsPreview") {
-        const indexes: number[] = [];
-        if ((node.inputs?.[0]?.link ?? null) != null) indexes.push(0);
-        if ((node.inputs?.[1]?.link ?? null) != null) indexes.push(1);
-        return indexes;
+        return namedInputIndexes(node, ["image", "mask"]);
       }
       if (cls === "ImageOpsCropStitch") {
-        const indexes: number[] = [];
-        if ((node.inputs?.[0]?.link ?? null) != null) indexes.push(0);
-        if ((node.inputs?.[1]?.link ?? null) != null) indexes.push(1);
+        const indexes = namedInputIndexes(node, ["original", "crop"]);
         const cropMaskIndex = (node.inputs ?? []).findIndex((input) => String(input?.name ?? "").toLowerCase() === "crop_mask");
         if (cropMaskIndex >= 0 && (node.inputs?.[cropMaskIndex]?.link ?? null) != null) indexes.push(cropMaskIndex);
         return indexes;
@@ -171,7 +175,7 @@ export function imageOpsAdapter(): Adapter {
           .map((slot) => (node.inputs ?? []).findIndex((input) => input?.name === `image_${slot}` && (input.link ?? null) != null))
           .filter((index) => index >= 0);
       }
-      return [];
+      return namedInputIndexes(node, ["image", "mask"]);
     },
     async apply({ node, ctx, canvasSize, inputs, inputInfos, outputSlot, tick, renderInputAt }: AdapterApplyContext): Promise<HTMLCanvasElement | void> {
       const cls = resolveImageOpsClassName(node?.comfyClass);
