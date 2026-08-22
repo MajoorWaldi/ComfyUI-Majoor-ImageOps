@@ -98,7 +98,7 @@ class ImageOpsPreview(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsPreview', display_name='〽️ Image Ops Preview', category='image/imageops', inputs=[io.String.Input('preview_target', default='auto'), io.String.Input('mode', default='images'), io.String.Input('image', tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', force_input=True, display_name='Images/Video', optional=True), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo, io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsPreview', display_name='〽️ Image Ops Preview', category='image/imageops', inputs=[io.String.Input('preview_target', default='auto'), io.String.Input('mode', default='images'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo, io.Hidden.unique_id])
 
     @classmethod
     def execute(cls, image=None, preview_target='auto', mode='images', mask=None, prompt=None, extra_pnginfo=None, unique_id=None, **kwargs):
