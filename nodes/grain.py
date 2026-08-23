@@ -42,7 +42,7 @@ def _soft_light(base: torch.Tensor, top: torch.Tensor) -> torch.Tensor:
     curve = torch.where(
         base <= 0.25,
         ((16.0 * base - 12.0) * base + 4.0) * base,
-        torch.sqrt(base.clamp(0.0, 1.0)),
+        torch.sqrt(base),
     )
     return torch.where(
         top <= 0.5,
@@ -90,7 +90,7 @@ class ImageOpsGrain(io.ComfyNode):
             node_id="ImageOpsGrain",
             display_name="〽️ ImageOps Grain",
             category="image/imageops",
-            inputs=[
+            search_aliases=['grain', 'film grain', 'noise grain', 'texture'], inputs=[
                 io.Boolean.Input("bypass", default=False),
                 io.Float.Input("amount", default=0.08, min=0.0, max=1.0, step=0.001),
                 io.Combo.Input("blend_mode", options=_BLEND_MODES, default="add"),
@@ -131,7 +131,15 @@ class ImageOpsGrain(io.ComfyNode):
         preview_fps = max(1.0, _scalar(fps, float))
         progress = start_progress(unique_id=unique_id)
 
-        if _scalar(bypass, bool) or float(max(0.0, _scalar(amount))) <= 0.0:
+        if isinstance(bypass, bool) and bypass:
+            progress.finish()
+            output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
+            return build_node_preview_result(source, (source, output_mask), prefix="imageops_grain", fps=preview_fps)
+        if isinstance(bypass, (list, tuple)) and all(bypass):
+            progress.finish()
+            output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
+            return build_node_preview_result(source, (source, output_mask), prefix="imageops_grain", fps=preview_fps)
+        if float(max(0.0, _scalar(amount))) <= 0.0:
             progress.finish()
             output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
             return build_node_preview_result(source, (source, output_mask), prefix="imageops_grain", fps=preview_fps)
@@ -140,6 +148,11 @@ class ImageOpsGrain(io.ComfyNode):
         if _scalar(animated, bool) and frame_count > int(source.shape[0]):
             repeats = (frame_count + int(source.shape[0]) - 1) // max(1, int(source.shape[0]))
             source = source.repeat((repeats, 1, 1, 1))[:frame_count]
+            
+        from .core.memory import check_budget
+        if source is not None:
+            check_budget(int(source.shape[0]), int(source.shape[1]), int(source.shape[2]), int(source.shape[3]), multiplier=2.0, label='ImageOps Grain')
+            
         effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         processed = _apply_synthetic_grain(
@@ -151,5 +164,7 @@ class ImageOpsGrain(io.ComfyNode):
             blend_mode,
         )
         result = _apply_mask_to_image(source, processed, effect_mask) if effect_mask is not None else processed
+        from ._helpers import apply_per_frame_bypass
+        result = apply_per_frame_bypass(source, result, bypass)
         progress.finish()
         return build_node_preview_result(result, (result, output_mask), prefix="imageops_grain", fps=preview_fps)

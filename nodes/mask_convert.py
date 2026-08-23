@@ -103,7 +103,7 @@ class ImageOpsMaskConvert(io.ComfyNode):
             node_id="ImageOpsMaskConvert",
             display_name="〽️ ImageOps Mask Convert",
             category="image/imageops",
-            inputs=[
+            search_aliases=['mask convert', 'mask', 'matte', 'alpha', 'luma matte', 'image to mask', 'mask to image'], inputs=[
                 io.Boolean.Input("reverse", default=False, label_on="image -> mask", label_off="mask -> image"),
                 io.Combo.Input("mask_source", options=["auto", "luma", "max_rgb", "saturation", "red", "green", "blue", "alpha"], default="auto"),
                 io.Float.Input("black_point", default=0.0, min=0.0, max=1.0, step=0.01),

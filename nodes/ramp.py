@@ -38,7 +38,7 @@ def _ramp_image(batch: int, height: int, width: int, color_a: str, color_b: str,
     t = _apply_ramp_curve(t, ramp_mode).view(1, height, width, 1).clamp(0.0, 1.0)
     rgb_a = torch.tensor(_hex_to_rgb01(color_a), dtype=torch.float32).view(1, 1, 1, 3)
     rgb_b = torch.tensor(_hex_to_rgb01(color_b), dtype=torch.float32).view(1, 1, 1, 3)
-    rgb = (rgb_a * (1.0 - t) + rgb_b * t).expand(batch, height, width, 3).clone()
+    rgb = (rgb_a * (1.0 - t) + rgb_b * t).expand(batch, height, width, 3)
     a = torch.full((batch, height, width, 1), float(alpha), dtype=torch.float32).clamp(0.0, 1.0)
     return torch.cat([rgb, a], dim=-1)
 
@@ -46,7 +46,7 @@ class ImageOpsRamp(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsRamp', display_name='〽️ Image Ops Ramp', category='image/imageops', inputs=[io.Int.Input('width', default=1024, min=1, max=8192, step=1), io.Int.Input('height', default=1024, min=1, max=8192, step=1), io.Int.Input('frame_count', default=1, min=1, max=4096, step=1), io.Color.Input('color_a', default='#ffffff'), io.Color.Input('color_b', default='#000000'), io.Float.Input('alpha', default=1.0, min=0.0, max=1.0, step=0.01), io.Float.Input('start_x', default=0.0, min=-2.0, max=3.0, step=0.001), io.Float.Input('start_y', default=0.5, min=-2.0, max=3.0, step=0.001), io.Float.Input('end_x', default=1.0, min=-2.0, max=3.0, step=0.001), io.Float.Input('end_y', default=0.5, min=-2.0, max=3.0, step=0.001), io.String.Input('ramp_shape', default='linear'), io.String.Input('ramp_mode', default='linear'), io.Boolean.Input('invert', default=False)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Int.Output('frame_count', display_name='frame_count')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsRamp', display_name='〽️ Image Ops Ramp', category='image/imageops', search_aliases=['ramp', 'gradient', 'linear gradient', 'radial gradient'], inputs=[io.Int.Input('width', default=1024, min=1, max=8192, step=1), io.Int.Input('height', default=1024, min=1, max=8192, step=1), io.Int.Input('frame_count', default=1, min=1, max=4096, step=1), io.Color.Input('color_a', default='#ffffff'), io.Color.Input('color_b', default='#000000'), io.Float.Input('alpha', default=1.0, min=0.0, max=1.0, step=0.01), io.Float.Input('start_x', default=0.0, min=-2.0, max=3.0, step=0.001), io.Float.Input('start_y', default=0.5, min=-2.0, max=3.0, step=0.001), io.Float.Input('end_x', default=1.0, min=-2.0, max=3.0, step=0.001), io.Float.Input('end_y', default=0.5, min=-2.0, max=3.0, step=0.001), io.Combo.Input('ramp_shape', options=['linear', 'radial'], default='linear'), io.Combo.Input('ramp_mode', options=['linear', 'ease_in', 'ease_out', 'smoothstep'], default='linear'), io.Boolean.Input('invert', default=False)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Int.Output('frame_count', display_name='frame_count')], hidden=[io.Hidden.unique_id])
 
     @classmethod
     def execute(cls, width=1024, height=1024, frame_count=None, frame_length=None, batch_size=None, color_a='#ffffff', color_b='#000000', alpha=1.0, start_x=0.0, start_y=0.5, end_x=1.0, end_y=0.5, ramp_shape='linear', ramp_mode='linear', invert=False, unique_id=None, **kwargs):

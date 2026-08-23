@@ -17,6 +17,12 @@
   - ↔️ A/B freeze + wipe comparison
 - **🔀 Optional Bypass**: All processing nodes expose `bypass` (boolean) - when enabled, the node returns input unchanged and live preview skips applying the operation
 
+## 📋 Requirements
+
+- **ComfyUI**: Version 0.2.0 or newer (v3 registry node format)
+- **Python**: 3.10+ (3.11/3.12 recommended)
+- **Frontend**: Modern browser with ES2022 support
+
 ---
 
 ## 📥 Installation
@@ -605,7 +611,7 @@ All nodes process batches natively:
 
 **Author**: Majoor  
 **Category**: `image/imageops`  
-**Version**: 0.1.4
+**Version**: 0.1.5
 
 ---
 

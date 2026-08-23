@@ -1,5 +1,5 @@
-import { syncDarkColorInputUI } from "../shared/dom-styles.js";
 import { isNode as isConstantNode, syncConstantWidgets } from "../nodes/constant.js";
+import { syncDarkColorInputUI } from "../shared/dom-styles.js";
 import { findWidget, setWidgetStringValue, setWidgetStringValuesByName, setWidgetValue } from "../shared/widgets.js";
 const CONSTANT_RATIO_PRESETS = {
   "1:1": 1,

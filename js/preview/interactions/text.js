@@ -1,5 +1,5 @@
-import { syncDarkColorInputUI } from "../shared/dom-styles.js";
 import { isNode as isTextNode, syncTextWidgets } from "../nodes/text.js";
+import { syncDarkColorInputUI } from "../shared/dom-styles.js";
 import { findWidget, setWidgetBooleanValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetValue, widgetNumber } from "../shared/widgets.js";
 function clampInt(value, fallback, min, max) {
   if (!Number.isFinite(value)) return fallback;

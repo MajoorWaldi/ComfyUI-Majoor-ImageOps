@@ -1,9 +1,9 @@
 import type { ComfyNode } from "../../types.js";
 import { getUpstreamNode } from "../graph.js";
 import { styleSoftButton } from "../shared/dom-styles.js";
+import { getNodeVideoTiming } from "../shared/video.js";
 import { findWidget, hideWidgetForGood, setWidgetStringValue } from "../shared/widgets.js";
 import { getFrameSelectorOutputCount as getFrameSelectorEffectiveOutputCount, getUpstreamFrameCount, isNode as isFrameSelectorNode } from "./frame-range.js";
-import { getNodeVideoTiming } from "../shared/video.js";
 
 export const NODE_CLASS = "ImageOpsAppend";
 

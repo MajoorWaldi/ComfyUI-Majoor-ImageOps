@@ -1,11 +1,11 @@
 import type { ComfyNode, NodeInteractionContext } from "../../types.js";
-import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
 import {
-  isNode,
-  getCornerPinHit,
-  cornerPinCanvasToNormalized,
-  setCornerPinHandle,
+    cornerPinCanvasToNormalized,
+    getCornerPinHit,
+    isNode,
+    setCornerPinHandle,
 } from "../nodes/corner-pin.js";
+import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
 
 function safeSetPointerCapture(canvas: HTMLCanvasElement, pointerId: number): void {
   try { canvas.setPointerCapture?.(pointerId); } catch { /* ignore */ }

@@ -1,8 +1,8 @@
 import type { ComfyNode, NodeInteractionContext } from "../../types.js";
 import { colorWheelPointToValues } from "../color.js";
+import { colorWidgetNameForZone, isNode, syncColorCorrectWidgets } from "../nodes/color-correct.js";
 import { getCanvasPointer } from "../shared/geometry.js";
 import { findWidget, resetNodeWidgetsToDefaults, setWidgetValue } from "../shared/widgets.js";
-import { colorWidgetDefaultFor, colorWidgetNameForZone, isNode, syncColorCorrectWidgets } from "../nodes/color-correct.js";
 
 function markDirty(node: ComfyNode, ctx: NodeInteractionContext): void {
   const st = node.__imageops_state ?? null;

@@ -1,10 +1,10 @@
-import { ensureState } from "../shared/state.js";
 import { resolveImageOpsClassName } from "../shared/classes.js";
-import { findWidget, hideWidgetsByName, setWidgetStringValuesByName, widgetNumber, widgetString, setWidgetValue } from "../shared/widgets.js";
 import {
   styleSoftButton,
   styleSoftRange
 } from "../shared/dom-styles.js";
+import { ensureState } from "../shared/state.js";
+import { findWidget, hideWidgetsByName, setWidgetStringValuesByName, setWidgetValue, widgetNumber, widgetString } from "../shared/widgets.js";
 const CONSTANT_RATIO_PRESETS = {
   "1:1": 1,
   "3:4": 3 / 4,

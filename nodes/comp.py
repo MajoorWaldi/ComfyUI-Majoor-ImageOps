@@ -11,7 +11,6 @@ from ._helpers import (
     _alpha_mask_from_image,
     _coerce_media_to_tensor,
     _composite_comp_layer,
-    _expand_image_batch,
     _make_comp_canvas,
     _scalar,
 )
@@ -225,7 +224,9 @@ class ImageOpsComp(io.ComfyNode):
 
         if _scalar(bypass, bool):
             _, first_image, first_mask = tensors[0]
-            result = _expand_image_batch(first_image, batch).to(device=device, dtype=dtype)
+            from .core.batch import match_batch
+            first_image_expanded, _ = match_batch(first_image, torch.empty(batch, 1, 1, 1), policy="loop")
+            result = first_image_expanded.to(device=device, dtype=dtype)
             output_mask = _alpha_mask_from_image(result)
             if first_mask is not None:
                 from ._helpers import _prepare_mask_tensor

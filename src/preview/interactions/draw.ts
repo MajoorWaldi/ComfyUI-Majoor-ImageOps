@@ -1,16 +1,16 @@
 import type { ComfyNode, DrawInteractionContext } from "../../types.js";
 import {
-  normalizeDrawColor,
-  normalizeDrawEdge,
-  normalizeDrawOverlayFormat,
-  clampDrawOpacity,
-  clampDrawSize,
-  clampDrawSoftness,
-  clampDrawDimension,
+    clampDrawDimension,
+    clampDrawOpacity,
+    clampDrawSize,
+    clampDrawSoftness,
+    normalizeDrawColor,
+    normalizeDrawEdge,
+    normalizeDrawOverlayFormat,
 } from "../draw.js";
-import { isNode as isDrawNode, canvasToDrawSourcePoint } from "../nodes/draw.js";
-import { getCanvasPointer, screenToWorld, clampPreviewZoom } from "../shared/geometry.js";
-import { findWidget, widgetNumber, widgetBoolean, setWidgetValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetBooleanValue } from "../shared/widgets.js";
+import { canvasToDrawSourcePoint } from "../nodes/draw.js";
+import { clampPreviewZoom, getCanvasPointer, screenToWorld } from "../shared/geometry.js";
+import { findWidget, setWidgetBooleanValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetValue, widgetBoolean, widgetNumber } from "../shared/widgets.js";
 
 export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext): void {
   const st = (node as any).__imageops_state as any;

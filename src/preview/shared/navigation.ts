@@ -1,9 +1,9 @@
 import type { ComfyNode } from "../../types.js";
-import { ensureState, markPreviewInteraction } from "./state.js";
-import { clampPreviewZoom } from "./geometry.js";
-import { blit } from "./bounds.js";
 import { isNode as isDrawNode } from "../nodes/draw.js";
 import { isNode as isTextNode } from "../nodes/text.js";
+import { blit } from "./bounds.js";
+import { clampPreviewZoom } from "./geometry.js";
+import { ensureState, markPreviewInteraction } from "./state.js";
 
 function isInteractiveNode(node: ComfyNode): boolean {
   // Draw uses wheel for brush size; Text uses wheel for font size — skip zoom/pan for both.

@@ -1,15 +1,15 @@
 import {
-  normalizeDrawColor,
-  normalizeDrawEdge,
-  normalizeDrawOverlayFormat,
+  clampDrawDimension,
   clampDrawOpacity,
   clampDrawSize,
   clampDrawSoftness,
-  clampDrawDimension
+  normalizeDrawColor,
+  normalizeDrawEdge,
+  normalizeDrawOverlayFormat
 } from "../draw.js";
 import { canvasToDrawSourcePoint } from "../nodes/draw.js";
-import { getCanvasPointer, screenToWorld, clampPreviewZoom } from "../shared/geometry.js";
-import { findWidget, widgetNumber, widgetBoolean, setWidgetValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetBooleanValue } from "../shared/widgets.js";
+import { clampPreviewZoom, getCanvasPointer, screenToWorld } from "../shared/geometry.js";
+import { findWidget, setWidgetBooleanValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetValue, widgetBoolean, widgetNumber } from "../shared/widgets.js";
 function attachInteractions(node, ctx) {
   const st = node.__imageops_state;
   if (!st?.canvas || st.drawInteractiveHooked) return;

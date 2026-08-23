@@ -46,11 +46,45 @@ def _repeat_indices(indices: list[int], output_count: int, repeat_mode: str) -> 
     pattern_count = len(pattern)
     return [pattern[i % pattern_count] for i in range(output_count)]
 
+def _slice_audio_for_indices(audio: torch.Tensor, indices: list[int], fps: float, sample_rate: int) -> torch.Tensor:
+    if len(indices) == 0 or fps <= 0:
+        return torch.zeros((audio.shape[0], 0), device=audio.device, dtype=audio.dtype)
+        
+    samples_per_frame = sample_rate / fps
+    total_samples = audio.shape[-1]
+    
+    # Fast path: contiguous forward sequence
+    is_contiguous = len(indices) == 1 or all(indices[i] == indices[i-1] + 1 for i in range(1, len(indices)))
+    if is_contiguous:
+        start_idx = indices[0]
+        end_idx = indices[-1] + 1
+        start_sample = int(round(start_idx * samples_per_frame))
+        end_sample = int(round(end_idx * samples_per_frame))
+        start_sample = max(0, min(start_sample, total_samples))
+        end_sample = max(0, min(end_sample, total_samples))
+        return audio[..., start_sample:end_sample]
+
+    # Slow path: frame by frame
+    chunks = []
+    for idx in indices:
+        start_sample = int(round(idx * samples_per_frame))
+        end_sample = int(round((idx + 1) * samples_per_frame))
+        start_sample = max(0, min(start_sample, total_samples))
+        end_sample = max(0, min(end_sample, total_samples))
+        
+        if end_sample > start_sample:
+            chunks.append(audio[..., start_sample:end_sample])
+    
+    if not chunks:
+        return torch.zeros((audio.shape[0], 0), device=audio.device, dtype=audio.dtype)
+        
+    return torch.cat(chunks, dim=-1)
+
 class ImageOpsFrameRange(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsFrameRange', display_name='〽️ Image Ops Frame Range', category='image/imageops', inputs=[io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Image batch or video frames.', display_name='Image/Video'), io.Boolean.Input('bypass', default=False), io.Int.Input('trim_start', default=0, min=0, max=10000000, step=1), io.Int.Input('trim_end', default=-1, min=-1, max=10000000, step=1, tooltip='-1 means last input frame.'), io.Boolean.Input('frame_hold', default=False), io.Int.Input('hold_frame', default=0, min=0, max=10000000, step=1), io.Boolean.Input('repeat', default=False), io.String.Input('repeat_mode', default='loop'), io.Int.Input('custom_frame_count', default=24, min=1, max=10000000, step=1)], outputs=[io.Image.Output('image', display_name='image'), io.Int.Output('frame_count', display_name='frame_count')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsFrameRange', display_name='〽️ Image Ops Frame Range', category='image/imageops', search_aliases=['frame range', 'frames', 'trim', 'hold', 'freeze', 'loop', 'repeat', 'timeline'], inputs=[io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Image batch or video frames.', display_name='Image/Video'), io.Boolean.Input('bypass', default=False), io.Int.Input('trim_start', default=0, min=0, max=10000000, step=1), io.Int.Input('trim_end', default=-1, min=-1, max=10000000, step=1, tooltip='-1 means last input frame.'), io.Boolean.Input('frame_hold', default=False), io.Int.Input('hold_frame', default=0, min=0, max=10000000, step=1), io.Boolean.Input('repeat', default=False), io.Combo.Input('repeat_mode', options=['loop', 'bounce', 'reverse', 'input_duration', 'custom_count', 'freeze'], default='loop'), io.Int.Input('custom_frame_count', default=24, min=1, max=10000000, step=1)], outputs=[io.Image.Output('image', display_name='image'), io.Int.Output('frame_count', display_name='frame_count')], hidden=[io.Hidden.unique_id])
 
     @classmethod
     def execute(cls, image, bypass=False, trim_start=0, trim_end=-1, frame_hold=False, hold_frame=0, repeat=False, repeat_mode='loop', custom_frame_count=24, unique_id=None, **kwargs):
@@ -82,8 +116,9 @@ class ImageOpsFrameRange(io.ComfyNode):
         else:
             idx_tensor = torch.tensor(indices, device=tensor.device, dtype=torch.long)
             out_tensor = tensor[idx_tensor]
-            if media_obj and media_obj.audio is not None:
-                out_audio = media_obj.audio.clone()
+            if media_obj and media_obj.audio is not None and media_obj.fps > 0:
+                sample_rate = getattr(media_obj, 'sample_rate', 44100)
+                out_audio = _slice_audio_for_indices(media_obj.audio, indices, media_obj.fps, sample_rate)
             else:
                 out_audio = None
         if is_media:

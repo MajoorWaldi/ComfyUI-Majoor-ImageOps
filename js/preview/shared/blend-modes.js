@@ -12,8 +12,8 @@ function colorBurn01(base, top) {
 }
 function blendChannel01(base, top, mode) {
   if (mode === "over") return top;
-  if (mode === "add") return clamp01(base + top);
-  if (mode === "subtract") return clamp01(base - top);
+  if (mode === "add") return base + top;
+  if (mode === "subtract") return base - top;
   if (mode === "multiply") return base * top;
   if (mode === "screen") return 1 - (1 - base) * (1 - top);
   if (mode === "overlay") return base <= 0.5 ? 2 * base * top : 1 - 2 * (1 - base) * (1 - top);

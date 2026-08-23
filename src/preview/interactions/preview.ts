@@ -1,6 +1,6 @@
 import type { ComfyNode, NodeInteractionContext } from "../../types.js";
-import { findWidget, setWidgetStringValue } from "../shared/widgets.js";
 import { isNode, syncPreviewWidgets } from "../nodes/preview.js";
+import { findWidget, setWidgetStringValue } from "../shared/widgets.js";
 
 export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext): void {
   if (!isNode(node)) return;

@@ -1,3 +1,6 @@
+import { getUpstreamNode, getUpstreamNodes } from "../graph.js";
+import { createContextMenuSelect, styleSoftButton, styleSoftField } from "../shared/dom-styles.js";
+import { getUpstreamVideoFps, getUpstreamVideoTiming } from "../shared/video.js";
 import {
   findWidget,
   hideWidgetForGood,
@@ -8,9 +11,6 @@ import {
   widgetNumber,
   widgetString
 } from "../shared/widgets.js";
-import { createContextMenuSelect, styleSoftButton, styleSoftField } from "../shared/dom-styles.js";
-import { getUpstreamNode, getUpstreamNodes } from "../graph.js";
-import { getUpstreamVideoFps, getUpstreamVideoTiming } from "../shared/video.js";
 const NODE_CLASS = "ImageOpsFrameRange";
 function isNode(node) {
   return String(node?.comfyClass ?? "") === NODE_CLASS;

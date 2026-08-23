@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from ._helpers import MEDIA_INPUT_TYPE, _expand_image_batch, _hex_to_rgb01, _scalar, _select_media_tensor
+from ._helpers import MEDIA_INPUT_TYPE, _hex_to_rgb01, _scalar, _select_media_tensor
 from comfy_api.latest import io
 from ._progress import start_progress
 from ._preview import build_node_preview_result
@@ -183,7 +183,8 @@ def _composite_overlay(base: torch.Tensor, overlay_rgba: torch.Tensor) -> tuple[
     overlay_rgba = overlay_rgba.float().clamp(0.0, 1.0)
 
     if base.shape[0] != overlay_rgba.shape[0]:
-        overlay_rgba = _expand_image_batch(overlay_rgba, base.shape[0])
+        from .core.batch import match_batch
+        overlay_rgba, _ = match_batch(overlay_rgba, base, policy="loop")
 
     overlay_rgb = overlay_rgba[..., :3]
     overlay_alpha = overlay_rgba[..., 3:4]
@@ -207,7 +208,7 @@ class ImageOpsDraw(io.ComfyNode):
             node_id="ImageOpsDraw",
             display_name="〽️ ImageOps Paint",
             category="image/imageops",
-            inputs=[
+            search_aliases=['paint', 'draw', 'brush', 'eraser', 'sketch', 'mask paint'], inputs=[
                 io.Boolean.Input("bypass", default=False),
                 io.Int.Input("width", default=1024, min=64, max=4096, step=64),
                 io.Int.Input("height", default=1024, min=64, max=4096, step=64),

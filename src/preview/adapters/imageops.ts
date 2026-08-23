@@ -1,11 +1,11 @@
 // ImageOps adapters (exact match) (v6)
 import type { Adapter, AdapterApplyContext, ComfyNode } from "../../types.js";
-import { ops } from "../ops.js";
 import { getCompSlots } from "../comp.js";
 import { clampDrawDimension, makeSolidBackgroundCanvas } from "../draw.js";
-import { getFrameSelectorOutputCount, getFrameSelectorSourceFrame, getUpstreamFrameCount, syncFrameSelectorWidgets } from "../nodes/frame-range.js";
-import { getJoinConnectedInputFrameCounts, getJoinSlots, readJoinTrims } from "../nodes/append.js";
 import { getUpstreamNode } from "../graph.js";
+import { getJoinConnectedInputFrameCounts, getJoinSlots, readJoinTrims } from "../nodes/append.js";
+import { getFrameSelectorOutputCount, getFrameSelectorSourceFrame, getUpstreamFrameCount, syncFrameSelectorWidgets } from "../nodes/frame-range.js";
+import { ops } from "../ops.js";
 import { isImageOpsClass, resolveImageOpsClassName } from "../shared/classes.js";
 import { getVhsVideoInfo } from "../shared/video.js";
 

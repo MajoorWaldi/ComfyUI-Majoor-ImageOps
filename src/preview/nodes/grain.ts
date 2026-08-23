@@ -1,7 +1,5 @@
 import type { ComfyNode } from "../../types.js";
-import { styleSoftButton } from "../shared/dom-styles.js";
-import { ensureState } from "../shared/state.js";
-import { findWidget, hideWidgetForGood, setWidgetValue, setWidgetStringValue, setWidgetBooleanValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
+import { findWidget, setWidgetBooleanValue, setWidgetStringValue, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
 
 export const NODE_CLASS = "ImageOpsGrain";
 

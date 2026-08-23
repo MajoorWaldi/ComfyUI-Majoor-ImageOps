@@ -11,6 +11,7 @@ class ImageOpsMedia:
     frames: torch.Tensor
     fps: float = 24.0
     audio: Optional[torch.Tensor] = None
+    sample_rate: int = 44100
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
@@ -30,5 +31,6 @@ class ImageOpsMedia:
             frames=self.frames.clone() if self.frames is not None else None,
             fps=self.fps,
             audio=self.audio.clone() if self.audio is not None else None,
+            sample_rate=self.sample_rate,
             metadata=dict(self.metadata)
         )

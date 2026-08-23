@@ -1,6 +1,6 @@
-import { getInputOriginSlot, getUpstreamNode, detectSource } from "./graph.js";
-import { makeViewUrl, ensureBitmap, ensureImageElement, ensureVideoFrameCanvas, fitWithinMaxSize, renderImageSourceToCanvas } from "../source.js";
 import { isImageOpsClass } from "../shared/classes.js";
+import { ensureBitmap, ensureImageElement, ensureVideoFrameCanvas, fitWithinMaxSize, makeViewUrl, renderImageSourceToCanvas } from "../source.js";
+import { detectSource, getInputOriginSlot, getUpstreamNode } from "./graph.js";
 function buildRenderer({ api, registry, canvasSize }) {
   const MAX_RECURSION = 64;
   function hashString(value) {
@@ -313,6 +313,39 @@ function buildRenderer({ api, registry, canvasSize }) {
   }
   return { render };
 }
+function getImageData(ctx, W, H) {
+  return ctx.getImageData(0, 0, W, H);
+}
+function putImageData(ctx, img) {
+  ctx.putImageData(img, 0, 0);
+}
+function getCanvasDimensions(ctx) {
+  return {
+    width: Math.max(1, ctx.canvas.width || 1),
+    height: Math.max(1, ctx.canvas.height || 1)
+  };
+}
+function makeCanvas(width, height) {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width));
+  canvas.height = Math.max(1, Math.round(height));
+  return canvas;
+}
+function applyEffectToCanvas(source, effect) {
+  const output = makeCanvas(source.width || 1, source.height || 1);
+  const copyCtx = output.getContext("2d", { willReadFrequently: true });
+  copyCtx.drawImage(source, 0, 0, output.width, output.height);
+  const octx = output.getContext("2d", { willReadFrequently: true });
+  const result = effect(octx, output.width, output.height);
+  return result instanceof HTMLCanvasElement ? result : output;
+}
+const canvasFieldCache = /* @__PURE__ */ new WeakMap();
 export {
-  buildRenderer
+  applyEffectToCanvas,
+  buildRenderer,
+  canvasFieldCache,
+  getCanvasDimensions,
+  getImageData,
+  makeCanvas,
+  putImageData
 };

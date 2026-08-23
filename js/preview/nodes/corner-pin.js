@@ -1,4 +1,4 @@
-import { findWidget, widgetNumber, setWidgetValue } from "../shared/widgets.js";
+import { findWidget, setWidgetValue, widgetNumber } from "../shared/widgets.js";
 const NODE_CLASS = "ImageOpsCornerPin";
 function isNode(node) {
   return String(node?.comfyClass ?? "") === NODE_CLASS;

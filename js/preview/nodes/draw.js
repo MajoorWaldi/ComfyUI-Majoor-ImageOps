@@ -1,21 +1,21 @@
-import { findWidget, widgetNumber, widgetString, widgetBoolean, hideWidgetsByName, setWidgetValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetBooleanValue } from "../shared/widgets.js";
-import { ensureState } from "../shared/state.js";
+import {
+  canvasToOverlayData,
+  clampDrawDimension,
+  clampDrawOpacity,
+  clampDrawSize,
+  clampDrawSoftness,
+  normalizeDrawColor,
+  normalizeDrawEdge,
+  normalizeDrawOverlayFormat,
+  normalizeDrawTool
+} from "../draw.js";
 import {
   setDarkColorInputState,
   styleSoftButton,
   syncDarkColorInputUI
 } from "../shared/dom-styles.js";
-import {
-  normalizeDrawColor,
-  normalizeDrawEdge,
-  normalizeDrawTool,
-  normalizeDrawOverlayFormat,
-  clampDrawDimension,
-  clampDrawOpacity,
-  clampDrawSize,
-  clampDrawSoftness,
-  canvasToOverlayData
-} from "../draw.js";
+import { ensureState } from "../shared/state.js";
+import { findWidget, hideWidgetsByName, setWidgetBooleanValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
 const NODE_CLASS = "ImageOpsDraw";
 function isNode(node) {
   return String(node?.comfyClass ?? "") === NODE_CLASS;

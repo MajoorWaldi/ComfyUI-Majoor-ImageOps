@@ -1,5 +1,5 @@
 import type { ComfyNode, CornerPinHandle, CornerPinPreviewGeometry } from "../../types.js";
-import { findWidget, widgetNumber, setWidgetValue } from "../shared/widgets.js";
+import { findWidget, setWidgetValue, widgetNumber } from "../shared/widgets.js";
 
 export const NODE_CLASS = "ImageOpsCornerPin";
 

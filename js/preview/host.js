@@ -1,83 +1,82 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
-import { buildRenderer } from "./core/renderer.js";
-import { buildAdapterRegistry } from "./registry.js";
-import { detectSourceUpstream, getInputOriginSlot, getUpstreamNode, getUpstreamNodes, isGraphTooLarge, findDependents } from "./core/graph.js";
-import { resolveNodeStreamPreview } from "./nodestream.js";
-import { disposeMediaState, resolveNodeIntrinsicMediaSize } from "./source.js";
-import { attachProgressBus } from "./progress.js";
+import { getCompSlots } from "./comp.js";
 import { getPreviewConfig } from "./config.js";
 import { initOpsConstants } from "./constants.js";
-import { getCompSlots } from "./comp.js";
-import { renderCompPreview } from "./ops.js";
-import { findWidget, resetNodeWidgetsToDefaults, setWidgetStringValue, widgetNumber, widgetString, deduplicateColorWidgets } from "./shared/widgets.js";
-import { getProceduralFrameCount, hasProceduralAnimation, getProceduralPlaybackFps } from "./shared/animation.js";
-import { getUpstreamVideoFps } from "./core/media.js";
-import { getInputIndexByName, getNativePreviewImage } from "./core/media.js";
-import { isImageOpsClass } from "./shared/classes.js";
-import { isNode as isPreviewNode, hidePreviewWidgets, syncPreviewWidgets } from "./nodes/preview.js";
-import { isNode as isConstantNode, getConstantInfoText, hideConstantWidgets, syncConstantWidgets } from "./nodes/constant.js";
-import { isNode as isGrainNode, getGrainInfoText, hideGrainWidgets, syncGrainWidgets } from "./nodes/grain.js";
-import { isNode as isRampNode, getRampInfoText, hideRampWidgets, syncRampWidgets } from "./nodes/ramp.js";
-import { isNode as isTextNode, getTextInfoText, hideTextWidgets, syncTextWidgets } from "./nodes/text.js";
-import { isNode as isFrameSelectorNode, attachFrameSelectorControls, getFrameSelectorOutputCount, getUpstreamFps as getFrameSelectorUpstreamFps, hideFrameSelectorWidgets, syncFrameSelectorWidgets } from "./nodes/frame-range.js";
-import { isNode as isKeyerNode, attachKeyerControls, hideKeyerWidgets, syncKeyerWidgets } from "./nodes/keyer.js";
-import { isNode as isColorCorrectNode, hideColorCorrectWidgets, syncColorCorrectWidgets } from "./nodes/color-correct.js";
-import { isNode as isCropNode, hideCropGeometryWidgets, syncCropWidgets, setCropOutputDimensions, getCropInfoText } from "./nodes/crop.js";
-import { isNode as isDrawNode, hideDrawWidgets, syncDrawWidgets, updateDrawOverlayWidget } from "./nodes/draw.js";
-import {
-  isNode as isCompNode,
-  hideCompWidgets,
-  ensureCompState,
-  updateCompControls,
-  updateSelectedCompLayer,
-  compCanvasToOutputPoint,
-  getCompHit,
-  writeCompLayerCorners,
-  syncDarkColorInputUI,
-  setDarkColorInputState,
-  getCompInfoText,
-  syncCompWidgets
-} from "./nodes/comp.js";
-import { isNode as isCornerPinNode, getCornerPinInfoText } from "./nodes/corner-pin.js";
-import { isNode as isTransformNode, hideTransformWidgets } from "./nodes/transform.js";
-import { applyPadOutTargetFormat, attachPadOutControls, getPadOutInfoText, hidePadOutWidgets, hydratePadOutTargetFormat, isNode as isPadOutNode, syncPadOutControls } from "./nodes/pad-out.js";
-import { isNode as isJoinNode, ensureJoinInputs, hideJoinWidgets, getJoinPreviewFrameCount, getJoinSlots, getPreviewNodeFrameCount } from "./nodes/append.js";
-import { ensureState, setInfo, markPreviewInteraction, getRenderCanvasSize, buildPreviewRenderKey } from "./shared/state.js";
+import { detectSourceUpstream, findDependents, getInputOriginSlot, getUpstreamNode, getUpstreamNodes, isGraphTooLarge } from "./core/graph.js";
+import { getInputIndexByName, getNativePreviewImage, getUpstreamVideoFps } from "./core/media.js";
+import { buildRenderer } from "./core/renderer.js";
 import { schedule, stopRAF } from "./core/scheduler.js";
-import { markCanvasDirty } from "./shared/canvas.js";
-import { noteFrame } from "./shared/fps-monitor.js";
-import { ensurePreviewWidget } from "./shared/preview-widget.js";
-import { blit, tryRenderNativePreview } from "./shared/bounds.js";
-import { attachPreviewNavigation } from "./shared/navigation.js";
-import {
-  renderDrawNode,
-  setDrawTool,
-  ensureDrawInteractionReady,
-  renderMaskCanvasFromNode,
-  renderMaskInputForComp,
-  deriveMaskCanvasFromCanvas,
-  cloneCanvas,
-  restoreCanvas,
-  pushDrawUndoSnapshot,
-  popDrawUndoSnapshot,
-  paintDrawSegment,
-  ensureDrawCanvasSize,
-  drawPointerDynamics,
-  setDrawBrushSize
-} from "./nodes/draw-renderer.js";
+import { attachInteractions as attachJoinInteractionsExt, syncJoinControls } from "./interactions/append.js";
 import { attachInteractions as attachColorCorrectInteractionsExt } from "./interactions/color-correct.js";
+import { attachInteractions as attachCompInteractionsExt } from "./interactions/comp.js";
 import { attachInteractions as attachConstantInteractionsExt } from "./interactions/constant.js";
-import { attachInteractions as attachGrainInteractionsExt } from "./interactions/grain.js";
-import { attachInteractions as attachRampInteractionsExt } from "./interactions/ramp.js";
-import { attachInteractions as attachTextInteractionsExt } from "./interactions/text.js";
 import { attachInteractions as attachCornerPinInteractionsExt } from "./interactions/corner-pin.js";
-import { attachInteractions as attachPadOutInteractionsExt } from "./interactions/pad-out.js";
-import { attachInteractions as attachPreviewInteractionsExt } from "./interactions/preview.js";
 import { attachInteractions as attachCropInteractionsExt } from "./interactions/crop.js";
 import { attachInteractions as attachDrawInteractionsExt } from "./interactions/draw.js";
-import { attachInteractions as attachCompInteractionsExt } from "./interactions/comp.js";
-import { attachInteractions as attachJoinInteractionsExt, syncJoinControls } from "./interactions/append.js";
+import { attachInteractions as attachGrainInteractionsExt } from "./interactions/grain.js";
+import { attachInteractions as attachPadOutInteractionsExt } from "./interactions/pad-out.js";
+import { attachInteractions as attachPreviewInteractionsExt } from "./interactions/preview.js";
+import { attachInteractions as attachRampInteractionsExt } from "./interactions/ramp.js";
+import { attachInteractions as attachTextInteractionsExt } from "./interactions/text.js";
+import { ensureJoinInputs, getJoinPreviewFrameCount, getJoinSlots, getPreviewNodeFrameCount, hideJoinWidgets, isNode as isJoinNode } from "./nodes/append.js";
+import { hideColorCorrectWidgets, isNode as isColorCorrectNode, syncColorCorrectWidgets } from "./nodes/color-correct.js";
+import {
+  compCanvasToOutputPoint,
+  ensureCompState,
+  getCompHit,
+  getCompInfoText,
+  hideCompWidgets,
+  isNode as isCompNode,
+  setDarkColorInputState,
+  syncCompWidgets,
+  syncDarkColorInputUI,
+  updateCompControls,
+  updateSelectedCompLayer,
+  writeCompLayerCorners
+} from "./nodes/comp.js";
+import { getConstantInfoText, hideConstantWidgets, isNode as isConstantNode, syncConstantWidgets } from "./nodes/constant.js";
+import { getCornerPinInfoText, isNode as isCornerPinNode } from "./nodes/corner-pin.js";
+import { getCropInfoText, hideCropGeometryWidgets, isNode as isCropNode, setCropOutputDimensions, syncCropWidgets } from "./nodes/crop.js";
+import {
+  cloneCanvas,
+  deriveMaskCanvasFromCanvas,
+  drawPointerDynamics,
+  ensureDrawCanvasSize,
+  ensureDrawInteractionReady,
+  paintDrawSegment,
+  popDrawUndoSnapshot,
+  pushDrawUndoSnapshot,
+  renderDrawNode,
+  renderMaskCanvasFromNode,
+  renderMaskInputForComp,
+  restoreCanvas,
+  setDrawBrushSize,
+  setDrawTool
+} from "./nodes/draw-renderer.js";
+import { hideDrawWidgets, isNode as isDrawNode, syncDrawWidgets, updateDrawOverlayWidget } from "./nodes/draw.js";
+import { attachFrameSelectorControls, getFrameSelectorOutputCount, getUpstreamFps as getFrameSelectorUpstreamFps, hideFrameSelectorWidgets, isNode as isFrameSelectorNode, syncFrameSelectorWidgets } from "./nodes/frame-range.js";
+import { getGrainInfoText, hideGrainWidgets, isNode as isGrainNode, syncGrainWidgets } from "./nodes/grain.js";
+import { attachKeyerControls, hideKeyerWidgets, isNode as isKeyerNode, syncKeyerWidgets } from "./nodes/keyer.js";
+import { applyPadOutTargetFormat, attachPadOutControls, getPadOutInfoText, hidePadOutWidgets, hydratePadOutTargetFormat, isNode as isPadOutNode, syncPadOutControls } from "./nodes/pad-out.js";
+import { hidePreviewWidgets, isNode as isPreviewNode, syncPreviewWidgets } from "./nodes/preview.js";
+import { getRampInfoText, hideRampWidgets, isNode as isRampNode, syncRampWidgets } from "./nodes/ramp.js";
+import { getTextInfoText, hideTextWidgets, isNode as isTextNode, syncTextWidgets } from "./nodes/text.js";
+import { hideTransformWidgets, isNode as isTransformNode } from "./nodes/transform.js";
+import { resolveNodeStreamPreview } from "./nodestream.js";
+import { renderCompPreview } from "./ops.js";
+import { attachProgressBus } from "./progress.js";
+import { buildAdapterRegistry } from "./registry.js";
+import { getProceduralFrameCount, getProceduralPlaybackFps, hasProceduralAnimation } from "./shared/animation.js";
+import { blit, tryRenderNativePreview } from "./shared/bounds.js";
+import { markCanvasDirty } from "./shared/canvas.js";
+import { isImageOpsClass } from "./shared/classes.js";
+import { noteFrame } from "./shared/fps-monitor.js";
+import { attachPreviewNavigation } from "./shared/navigation.js";
+import { ensurePreviewWidget } from "./shared/preview-widget.js";
+import { buildPreviewRenderKey, ensureState, getRenderCanvasSize, markPreviewInteraction, setInfo } from "./shared/state.js";
+import { deduplicateColorWidgets, findWidget, resetNodeWidgetsToDefaults, setWidgetStringValue, widgetNumber, widgetString } from "./shared/widgets.js";
+import { disposeMediaState, resolveNodeIntrinsicMediaSize } from "./source.js";
 console.info("[ImageOps] LivePreview v6 loaded");
 const EXT_NAME = "ImageOps.LivePreview.v6";
 let extensionRegistered = false;

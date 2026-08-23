@@ -8,8 +8,8 @@ function normalizeLinkId(value) {
   return String(value);
 }
 function toFiniteNumber(value) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : void 0;
+  const num2 = Number(value);
+  return Number.isFinite(num2) ? num2 : void 0;
 }
 function normalizeGraphLink(link) {
   if (!link) return null;
@@ -105,19 +105,19 @@ function detectSource(node) {
   function pickMediaWidget(n) {
     const preferred = ["image", "video", "path", "filepath", "file", "filename", "input_video", "input_image"];
     for (const name of preferred) {
-      const w2 = n?.widgets?.find((x) => x?.name === name);
-      if (w2 && looksLikeMediaValue(w2.value)) return w2;
+      const w3 = n?.widgets?.find((x) => x?.name === name);
+      if (w3 && looksLikeMediaValue(w3.value)) return w3;
     }
-    for (const w2 of n?.widgets ?? []) {
-      if (looksLikeMediaValue(w2?.value)) return w2;
+    for (const w3 of n?.widgets ?? []) {
+      if (looksLikeMediaValue(w3?.value)) return w3;
     }
     return null;
   }
-  const w = pickMediaWidget(node);
-  if (!w) return null;
-  const ext = getFileExtLower(w.value);
+  const w2 = pickMediaWidget(node);
+  if (!w2) return null;
+  const ext = getFileExtLower(w2.value);
   const kind = VIDEO_EXTS.has(ext) ? "video" : "image";
-  return { kind, value: w.value, animated: kind === "image" && MAYBE_ANIMATED_IMAGE_EXTS.has(ext) };
+  return { kind, value: w2.value, animated: kind === "image" && MAYBE_ANIMATED_IMAGE_EXTS.has(ext) };
 }
 function detectSourceUpstream(node, maxHops = MAX_RECURSION) {
   const queue = [node];
@@ -167,14 +167,113 @@ function isUpstreamOf(candidate, node, max = MAX_RECURSION) {
   }
   return false;
 }
+function w(node, name) {
+  return node?.widgets?.find((x) => x?.name === name) ?? null;
+}
+function widgetScalarValue(value, index = 0) {
+  let current = value;
+  while (Array.isArray(current) && current.length > 0) {
+    const resolvedIndex = Math.max(0, Math.min(current.length - 1, index));
+    current = current[resolvedIndex];
+  }
+  return current;
+}
+function num(node, name, fallback = 0, index = 0) {
+  const v = widgetScalarValue(w(node, name)?.value, index);
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+function str(node, name, fallback = "", index = 0) {
+  const v = widgetScalarValue(w(node, name)?.value, index);
+  return typeof v === "string" ? v : fallback;
+}
+function bool(node, name, fallback = false, index = 0) {
+  const v = widgetScalarValue(w(node, name)?.value, index);
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return !!v;
+  if (typeof v === "string") return v.toLowerCase() === "true";
+  return fallback;
+}
+function wAny(node, names) {
+  for (const name of names) {
+    const found = w(node, name);
+    if (found) return found;
+  }
+  return null;
+}
+function numAny(node, names, fallback = 0, index = 0) {
+  const v = widgetScalarValue(wAny(node, names)?.value, index);
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+function strAny(node, names, fallback = "", index = 0) {
+  const v = widgetScalarValue(wAny(node, names)?.value, index);
+  return typeof v === "string" ? v : fallback;
+}
+function resolveConnectedString(node, inputName) {
+  const inputs = node?.inputs ?? [];
+  const slotIndex = inputs.findIndex((inp) => inp?.name === inputName);
+  if (slotIndex < 0) return null;
+  const link = inputs[slotIndex]?.link;
+  if (link == null) return null;
+  const linkData = node?.graph?.links?.[link];
+  if (!linkData) return null;
+  const upNode = node?.graph?.getNodeById?.(linkData.origin_id);
+  if (!upNode) return null;
+  const upWidget = (upNode?.widgets ?? []).find((w2) => typeof w2?.value === "string");
+  return upWidget ? String(upWidget.value) : null;
+}
+function boolAny(node, names, fallback = false, index = 0) {
+  const v = widgetScalarValue(wAny(node, names)?.value, index);
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return !!v;
+  if (typeof v === "string") return v.toLowerCase() === "true";
+  return fallback;
+}
+function normalizeFilterName(filter) {
+  const value = String(filter || "bilinear").toLowerCase();
+  if (value === "nearest") return "nearest-exact";
+  if (value === "linear") return "bilinear";
+  if (value === "cubic") return "bicubic";
+  return value;
+}
+function imageLikeInputName(name) {
+  return /image|images|source|destination|background|foreground|layer|red|green|blue|channel|input/i.test(name);
+}
+function getPreferredInputIndexes(node) {
+  const indexes = [];
+  for (let index = 0; index < (node.inputs?.length ?? 0); index++) {
+    const slot = node.inputs?.[index];
+    const name = String(slot?.name ?? "");
+    const type = String(slot?.type ?? "");
+    if (/mask|bbox|box|region/i.test(name) || /mask|bbox|box/i.test(type)) continue;
+    if (slot?.link == null && !node.getInputLink?.(index)) continue;
+    if (imageLikeInputName(name) || /image|video/i.test(type)) indexes.push(index);
+  }
+  if (indexes.length > 0) return indexes;
+  return [0];
+}
 export {
+  bool,
+  boolAny,
   detectSource,
   detectSourceUpstream,
   findDependents,
   getInputCount,
   getInputLink,
   getInputOriginSlot,
+  getPreferredInputIndexes,
   getUpstreamNode,
   getUpstreamNodes,
-  isGraphTooLarge
+  imageLikeInputName,
+  isGraphTooLarge,
+  normalizeFilterName,
+  num,
+  numAny,
+  resolveConnectedString,
+  str,
+  strAny,
+  w,
+  wAny,
+  widgetScalarValue
 };

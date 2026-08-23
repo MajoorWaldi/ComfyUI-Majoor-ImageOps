@@ -1,6 +1,6 @@
 import type { ComfyNode, NodeInteractionContext } from "../../types.js";
-import { syncDarkColorInputUI } from "../shared/dom-styles.js";
 import { getRampHit, isNode as isRampNode, rampCanvasToNormalized, setRampHandle, syncRampWidgets } from "../nodes/ramp.js";
+import { syncDarkColorInputUI } from "../shared/dom-styles.js";
 import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
 import { findWidget, setWidgetBooleanValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetValue } from "../shared/widgets.js";
 

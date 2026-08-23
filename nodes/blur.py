@@ -17,7 +17,7 @@ class ImageOpsBlur(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsBlur', display_name='〽️ Image Ops Blur', category='image/imageops', inputs=[io.Boolean.Input('bypass', default=False), io.String.Input('blur_type', default='gaussian'), io.Int.Input('radius', default=3, min=0, max=128, step=1, tooltip='Blur extent in pixels. 0 = no blur (disables all types).'), io.Float.Input('sigma', default=0.0, min=0.0, max=64.0, step=0.01, round=0.001, tooltip='gaussian: Gaussian std-dev in pixels (0 = auto, radius/3). surface: colour-similarity threshold 0–1 (0 = auto ≈0.15). box / defocus: unused.'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsBlur', display_name='〽️ Image Ops Blur', category='image/imageops', search_aliases=['blur', 'defocus'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('blur_type', options=['gaussian', 'box', 'defocus', 'surface'], default='gaussian'), io.Int.Input('radius', default=3, min=0, max=128, step=1, tooltip='Blur extent in pixels. 0 = no blur (disables all types).'), io.Float.Input('sigma', default=0.0, min=0.0, max=64.0, step=0.01, round=0.001, tooltip='gaussian: Gaussian std-dev in pixels (0 = auto, radius/3). surface: colour-similarity threshold 0–1 (0 = auto ≈0.15). box / defocus: unused.'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
 
     @classmethod
     def execute(cls, image=None, bypass=False, blur_type='gaussian', radius=3, sigma=0.0, invert_mask=False, mask=None, unique_id=None, **kwargs):
@@ -25,13 +25,13 @@ class ImageOpsBlur(io.ComfyNode):
         input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         progress = start_progress(unique_id=unique_id)
-        if isinstance(bypass, (list, tuple)):
-            all_bypassed = all((_scalar(bypass, bool, index=i) for i in range(max(len(bypass), 1))))
-        else:
-            all_bypassed = bool(bypass)
-        if all_bypassed:
+        if isinstance(bypass, bool) and bypass:
             progress.finish()
             return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_blur')
+        if isinstance(bypass, (list, tuple)) and all(bypass):
+            progress.finish()
+            return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_blur')
+            
         if _blur_is_noop(radius):
             progress.finish()
             return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_blur')
@@ -46,5 +46,7 @@ class ImageOpsBlur(io.ComfyNode):
         else:
             result = _dispatch_blur(source, radius, sigma, blur_type=bt)
             output_mask = output_mask_source
+        from ._helpers import apply_per_frame_bypass
+        result = apply_per_frame_bypass(source, result, bypass)
         progress.finish()
         return build_node_preview_result(result, (result, output_mask), prefix='imageops_blur')

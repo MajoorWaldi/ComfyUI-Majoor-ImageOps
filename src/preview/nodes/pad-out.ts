@@ -1,6 +1,6 @@
-import type { ComfyNode, NodeInteractionContext, PadOutPreviewGeometry, PadOutDragMode } from "../../types.js";
-import { createContextMenuSelect, styleSoftButton, styleSoftField } from "../shared/dom-styles.js";
-import { findWidget, hideWidgetForGood, setWidgetBooleanValue, setWidgetStringValue, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
+import type { ComfyNode, NodeInteractionContext, PadOutDragMode, PadOutPreviewGeometry } from "../../types.js";
+import { styleSoftButton } from "../shared/dom-styles.js";
+import { findWidget, setWidgetStringValue, setWidgetValue, widgetNumber, widgetString } from "../shared/widgets.js";
 
 export const NODE_CLASS = "ImageOpsPadOut";
 

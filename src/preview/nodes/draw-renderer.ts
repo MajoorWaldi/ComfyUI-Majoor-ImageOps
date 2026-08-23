@@ -1,38 +1,38 @@
 import type { ComfyNode, DrawRenderSession } from "../../types.js";
-import { ensureState, setInfo, getRenderCanvasSize } from "../shared/state.js";
 import {
-  isNode as isDrawNode,
-  updateDrawOverlayWidget,
-  syncDrawWidgets,
-  getDrawInfoText,
-  updateDrawToolButtons,
-} from "./draw.js";
-import { blit } from "../shared/bounds.js";
-import { ensurePreviewWidget } from "../shared/preview-widget.js";
+    clampDrawDimension,
+    clampDrawOpacity,
+    clampDrawSize,
+    clampDrawSoftness,
+    createOffscreenCanvas,
+    normalizeDrawColor,
+    normalizeDrawEdge,
+    normalizeDrawTool,
+    renderDrawPreview,
+    resizeCanvasPreserve,
+    resolveDrawOverlayCanvas,
+} from "../draw.js";
 import { getInputOriginSlot, getUpstreamNode } from "../graph.js";
 import { resolveNodeStreamPreview } from "../nodestream.js";
+import { blit } from "../shared/bounds.js";
+import { ensurePreviewWidget } from "../shared/preview-widget.js";
+import { ensureState, getRenderCanvasSize, setInfo } from "../shared/state.js";
+import {
+    findWidget,
+    setWidgetStringValue,
+    setWidgetValue,
+    widgetBoolean,
+    widgetNumber,
+    widgetString,
+} from "../shared/widgets.js";
 import { resolveNodeIntrinsicMediaSize } from "../source.js";
 import {
-  findWidget,
-  widgetNumber,
-  widgetString,
-  widgetBoolean,
-  setWidgetValue,
-  setWidgetStringValue,
-} from "../shared/widgets.js";
-import {
-  normalizeDrawColor,
-  normalizeDrawEdge,
-  normalizeDrawTool,
-  clampDrawDimension,
-  clampDrawOpacity,
-  clampDrawSize,
-  clampDrawSoftness,
-  createOffscreenCanvas,
-  resizeCanvasPreserve,
-  renderDrawPreview,
-  resolveDrawOverlayCanvas,
-} from "../draw.js";
+    getDrawInfoText,
+    isNode as isDrawNode,
+    syncDrawWidgets,
+    updateDrawOverlayWidget,
+    updateDrawToolButtons,
+} from "./draw.js";
 
 export function strokeStyle(color: string, opacity: number): string {
   const normalized = normalizeDrawColor(color, "#FFFFFF");

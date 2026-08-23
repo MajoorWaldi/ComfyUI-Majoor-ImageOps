@@ -1,10 +1,10 @@
-import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
 import {
-  isNode,
-  getCornerPinHit,
   cornerPinCanvasToNormalized,
+  getCornerPinHit,
+  isNode,
   setCornerPinHandle
 } from "../nodes/corner-pin.js";
+import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
 function safeSetPointerCapture(canvas, pointerId) {
   try {
     canvas.setPointerCapture?.(pointerId);

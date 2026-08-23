@@ -1,16 +1,5 @@
 import type { ComfyNode } from "../../types.js";
-import {
-  createColorSwatch,
-  createContextMenuSelect,
-  setDarkColorInputState,
-  styleSoftButton,
-  styleSoftField,
-  styleSoftRange,
-  syncDarkColorInputUI,
-} from "../shared/dom-styles.js";
-import { ensureState } from "../shared/state.js";
-import { findWidget, hideWidgetForGood, hideWidgetsByName, setWidgetStringValuesByName, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
-import { startEyedropper } from "../shared/eyedropper.js";
+import { setWidgetStringValuesByName, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
 
 export const NODE_CLASS = "ImageOpsText";
 

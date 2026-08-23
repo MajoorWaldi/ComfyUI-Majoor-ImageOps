@@ -19,11 +19,11 @@
       ]
     },
     "add": {
-      "formula": "clamp(base + top, 0, 1)",
+      "formula": "base + top",
       "cases": [
         {"base": 0.0, "top": 0.0, "expected": 0.0},
         {"base": 0.5, "top": 0.5, "expected": 1.0},
-        {"base": 0.75, "top": 0.5, "expected": 1.0},
+        {"base": 0.75, "top": 0.5, "expected": 1.25},
         {"base": 0.0, "top": 1.0, "expected": 1.0},
         {"base": 0.25, "top": 0.25, "expected": 0.5}
       ]

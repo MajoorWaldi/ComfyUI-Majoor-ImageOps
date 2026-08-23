@@ -106,6 +106,11 @@ if ComfyExtension is not object:
             return NODES
 
     async def comfy_entrypoint():
+        try:
+            from .server import register_imageops_routes
+            register_imageops_routes()
+        except ImportError:
+            pass
         return MajoorImageOpsExtension()
 
 # Fallback mappings for tests or extreme edge cases expecting legacy dictionary
