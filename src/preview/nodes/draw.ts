@@ -1,20 +1,18 @@
 import type { ComfyNode, DrawPreviewGeometry } from "../../types.js";
-import { findWidget, widgetNumber, widgetString, widgetBoolean, hideWidgetForGood, hideWidgetsByName, setWidgetValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetBooleanValue } from "../shared/widgets.js";
-import { ensureState } from "../shared/state.js";
 import {
-  createColorSwatch,
-  createContextMenuSelect,
-  setDarkColorInputState,
-  styleInlineAction,
-  styleSoftButton,
-  styleSoftField,
-  styleSoftRange,
-  syncDarkColorInputUI,
-} from "../shared/dom-styles.js";
-import {
-  normalizeDrawColor, normalizeDrawEdge, normalizeDrawTool, normalizeDrawOverlayFormat,
-  clampDrawDimension, clampDrawOpacity, clampDrawSize, clampDrawSoftness, canvasToOverlayData,
+    canvasToOverlayData,
+    clampDrawDimension, clampDrawOpacity, clampDrawSize, clampDrawSoftness,
+    normalizeDrawColor, normalizeDrawEdge,
+    normalizeDrawOverlayFormat,
+    normalizeDrawTool,
 } from "../draw.js";
+import {
+    setDarkColorInputState,
+    styleSoftButton,
+    syncDarkColorInputUI
+} from "../shared/dom-styles.js";
+import { ensureState } from "../shared/state.js";
+import { findWidget, hideWidgetsByName, setWidgetBooleanValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
 
 export const NODE_CLASS = "ImageOpsDraw";
 

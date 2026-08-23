@@ -1,6 +1,6 @@
 import type { ComfyNode, NodeInteractionContext } from "../../types.js";
-import { syncDarkColorInputUI } from "../shared/dom-styles.js";
 import { isNode as isTextNode, syncTextWidgets } from "../nodes/text.js";
+import { syncDarkColorInputUI } from "../shared/dom-styles.js";
 import { findWidget, setWidgetBooleanValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetValue, widgetNumber } from "../shared/widgets.js";
 
 function clampInt(value: number, fallback: number, min: number, max: number): number {

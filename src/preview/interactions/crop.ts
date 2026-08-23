@@ -1,15 +1,15 @@
 import type { ComfyNode, CropInteractionContext } from "../../types.js";
-import { computeCropRect, clampCropCenter, clampCropScale } from "../crop.js";
+import { clampCropCenter, clampCropScale, computeCropRect } from "../crop.js";
 import {
-  getCropControlState,
-  setCropControlState,
-  isFreeCropResizeEnabled,
-  getCropInteractionMode,
-  getCropCursor,
-  canvasToSourcePoint,
-  resolveCropAspectRatioValue,
-  cropRectFromAnchor,
-  freeCropRectFromAnchor,
+    canvasToSourcePoint,
+    cropRectFromAnchor,
+    freeCropRectFromAnchor,
+    getCropControlState,
+    getCropCursor,
+    getCropInteractionMode,
+    isFreeCropResizeEnabled,
+    resolveCropAspectRatioValue,
+    setCropControlState,
 } from "../nodes/crop.js";
 import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
 import { resetNodeWidgetsToDefaults, widgetNumber } from "../shared/widgets.js";

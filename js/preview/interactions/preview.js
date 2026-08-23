@@ -1,5 +1,5 @@
-import { findWidget, setWidgetStringValue } from "../shared/widgets.js";
 import { isNode, syncPreviewWidgets } from "../nodes/preview.js";
+import { findWidget, setWidgetStringValue } from "../shared/widgets.js";
 function attachInteractions(node, ctx) {
   if (!isNode(node)) return;
   const st = node.__imageops_state ?? null;

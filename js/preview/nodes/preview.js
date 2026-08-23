@@ -1,5 +1,5 @@
-import { findWidget, hideWidgetForGood, widgetString } from "../shared/widgets.js";
 import { createContextMenuSelect, styleSoftButton, styleSoftField } from "../shared/dom-styles.js";
+import { findWidget, hideWidgetForGood, widgetString } from "../shared/widgets.js";
 const NODE_CLASS = "ImageOpsPreview";
 function isNode(node) {
   return String(node?.comfyClass ?? "") === NODE_CLASS;

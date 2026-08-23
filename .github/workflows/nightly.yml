@@ -14,7 +14,11 @@ on:
 permissions: {}
 
 jobs:
+  quality:
+    uses: ./.github/workflows/ci.yml
+
   build-nightly:
+    needs: quality
     runs-on: ubuntu-latest
     permissions:
       contents: write

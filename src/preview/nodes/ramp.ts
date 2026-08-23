@@ -1,16 +1,6 @@
 import type { ComfyNode, RampHandle, RampPreviewGeometry } from "../../types.js";
-import {
-  createColorSwatch,
-  createContextMenuSelect,
-  setDarkColorInputState,
-  styleSoftButton,
-  styleSoftField,
-  styleSoftRange,
-  syncDarkColorInputUI,
-} from "../shared/dom-styles.js";
 import { resolveImageOpsClassName } from "../shared/classes.js";
-import { ensureState } from "../shared/state.js";
-import { findWidget, hideWidgetForGood, hideWidgetsByName, setWidgetStringValuesByName, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
+import { findWidget, setWidgetStringValuesByName, setWidgetValue, widgetNumber, widgetString } from "../shared/widgets.js";
 
 const RAMP_RATIO_PRESETS: Record<string, number> = {
   "1:1": 1,

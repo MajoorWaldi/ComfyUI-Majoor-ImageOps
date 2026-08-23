@@ -1,8 +1,8 @@
 import type { ComfyNode, ComfyWidget } from "../../types.js";
 import { isNode as isAppendNode } from "../nodes/append.js";
 import { isNode as isFrameRangeNode } from "../nodes/frame-range.js";
-import { isImageOpsNativeUiClass } from "./classes.js";
 import { markCanvasDirty } from "./canvas.js";
+import { isImageOpsNativeUiClass } from "./classes.js";
 
 function syncWidgetElement(widget: ComfyWidget | null, value: string | number | boolean): void {
   const element = widget?.element as (HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null | undefined);

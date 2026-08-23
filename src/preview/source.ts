@@ -1,5 +1,5 @@
 // Media source helpers (v6)
-import type { ComfyNode, ComfyAPI, AnnotatedFilename, MediaState } from "../types.js";
+import type { AnnotatedFilename, ComfyAPI, ComfyNode, MediaState } from "../types.js";
 import { getNativePreviewImage } from "./shared/media.js";
 
 const VIDEO_EXTS = new Set(["mp4", "mov", "webm", "mkv", "avi", "m4v", "flv", "wmv", "mpg", "mpeg", "ogv"]);

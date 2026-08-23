@@ -1,9 +1,9 @@
 import type { ComfyNode, CropDragMode, CropPreviewGeometry } from "../../types.js";
 import { clampCropCenter, clampCropScale, resolveCropAspectRatio, type CropRect } from "../crop.js";
-import { findWidget, widgetNumber, widgetString, widgetBoolean, hideWidgetForGood, setWidgetValue, setWidgetBooleanValue } from "../shared/widgets.js";
-import { ensureState } from "../shared/state.js";
 import { markCanvasDirty } from "../shared/canvas.js";
 import { styleInlineAction } from "../shared/dom-styles.js";
+import { ensureState } from "../shared/state.js";
+import { findWidget, hideWidgetForGood, setWidgetBooleanValue, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
 
 export const NODE_CLASS = "ImageOpsCrop";
 

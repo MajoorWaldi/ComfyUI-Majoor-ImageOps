@@ -1,5 +1,5 @@
 // Graph traversal helpers for ImageOps Live Preview (v6)
-import type { ComfyNode, ComfyLink, ComfyOutputSlot, ComfyWidget, LGraph, MediaSource } from "../../types.js";
+import type { ComfyLink, ComfyNode, ComfyOutputSlot, ComfyWidget, LGraph, MediaSource } from "../../types.js";
 
 const MAX_RECURSION = 64;
 const DEFAULT_INPUT_SCAN = 4;
@@ -202,4 +202,106 @@ function isUpstreamOf(candidate: ComfyNode, node: ComfyNode, max: number = MAX_R
     }
   }
   return false;
+}
+
+export function w(node: ComfyNode, name: string): ComfyWidget | null {
+    return node?.widgets?.find((x: ComfyWidget) => x?.name === name) ?? null;
+}
+
+export function widgetScalarValue(value: unknown, index: number = 0): unknown {
+    let current = value;
+    while (Array.isArray(current) && current.length > 0) {
+    const resolvedIndex = Math.max(0, Math.min(current.length - 1, index));
+    current = current[resolvedIndex];
+    }
+
+    return current;
+}
+
+export function num(node: ComfyNode, name: string, fallback: number = 0, index: number = 0): number {
+    const v = widgetScalarValue(w(node, name)?.value, index);
+    const n = parseFloat(v as string);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+export function str(node: ComfyNode, name: string, fallback: string = "", index: number = 0): string {
+    const v = widgetScalarValue(w(node, name)?.value, index);
+    return typeof v === "string" ? v : fallback;
+}
+
+export function bool(node: ComfyNode, name: string, fallback: boolean = false, index: number = 0): boolean {
+    const v = widgetScalarValue(w(node, name)?.value, index);
+    if (typeof v === "boolean") return v;
+    if (typeof v === "number") return !!v;
+    if (typeof v === "string") return v.toLowerCase() === "true";
+    return fallback;
+}
+
+export function wAny(node: ComfyNode, names: string[]): ComfyWidget | null {
+    for (const name of names) {
+    const found = w(node, name);
+    if (found) return found;
+    }
+
+    return null;
+}
+
+export function numAny(node: ComfyNode, names: string[], fallback: number = 0, index: number = 0): number {
+    const v = widgetScalarValue(wAny(node, names)?.value, index);
+    const n = parseFloat(v as string);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+export function strAny(node: ComfyNode, names: string[], fallback: string = "", index: number = 0): string {
+    const v = widgetScalarValue(wAny(node, names)?.value, index);
+    return typeof v === "string" ? v : fallback;
+}
+
+export function resolveConnectedString(node: ComfyNode, inputName: string): string | null {
+    const inputs: any[] = (node as any)?.inputs ?? [];
+    const slotIndex = inputs.findIndex((inp: any) => inp?.name === inputName);
+    if (slotIndex < 0) return null;
+    const link = inputs[slotIndex]?.link;
+    if (link == null) return null;
+    const linkData = (node as any)?.graph?.links?.[link];
+    if (!linkData) return null;
+    const upNode = (node as any)?.graph?.getNodeById?.(linkData.origin_id);
+    if (!upNode) return null;
+    const upWidget = ((upNode as any)?.widgets ?? []).find((w: any) => typeof w?.value === "string");
+    return upWidget ? String(upWidget.value) : null;
+}
+
+export function boolAny(node: ComfyNode, names: string[], fallback: boolean = false, index: number = 0): boolean {
+    const v = widgetScalarValue(wAny(node, names)?.value, index);
+    if (typeof v === "boolean") return v;
+    if (typeof v === "number") return !!v;
+    if (typeof v === "string") return v.toLowerCase() === "true";
+    return fallback;
+}
+
+export function normalizeFilterName(filter: string): string {
+    const value = String(filter || "bilinear").toLowerCase();
+    if (value === "nearest") return "nearest-exact";
+    if (value === "linear") return "bilinear";
+    if (value === "cubic") return "bicubic";
+    return value;
+}
+
+export function imageLikeInputName(name: string): boolean {
+    return /image|images|source|destination|background|foreground|layer|red|green|blue|channel|input/i.test(name);
+}
+
+export function getPreferredInputIndexes(node: ComfyNode): number[] {
+    const indexes: number[] = [];
+    for (let index = 0; index < (node.inputs?.length ?? 0); index++) {
+    const slot = node.inputs?.[index];
+    const name = String(slot?.name ?? "");
+    const type = String(slot?.type ?? "");
+    if (/mask|bbox|box|region/i.test(name) || /mask|bbox|box/i.test(type)) continue;
+    if (slot?.link == null && !node.getInputLink?.(index)) continue;
+    if (imageLikeInputName(name) || /image|video/i.test(type)) indexes.push(index);
+    }
+
+    if (indexes.length > 0) return indexes;
+    return [0];
 }

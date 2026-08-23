@@ -1,7 +1,4 @@
-import { COMP_BLEND_MODES, getCompSlots, serializeCompLayers, syncCompLayers, clampCompCenter } from "../comp.js";
-import { getFitPlacement } from "../shared/geometry.js";
-import { findWidget, hideWidgetForGood, setWidgetStringValue, widgetBoolean, widgetString, widgetNumber, setWidgetValue } from "../shared/widgets.js";
-import { ensureState } from "../shared/state.js";
+import { clampCompCenter, COMP_BLEND_MODES, getCompSlots, serializeCompLayers, syncCompLayers } from "../comp.js";
 import { markCanvasDirty } from "../shared/canvas.js";
 import {
   createContextMenuSelect,
@@ -10,7 +7,10 @@ import {
   styleSoftField,
   styleSoftRange
 } from "../shared/dom-styles.js";
-import { syncDarkColorInputUI as syncDarkColorInputUI2, setDarkColorInputState as setDarkColorInputState2 } from "../shared/dom-styles.js";
+import { getFitPlacement } from "../shared/geometry.js";
+import { ensureState } from "../shared/state.js";
+import { findWidget, hideWidgetForGood, setWidgetStringValue, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
+import { setDarkColorInputState, syncDarkColorInputUI } from "../shared/dom-styles.js";
 const NODE_CLASS = "ImageOpsComp";
 function isNode(node) {
   return String(node?.comfyClass ?? "") === NODE_CLASS;
@@ -442,9 +442,9 @@ export {
   isNode,
   readCompLayers,
   removeSelectedCompLayer,
-  setDarkColorInputState2 as setDarkColorInputState,
+  setDarkColorInputState,
   syncCompWidgets,
-  syncDarkColorInputUI2 as syncDarkColorInputUI,
+  syncDarkColorInputUI,
   updateCompControls,
   updateSelectedCompLayer,
   writeCompLayerCorners,

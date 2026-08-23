@@ -1,5 +1,5 @@
+import { dragLockedPadOutFrame, getPadOutCursor, getPadOutFrame, getPadOutInteractionMode, getPadOutSnap, getPadOutTargetRatio, isNode, setPadOutOutputRect, setPadOutPadding, syncPadOutControls } from "../nodes/pad-out.js";
 import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
-import { isNode, dragLockedPadOutFrame, getPadOutCursor, getPadOutFrame, getPadOutInteractionMode, getPadOutSnap, getPadOutTargetRatio, setPadOutOutputRect, setPadOutPadding, syncPadOutControls } from "../nodes/pad-out.js";
 function attachInteractions(node, ctx) {
   if (!isNode(node)) return;
   const st = node.__imageops_state ?? null;

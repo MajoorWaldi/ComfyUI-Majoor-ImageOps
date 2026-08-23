@@ -8,7 +8,7 @@ _MODES = ['constant', 'checkerboard']
 
 def _constant_image(batch: int, height: int, width: int, color: str, alpha: float) -> torch.Tensor:
     rgb = torch.tensor(_hex_to_rgb01(color), dtype=torch.float32).view(1, 1, 1, 3)
-    image = rgb.expand(batch, height, width, 3).clone()
+    image = rgb.expand(batch, height, width, 3)
     a = torch.full((batch, height, width, 1), float(alpha), dtype=torch.float32).clamp(0.0, 1.0)
     return torch.cat([image, a], dim=-1)
 
@@ -20,7 +20,7 @@ def _checkerboard_image(batch: int, height: int, width: int, color_a: str, color
     rgb_a = torch.tensor(_hex_to_rgb01(color_a), dtype=torch.float32).view(1, 1, 1, 3)
     rgb_b = torch.tensor(_hex_to_rgb01(color_b), dtype=torch.float32).view(1, 1, 1, 3)
     rgb = rgb_a * (1.0 - pattern) + rgb_b * pattern
-    rgb = rgb.expand(batch, height, width, 3).clone()
+    rgb = rgb.expand(batch, height, width, 3)
     a = torch.full((batch, height, width, 1), float(alpha), dtype=torch.float32).clamp(0.0, 1.0)
     return torch.cat([rgb, a], dim=-1)
 
@@ -28,7 +28,7 @@ class ImageOpsConstant(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsConstant', display_name='〽️ Image Ops Constant', category='image/imageops', inputs=[io.String.Input('mode', default='constant'), io.Int.Input('width', default=1024, min=1, max=8192, step=1), io.Int.Input('height', default=1024, min=1, max=8192, step=1), io.String.Input('aspect_ratio', default='custom'), io.Int.Input('frame_count', default=1, min=1, max=4096, step=1), io.Color.Input('color', default='#ffffff'), io.Color.Input('color_b', default='#000000'), io.Float.Input('alpha', default=1.0, min=0.0, max=1.0, step=0.01), io.Int.Input('tile_size', default=64, min=1, max=2048, step=1), io.Int.Input('offset_x', default=0, min=-8192, max=8192, step=1), io.Int.Input('offset_y', default=0, min=-8192, max=8192, step=1)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Int.Output('frame_count', display_name='frame_count')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsConstant', display_name='〽️ Image Ops Constant', category='image/imageops', search_aliases=['constant', 'color', 'source', 'checker'], inputs=[io.Combo.Input('mode', options=['constant', 'checkerboard'], default='constant'), io.Int.Input('width', default=1024, min=1, max=8192, step=1), io.Int.Input('height', default=1024, min=1, max=8192, step=1), io.Combo.Input('aspect_ratio', options=['custom', '1:1', '3:4', '4:3', '16:9', '9:16'], default='custom'), io.Int.Input('frame_count', default=1, min=1, max=4096, step=1), io.Color.Input('color', default='#ffffff'), io.Color.Input('color_b', default='#000000'), io.Float.Input('alpha', default=1.0, min=0.0, max=1.0, step=0.01), io.Int.Input('tile_size', default=64, min=1, max=2048, step=1), io.Int.Input('offset_x', default=0, min=-8192, max=8192, step=1), io.Int.Input('offset_y', default=0, min=-8192, max=8192, step=1)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Int.Output('frame_count', display_name='frame_count')], hidden=[io.Hidden.unique_id])
 
     @classmethod
     def execute(cls, mode='constant', width=1024, height=1024, aspect_ratio='custom', frame_count=None, frame_length=None, batch_size=None, color='#ffffff', color_b='#000000', alpha=1.0, tile_size=64, offset_x=0, offset_y=0, unique_id=None, **kwargs):

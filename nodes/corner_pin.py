@@ -40,7 +40,7 @@ def _normalize_supersample(value) -> int:
 def _make_fill_background(source: torch.Tensor, fill_mode, fill_color) -> torch.Tensor | None:
     normalized = _normalize_fill_mode(_scalar(fill_mode, str), None)
     if normalized == 'stretch':
-        background = source.float().clamp(0.0, 1.0).clone()
+        background = source.float().clone()
         if background.shape[-1] >= 4:
             background[..., 3] = 1.0
         return background.to(device=source.device, dtype=source.dtype)
@@ -62,7 +62,7 @@ def _make_fill_background(source: torch.Tensor, fill_mode, fill_color) -> torch.
 def _composite_fill(result: torch.Tensor, coverage_mask: torch.Tensor, background: torch.Tensor | None) -> torch.Tensor:
     if background is None:
         return result
-    fg = result.float().clamp(0.0, 1.0)
+    fg = result.float()
     bg = background.float().clamp(0.0, 1.0)
     blend = coverage_mask.unsqueeze(-1).float().clamp(0.0, 1.0)
     if fg.shape[-1] >= 4:
@@ -72,7 +72,7 @@ def _composite_fill(result: torch.Tensor, coverage_mask: torch.Tensor, backgroun
         premul_rgb = fg[..., :3] * fg_alpha + bg[..., :3] * bg_alpha * (1.0 - fg_alpha)
         safe_alpha = torch.where(out_alpha > EPSILON, out_alpha, torch.ones_like(out_alpha))
         out_rgb = torch.where(out_alpha > EPSILON, premul_rgb / safe_alpha, torch.zeros_like(premul_rgb))
-        return torch.cat([out_rgb.clamp(0.0, 1.0), out_alpha.clamp(0.0, 1.0)], dim=-1).to(device=result.device, dtype=result.dtype)
+        return torch.cat([out_rgb, out_alpha.clamp(0.0, 1.0)], dim=-1).to(device=result.device, dtype=result.dtype)
     return (fg * blend + bg * (1.0 - blend)).clamp(0.0, 1.0).to(device=result.device, dtype=result.dtype)
 
 def _build_corner_pin_grid(height: int, width: int, Hinv: torch.Tensor, supersample: int=1) -> tuple[torch.Tensor, torch.Tensor]:
@@ -119,7 +119,7 @@ def _unpremultiply_alpha_after_warp(source: torch.Tensor) -> torch.Tensor:
     alpha = source[..., 3:4].clamp(0.0, 1.0)
     safe_alpha = torch.where(alpha > EPSILON, alpha, torch.ones_like(alpha))
     rgb = torch.where(alpha > EPSILON, source[..., :3] / safe_alpha, torch.zeros_like(source[..., :3]))
-    return torch.cat([rgb.clamp(0.0, 1.0), source[..., 3:]], dim=-1)
+    return torch.cat([rgb, source[..., 3:]], dim=-1)
 
 def _downsample_nchw(x: torch.Tensor, height: int, width: int, mode: str, antialias: bool=True) -> torch.Tensor:
     if int(x.shape[-2]) == int(height) and int(x.shape[-1]) == int(width):
@@ -147,7 +147,7 @@ class ImageOpsCornerPin(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsCornerPin', display_name='〽️ Image Ops Corner Pin', category='image/imageops', inputs=[io.Boolean.Input('bypass', default=False), io.Float.Input('tl_x', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('tl_y', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('tr_x', default=1.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('tr_y', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('bl_x', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('bl_y', default=1.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('br_x', default=1.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('br_y', default=1.0, min=-2.0, max=2.0, step=0.001), io.String.Input('filter', default='bilinear'), io.Int.Input('supersample', default=1, min=1, step=1, tooltip='Render at 2x-4x and downsample to reduce perspective aliasing.'), io.String.Input('fill_mode', default='transparent', tooltip='How to fill uncovered areas outside the pinned quad.'), io.Color.Input('fill_color', default='#000000'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True})], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsCornerPin', display_name='〽️ Image Ops Corner Pin', category='image/imageops', search_aliases=['corner pin', 'cornerpin', 'pin', 'perspective', 'quad', 'screen replacement'], inputs=[io.Boolean.Input('bypass', default=False), io.Float.Input('tl_x', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('tl_y', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('tr_x', default=1.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('tr_y', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('bl_x', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('bl_y', default=1.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('br_x', default=1.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('br_y', default=1.0, min=-2.0, max=2.0, step=0.001), io.Combo.Input('filter', options=['nearest', 'bilinear', 'bicubic'], default='bilinear'), io.Int.Input('supersample', default=1, min=1, step=1, tooltip='Render at 2x-4x and downsample to reduce perspective aliasing.'), io.Combo.Input('fill_mode', options=['transparent', 'mirror', 'stretch', 'expand', 'color'], default='transparent', tooltip='How to fill uncovered areas outside the pinned quad.'), io.Color.Input('fill_color', default='#000000'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True})], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
 
     @classmethod
     def execute(cls, image=None, bypass=False, tl_x=0.0, tl_y=0.0, tr_x=1.0, tr_y=0.0, bl_x=0.0, bl_y=1.0, br_x=1.0, br_y=1.0, filter='bilinear', supersample=1, fill_mode='transparent', fill_color='#000000', edge_mode='transparent', invert_mask=False, video=None, unique_id=None, **kwargs):

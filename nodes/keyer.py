@@ -126,7 +126,7 @@ class ImageOpsKeyer(io.ComfyNode):
             node_id="ImageOpsKeyer",
             display_name="〽️ ImageOps Keyer",
             category="image/imageops",
-            inputs=[
+            search_aliases=['keyer', 'key', 'chroma', 'green screen', 'luma key', 'matte'], inputs=[
                 io.Boolean.Input("bypass", default=False),
                 io.Combo.Input("mode", options=["color", "luma"], default="color"),
                 io.Color.Input("key_color", default="#00ff00"),

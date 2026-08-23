@@ -1,14 +1,14 @@
 import type { ComfyNode, CompInteractionContext, CornerPinHandle } from "../../types.js";
-import { clampCompScale, clampCompRotation, getCompSlots, getCompLayerOutputCorners } from "../comp.js";
-import { findWidget, resetNodeWidgetsToDefaults, setWidgetStringValue, setWidgetValue, widgetBoolean, widgetNumber } from "../shared/widgets.js";
+import { clampCompRotation, clampCompScale, getCompLayerOutputCorners, getCompSlots } from "../comp.js";
 import {
-  cloneCompCorners,
-  compDragHandleToCorner,
-  ensureCompInputs,
-  getCompCursor,
-  removeSelectedCompLayer,
+    cloneCompCorners,
+    compDragHandleToCorner,
+    ensureCompInputs,
+    getCompCursor,
+    removeSelectedCompLayer,
 } from "../nodes/comp.js";
 import { getCanvasPointer, screenToWorld } from "../shared/geometry.js";
+import { findWidget, resetNodeWidgetsToDefaults, setWidgetValue, widgetBoolean, widgetNumber } from "../shared/widgets.js";
 
 function safeSetPointerCapture(el: HTMLElement, pointerId: number): void {
   try { el.setPointerCapture?.(pointerId); } catch { /* ignore */ }

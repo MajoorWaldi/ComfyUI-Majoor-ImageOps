@@ -100,7 +100,7 @@ class ImageOpsDistort(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsDistort', display_name='〽️ Image Ops Distort', category='image/imageops', inputs=[io.Boolean.Input('bypass', default=False), io.String.Input('map_source', default='source_channel'), io.String.Input('x_channel', default='Red'), io.String.Input('y_channel', default='Green'), io.Float.Input('strength_x', default=40.0, min=-2048.0, max=2048.0, step=0.1, round=0.001), io.Float.Input('strength_y', default=40.0, min=-2048.0, max=2048.0, step=0.1, round=0.001), io.Float.Input('blur_map', default=0.0, min=0.0, max=200.0, step=0.1, round=0.001, tooltip='Gaussian blur radius (in pixels) applied to the distortion map(s) before warping. 0 = no blur.'), io.Boolean.Input('centered_map', default=True), io.Boolean.Input('invert_map', default=False), io.String.Input('filter', default='bilinear'), io.String.Input('edge_mode', default='border'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Source image/video to distort.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.MultiType.Input('displacement', types=[io.Image, io.Video], tooltip='Optional displacement image/video when map_source is displacement_channel.', display_name='Displacement', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', tooltip='Used as the distortion map when map_source is mask, otherwise acts as an effect mask.', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsDistort', display_name='〽️ Image Ops Distort', category='image/imageops', search_aliases=['distort', 'displace', 'displacement', 'warp', 'deform', 'noise warp'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('map_source', options=['source_channel', 'displacement_channel', 'mask'], default='source_channel'), io.Combo.Input('x_channel', options=['Red', 'Green', 'Blue', 'Alpha', 'Luma'], default='Red'), io.Combo.Input('y_channel', options=['Red', 'Green', 'Blue', 'Alpha', 'Luma'], default='Green'), io.Float.Input('strength_x', default=40.0, min=-2048.0, max=2048.0, step=0.1, round=0.001), io.Float.Input('strength_y', default=40.0, min=-2048.0, max=2048.0, step=0.1, round=0.001), io.Float.Input('blur_map', default=0.0, min=0.0, max=200.0, step=0.1, round=0.001, tooltip='Gaussian blur radius (in pixels) applied to the distortion map(s) before warping. 0 = no blur.'), io.Boolean.Input('centered_map', default=True), io.Boolean.Input('invert_map', default=False), io.Combo.Input('filter', options=['nearest', 'bilinear', 'bicubic'], default='bilinear'), io.Combo.Input('edge_mode', options=['border', 'reflection', 'zeros'], default='border'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Source image/video to distort.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.MultiType.Input('displacement', types=[io.Image, io.Video], tooltip='Optional displacement image/video when map_source is displacement_channel.', display_name='Displacement', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', tooltip='Used as the distortion map when map_source is mask, otherwise acts as an effect mask.', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
 
     @classmethod
     def execute(cls, image=None, bypass=False, map_source='source_channel', x_channel='Red', y_channel='Green', strength_x=40.0, strength_y=40.0, blur_map=0.0, centered_map=True, invert_map=False, filter='bilinear', edge_mode='border', invert_mask=False, video=None, displacement=None, mask=None, unique_id=None, **kwargs):
@@ -122,23 +122,28 @@ class ImageOpsDistort(io.ComfyNode):
             for frame_index, is_mask_source in enumerate(mask_source_frames):
                 if is_mask_source:
                     apply_effect_mask[frame_index:frame_index + 1] = 1.0
-        if _scalar(bypass, bool):
-            progress = start_progress(unique_id=unique_id)
-            output_mask = _alpha_mask_from_image(source)
-            if effect_mask is not None:
-                for frame_index, is_mask_source in enumerate(mask_source_frames):
-                    if not is_mask_source:
-                        output_mask[frame_index:frame_index + 1] = effect_mask[frame_index:frame_index + 1].clamp(0.0, 1.0)
-            if driver_preview_mask is not None:
-                preview_mask = driver_preview_mask.clone()
-                for frame_index, is_mask_source in enumerate(mask_source_frames):
-                    if is_mask_source and _scalar(invert_map, bool, index=frame_index):
-                        preview_mask[frame_index:frame_index + 1] = 1.0 - preview_mask[frame_index:frame_index + 1]
-                for frame_index, is_mask_source in enumerate(mask_source_frames):
-                    if is_mask_source:
-                        output_mask[frame_index:frame_index + 1] = preview_mask[frame_index:frame_index + 1].clamp(0.0, 1.0)
+        progress = start_progress(unique_id=unique_id)
+        output_mask_source = _alpha_mask_from_image(source)
+        if effect_mask is not None:
+            for frame_index, is_mask_source in enumerate(mask_source_frames):
+                if not is_mask_source:
+                    output_mask_source[frame_index:frame_index + 1] = effect_mask[frame_index:frame_index + 1].clamp(0.0, 1.0)
+        if driver_preview_mask is not None:
+            preview_mask = driver_preview_mask.clone()
+            for frame_index, is_mask_source in enumerate(mask_source_frames):
+                if is_mask_source and _scalar(invert_map, bool, index=frame_index):
+                    preview_mask[frame_index:frame_index + 1] = 1.0 - preview_mask[frame_index:frame_index + 1]
+            for frame_index, is_mask_source in enumerate(mask_source_frames):
+                if is_mask_source:
+                    output_mask_source[frame_index:frame_index + 1] = preview_mask[frame_index:frame_index + 1].clamp(0.0, 1.0)
+        
+        if isinstance(bypass, bool) and bypass:
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask), prefix='imageops_distort')
+            return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_distort')
+        if isinstance(bypass, (list, tuple)) and all(bypass):
+            progress.finish()
+            return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_distort')
+
         progress = start_progress(total=max(1, int(source.shape[0])), unique_id=unique_id)
         result = _warp_image(source, x_map=x_map, y_map=y_map, strength_x=strength_x, strength_y=strength_y, centered_map=centered_map, invert_map=invert_map, filter_mode=filter, edge_mode=edge_mode, progress=progress)
         if apply_effect_mask is not None:
@@ -157,4 +162,4 @@ class ImageOpsDistort(io.ComfyNode):
                 if is_mask_source:
                     output_mask[frame_index:frame_index + 1] = preview_mask[frame_index:frame_index + 1].clamp(0.0, 1.0)
         progress.finish()
-        return build_node_preview_result(result.clamp(0.0, 1.0), (result.clamp(0.0, 1.0), output_mask), prefix='imageops_distort')
+        return build_node_preview_result(result, (result, output_mask), prefix='imageops_distort')

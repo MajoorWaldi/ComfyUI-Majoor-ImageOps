@@ -1,5 +1,5 @@
-import { ensureJoinInputs, getJoinSlots, getPreviewNodeFrameCount, readJoinTrims, removeJoinInput, writeJoinTrims } from "../nodes/append.js";
 import { getUpstreamNode } from "../graph.js";
+import { ensureJoinInputs, getJoinSlots, getPreviewNodeFrameCount, readJoinTrims, removeJoinInput, writeJoinTrims } from "../nodes/append.js";
 import { styleInlineAction, styleSoftField } from "../shared/dom-styles.js";
 function inputIndexForSlot(node, slot) {
   return (node.inputs ?? []).findIndex((input) => String(input?.name ?? "") === slot);

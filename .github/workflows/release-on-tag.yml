@@ -9,7 +9,11 @@ permissions:
   contents: write
 
 jobs:
+  quality:
+    uses: ./.github/workflows/ci.yml
+
   create-release:
+    needs: quality
     name: Create GitHub Release
     runs-on: ubuntu-latest
     permissions:

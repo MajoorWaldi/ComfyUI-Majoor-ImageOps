@@ -1,16 +1,11 @@
 import type { ComfyNode } from "../../types.js";
-import { ensureState } from "../shared/state.js";
 import { resolveImageOpsClassName } from "../shared/classes.js";
-import { findWidget, hideWidgetForGood, hideWidgetsByName, setWidgetStringValuesByName, widgetNumber, widgetString, setWidgetValue } from "../shared/widgets.js";
 import {
-  createColorSwatch,
-  createContextMenuSelect,
-  setDarkColorInputState,
-  styleSoftButton,
-  styleSoftField,
-  styleSoftRange,
-  syncDarkColorInputUI,
+    styleSoftButton,
+    styleSoftRange
 } from "../shared/dom-styles.js";
+import { ensureState } from "../shared/state.js";
+import { findWidget, hideWidgetsByName, setWidgetStringValuesByName, setWidgetValue, widgetNumber, widgetString } from "../shared/widgets.js";
 
 const CONSTANT_RATIO_PRESETS: Record<string, number> = {
   "1:1": 1,

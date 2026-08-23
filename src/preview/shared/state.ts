@@ -1,6 +1,6 @@
 import type { ComfyNode, NodeState } from "../../types.js";
-import { isNode as isPreviewNode } from "../nodes/preview.js";
 import { getPreviewConfig } from "../config.js";
+import { isNode as isPreviewNode } from "../nodes/preview.js";
 import { isStressed } from "./fps-monitor.js";
 
 function createInitialState(node: ComfyNode): NodeState {

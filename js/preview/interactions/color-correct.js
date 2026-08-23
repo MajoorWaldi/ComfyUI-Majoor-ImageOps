@@ -1,7 +1,7 @@
 import { colorWheelPointToValues } from "../color.js";
+import { colorWidgetNameForZone, isNode, syncColorCorrectWidgets } from "../nodes/color-correct.js";
 import { getCanvasPointer } from "../shared/geometry.js";
 import { findWidget, resetNodeWidgetsToDefaults, setWidgetValue } from "../shared/widgets.js";
-import { colorWidgetNameForZone, isNode, syncColorCorrectWidgets } from "../nodes/color-correct.js";
 function markDirty(node, ctx) {
   const st = node.__imageops_state ?? null;
   if (!st) return;

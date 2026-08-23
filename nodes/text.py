@@ -130,7 +130,7 @@ class ImageOpsText(io.ComfyNode):
             node_id="ImageOpsText",
             display_name="〽️ ImageOps Text",
             category="image/imageops",
-            inputs=[
+            search_aliases=['text', 'title', 'caption', 'label', 'type', 'font'], inputs=[
                 io.Boolean.Input("bypass", default=False),
                 io.String.Input("text", default="ImageOps Text", multiline=True),
                 io.Float.Input("x", default=0.5, min=-2.0, max=3.0, step=0.001),

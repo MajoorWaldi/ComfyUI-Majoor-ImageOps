@@ -1,17 +1,17 @@
 import type { ComfyNode, NodeInteractionContext } from "../../types.js";
-import {
-  findWidget,
-  hideWidgetForGood,
-  setWidgetBooleanValue,
-  setWidgetStringValue,
-  setWidgetValue,
-  widgetBoolean,
-  widgetNumber,
-  widgetString,
-} from "../shared/widgets.js";
-import { createContextMenuSelect, styleSoftButton, styleSoftField } from "../shared/dom-styles.js";
 import { getUpstreamNode, getUpstreamNodes } from "../graph.js";
+import { createContextMenuSelect, styleSoftButton, styleSoftField } from "../shared/dom-styles.js";
 import { getUpstreamVideoFps, getUpstreamVideoTiming } from "../shared/video.js";
+import {
+    findWidget,
+    hideWidgetForGood,
+    setWidgetBooleanValue,
+    setWidgetStringValue,
+    setWidgetValue,
+    widgetBoolean,
+    widgetNumber,
+    widgetString,
+} from "../shared/widgets.js";
 
 export const NODE_CLASS = "ImageOpsFrameRange";
 

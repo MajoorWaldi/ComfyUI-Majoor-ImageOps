@@ -10,7 +10,7 @@
 //   - One shared offscreen canvas + program, reused across calls. Context
 //     loss is handled by lazy re-init on next call.
 
-import { acquireCanvas, releaseCanvas } from "./canvas-pool.js";
+import { releaseCanvas } from "./canvas-pool.js";
 
 interface GLState {
   canvas: HTMLCanvasElement;

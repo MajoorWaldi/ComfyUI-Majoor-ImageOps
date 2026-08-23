@@ -1,4 +1,4 @@
-import { findWidget, setWidgetValue, setWidgetStringValue, setWidgetBooleanValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
+import { findWidget, setWidgetBooleanValue, setWidgetStringValue, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
 const NODE_CLASS = "ImageOpsGrain";
 function isNode(node) {
   return String(node?.comfyClass ?? "") === NODE_CLASS;

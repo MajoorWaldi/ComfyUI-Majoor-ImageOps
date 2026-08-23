@@ -1,5 +1,5 @@
 import type { ComfyNode, NodeInteractionContext } from "../../types.js";
-import { createColorSwatch, styleSoftButton, styleSoftRange, syncDarkColorInputUI } from "../shared/dom-styles.js";
+import { styleSoftButton, syncDarkColorInputUI } from "../shared/dom-styles.js";
 import { getCanvasPointer } from "../shared/geometry.js";
 import { findWidget, hideWidgetForGood, hideWidgetsByName, setWidgetBooleanValue, setWidgetStringValue, setWidgetStringValuesByName, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
 

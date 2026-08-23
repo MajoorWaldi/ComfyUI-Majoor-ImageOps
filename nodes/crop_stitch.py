@@ -76,7 +76,7 @@ class ImageOpsCropStitch(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsCropStitch', display_name='〽️ Image Ops Crop Stitch', category='image/imageops', inputs=[io.MultiType.Input('original', types=[io.Image, io.Video], tooltip='Original image/video before Resize/Crop.', display_name='Original'), io.MultiType.Input('crop', types=[io.Image, io.Video], tooltip='Edited cropped image/video to stitch back.', display_name='Edited Crop'), io.Boolean.Input('bypass', default=False), io.Int.Input('feather', default=0, min=0, max=128, step=1, tooltip='Softens the crop mask edge before compositing.'), io.Mask.Input('crop_mask', tooltip='Source-space mask from ImageOps Resize/Crop.', display_name='Crop Mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsCropStitch', display_name='〽️ Image Ops Crop Stitch', category='image/imageops', search_aliases=['crop stitch', 'stitch', 'restitch', 'reassemble', 'recoller', 'paste crop'], inputs=[io.MultiType.Input('original', types=[io.Image, io.Video], tooltip='Original image/video before Resize/Crop.', display_name='Original'), io.MultiType.Input('crop', types=[io.Image, io.Video], tooltip='Edited cropped image/video to stitch back.', display_name='Edited Crop'), io.Boolean.Input('bypass', default=False), io.Int.Input('feather', default=0, min=0, max=128, step=1, tooltip='Softens the crop mask edge before compositing.'), io.Mask.Input('crop_mask', tooltip='Source-space mask from ImageOps Resize/Crop.', display_name='Crop Mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
 
     @classmethod
     def execute(cls, original, crop, bypass=False, feather=0, crop_mask=None, crop_bbox=None, unique_id=None, **kwargs):
@@ -122,4 +122,4 @@ class ImageOpsCropStitch(io.ComfyNode):
             blend = stitch_mask.unsqueeze(-1)
             out = original * (1.0 - blend) + out * blend
         progress.finish()
-        return build_node_preview_result(out.clamp(0.0, 1.0), (out.clamp(0.0, 1.0), stitch_mask.clamp(0.0, 1.0)), prefix='imageops_crop_stitch')
+        return build_node_preview_result(out, (out, stitch_mask.clamp(0.0, 1.0)), prefix='imageops_crop_stitch')

@@ -1,6 +1,6 @@
 import type { ComfyNode, NodeInteractionContext } from "../../types.js";
-import { ensureJoinInputs, getJoinSlots, getPreviewNodeFrameCount, readJoinTrims, removeJoinInput, writeJoinTrims } from "../nodes/append.js";
 import { getUpstreamNode } from "../graph.js";
+import { ensureJoinInputs, getJoinSlots, getPreviewNodeFrameCount, readJoinTrims, removeJoinInput, writeJoinTrims } from "../nodes/append.js";
 import { styleInlineAction, styleSoftField } from "../shared/dom-styles.js";
 
 type JoinRefreshMode = "none" | "now";

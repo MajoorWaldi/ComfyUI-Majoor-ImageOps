@@ -1,14 +1,14 @@
-import { ensureState, setInfo } from "./state.js";
-import { getFitPlacement, drawOutputFormatBox } from "./geometry.js";
-import { widgetNumber } from "./widgets.js";
-import { hideNativeMediaPreview, showNativeMediaPreview, getNativePreviewImage } from "./media.js";
-import { isNode as isCropNode, getCropControlState, getCropCanvasMetrics } from "../nodes/crop.js";
 import { computeCropRect } from "../crop.js";
-import { isNode as isCompNode, getCompCanvasMetrics } from "../nodes/comp.js";
-import { isNode as isCornerPinNode, cornerPinControlPoints } from "../nodes/corner-pin.js";
-import { isNode as isRampNode, rampControlPoints } from "../nodes/ramp.js";
-import { isNode as isPadOutNode } from "../nodes/pad-out.js";
+import { getCompCanvasMetrics, isNode as isCompNode } from "../nodes/comp.js";
+import { cornerPinControlPoints, isNode as isCornerPinNode } from "../nodes/corner-pin.js";
+import { getCropCanvasMetrics, getCropControlState, isNode as isCropNode } from "../nodes/crop.js";
 import { isNode as isDrawNode } from "../nodes/draw.js";
+import { isNode as isPadOutNode } from "../nodes/pad-out.js";
+import { isNode as isRampNode, rampControlPoints } from "../nodes/ramp.js";
+import { drawOutputFormatBox, getFitPlacement } from "./geometry.js";
+import { getNativePreviewImage, hideNativeMediaPreview, showNativeMediaPreview } from "./media.js";
+import { ensureState, setInfo } from "./state.js";
+import { widgetNumber } from "./widgets.js";
 function drawTransformBounds(node, ctx, width, height, sourceWidth, sourceHeight) {
   if (String(node?.comfyClass ?? "") !== "ImageOpsTransform") return;
   const tx = widgetNumber(node, "translate_x", 0);

@@ -1,10 +1,10 @@
 // Adapter registry (ImageOps + interop) (v6)
 import type { Adapter, AdapterRegistry, ComfyNode } from "../types.js";
-import { imageOpsAdapter } from "./adapters/imageops.js";
 import { coreAdapters } from "./adapters/core.js";
-import { wasAdapters } from "./adapters/was.js";
-import { vhsAdapters } from "./adapters/vhs.js";
 import { genericAdapters } from "./adapters/generic.js";
+import { imageOpsAdapter } from "./adapters/imageops.js";
+import { vhsAdapters } from "./adapters/vhs.js";
+import { wasAdapters } from "./adapters/was.js";
 
 export function buildAdapterRegistry(): AdapterRegistry {
   const adapters: Adapter[] = [

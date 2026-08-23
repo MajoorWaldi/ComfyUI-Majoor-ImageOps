@@ -1,8 +1,8 @@
-import { imageOpsAdapter } from "./adapters/imageops.js";
 import { coreAdapters } from "./adapters/core.js";
-import { wasAdapters } from "./adapters/was.js";
-import { vhsAdapters } from "./adapters/vhs.js";
 import { genericAdapters } from "./adapters/generic.js";
+import { imageOpsAdapter } from "./adapters/imageops.js";
+import { vhsAdapters } from "./adapters/vhs.js";
+import { wasAdapters } from "./adapters/was.js";
 function buildAdapterRegistry() {
   const adapters = [
     ...coreAdapters(),

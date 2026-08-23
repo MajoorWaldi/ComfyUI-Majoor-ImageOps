@@ -1,19 +1,17 @@
 import type { ComfyNode, CompDragMode, CompLayerPreviewGeometry, CornerPinHandle } from "../../types.js";
-import { COMP_BLEND_MODES, getCompSlots, serializeCompLayers, syncCompLayers, clampCompCenter } from "../comp.js";
-import { type FitPlacement, getFitPlacement } from "../shared/geometry.js";
-import { findWidget, hideWidgetForGood, setWidgetStringValue, widgetBoolean, widgetString, widgetNumber, setWidgetValue } from "../shared/widgets.js";
-import { ensureState } from "../shared/state.js";
+import { clampCompCenter, COMP_BLEND_MODES, getCompSlots, serializeCompLayers, syncCompLayers } from "../comp.js";
 import { markCanvasDirty } from "../shared/canvas.js";
 import {
-  createContextMenuSelect,
-  setControlDisabled,
-  setDarkColorInputState,
-  styleSoftButton,
-  styleSoftField,
-  styleSoftRange,
-  syncDarkColorInputUI,
+    createContextMenuSelect,
+    setControlDisabled,
+    styleSoftButton,
+    styleSoftField,
+    styleSoftRange
 } from "../shared/dom-styles.js";
-export { syncDarkColorInputUI, setDarkColorInputState } from "../shared/dom-styles.js";
+import { type FitPlacement, getFitPlacement } from "../shared/geometry.js";
+import { ensureState } from "../shared/state.js";
+import { findWidget, hideWidgetForGood, setWidgetStringValue, setWidgetValue, widgetBoolean, widgetNumber, widgetString } from "../shared/widgets.js";
+export { setDarkColorInputState, syncDarkColorInputUI } from "../shared/dom-styles.js";
 
 export const NODE_CLASS = "ImageOpsComp";
 

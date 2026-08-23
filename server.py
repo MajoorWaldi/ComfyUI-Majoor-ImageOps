@@ -6,11 +6,14 @@ import shutil
 import subprocess
 from pathlib import Path
 
-import folder_paths
-import server
-
-
-web = server.web
+try:
+    import folder_paths
+    import server
+    web = server.web
+except ImportError:
+    folder_paths = None
+    server = None
+    web = None
 
 
 def _ffmpeg_path() -> str | None:
@@ -70,12 +73,18 @@ def _force_size_filter(force_size: str) -> str | None:
     width, height = raw.split("x", 1)
     width = width.strip() or "?"
     height = height.strip() or "?"
-    width_expr = "-2" if width == "?" else f"min({int(float(width))},iw)"
-    height_expr = "-2" if height == "?" else f"min({int(float(height))},ih)"
+    
+    try:
+        w_val = "?" if width == "?" else int(float(width))
+        h_val = "?" if height == "?" else int(float(height))
+    except ValueError:
+        return None
+        
+    width_expr = "-2" if w_val == "?" else f"min({w_val},iw)"
+    height_expr = "-2" if h_val == "?" else f"min({h_val},ih)"
     return f"scale={width_expr}:{height_expr}:flags=lanczos"
 
 
-@server.PromptServer.instance.routes.get("/imageops/viewmedia")
 async def imageops_viewmedia(request):
     path, filename = _resolve_preview_path(request.rel_url.query)
     ext = _ext(path)
@@ -130,3 +139,13 @@ async def imageops_viewmedia(request):
             proc.kill()
         drain_task.cancel()
     return response
+
+_routes_registered = False
+
+def register_imageops_routes():
+    global _routes_registered
+    if _routes_registered:
+        return
+    if server is not None and hasattr(server, "PromptServer"):
+        server.PromptServer.instance.routes.get("/imageops/viewmedia")(imageops_viewmedia)
+        _routes_registered = True
