@@ -57,9 +57,33 @@ jobs:
           find tests/unit -name 'test_*.py' -print
           test "$(find tests/unit -name 'test_*.py' | wc -l)" -gt 0
 
+      - name: Verify unit suite isolation
+        run: |
+          test ! -f tests/__init__.py
+          test ! -f tests/unit/__init__.py
+          
+          python - <<'PY'
+          import importlib.util
+          
+          assert importlib.util.find_spec("comfy_api") is None, (
+              "comfy_api must NOT be installed in the unit-test job"
+          )
+          
+          print("Unit environment isolation OK")
+          PY
+
+      - name: Verify pytest unit root
+        run: |
+          python -m pytest \
+            -c tests/pytest.ini \
+            tests/unit \
+            --collect-only \
+            -q
+
       - name: Run unit tests
         run: |
           python -m pytest \
+            -c tests/pytest.ini \
             tests/unit \
             -vv \
             --maxfail=1
@@ -143,6 +167,7 @@ jobs:
           PYTHONPATH: /tmp/ComfyUI
         run: |
           python -m pytest \
+            -c tests/pytest.ini \
             tests/integration \
             -vv \
             --maxfail=1
