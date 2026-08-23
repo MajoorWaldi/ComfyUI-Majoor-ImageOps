@@ -8,54 +8,70 @@ on:
   workflow_call:
 
 jobs:
-  # ------------------------------------------------------------------
-  # TypeScript type-check, metadata check, build, AND frontend tests.
-  # All JS/TS quality gates live here so a single red job blocks merge.
-  # ------------------------------------------------------------------
   frontend:
     name: TypeScript & Frontend tests
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
+
       - run: npm ci
       - run: npm run check
       - run: npm run build
+
       - name: Verify js/ is up to date
         run: |
-          git diff --exit-code js/ || (echo "::error::js/ is out of date — run 'npm run build' and commit the result" && exit 1)
-      # Frontend unit tests (imageops-registry, node-modules, graph, blend goldens)
+          git diff --exit-code js/
+
       - run: npm run test:js
 
   python-unit:
     name: Python unit tests
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
-      - name: Install CPU-only dependencies
+
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+          pip install \
+            torch torchvision \
+            --index-url https://download.pytorch.org/whl/cpu
+
           pip install numpy pytest pillow
+
+      - name: Verify unit tests exist
+        run: |
+          find tests/unit -name 'test_*.py' -print
+          test "$(find tests/unit -name 'test_*.py' | wc -l)" -gt 0
+
       - name: Run unit tests
         run: |
-          python -m pytest tests/unit -v
+          python -m pytest \
+            tests/unit \
+            -vv \
+            --maxfail=1
 
   comfy-integration:
     name: ComfyUI integration tests
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -65,9 +81,7 @@ jobs:
           python -m pip install --upgrade pip
 
           pip install \
-            torch \
-            torchvision \
-            torchaudio \
+            torch torchvision torchaudio \
             --index-url https://download.pytorch.org/whl/cpu
 
           pip install pytest numpy pillow
@@ -79,9 +93,10 @@ jobs:
             https://github.com/Comfy-Org/ComfyUI.git \
             /tmp/ComfyUI
 
-          pip install -r /tmp/ComfyUI/requirements.txt
+          pip install \
+            -r /tmp/ComfyUI/requirements.txt
 
-      - name: Install ImageOps into ComfyUI
+      - name: Install ImageOps
         run: |
           mkdir -p \
             /tmp/ComfyUI/custom_nodes/ComfyUI-Majoor-ImageOps
@@ -89,38 +104,38 @@ jobs:
           cp -a ./. \
             /tmp/ComfyUI/custom_nodes/ComfyUI-Majoor-ImageOps/
 
-      - name: Verify integration environment
+      - name: Verify environment
         env:
           COMFYUI_ROOT: /tmp/ComfyUI
           PYTHONPATH: /tmp/ComfyUI
         run: |
           set -euxo pipefail
 
-          echo "=== Python ==="
-          python --version
-
-          echo "=== ComfyUI ==="
           test -d "$COMFYUI_ROOT"
           test -d "$COMFYUI_ROOT/comfy_api"
-          test -f "$COMFYUI_ROOT/comfy_api/latest/__init__.py"
+          test -f \
+            "$COMFYUI_ROOT/comfy_api/latest/__init__.py"
 
-          echo "=== V3 API ==="
           python - <<'PY'
           from comfy_api.latest import io, ComfyExtension
           print("ComfyUI V3 API OK")
-          print("io =", io)
-          print("ComfyExtension =", ComfyExtension)
           PY
 
-          echo "=== ImageOps ==="
           test -f \
             "$COMFYUI_ROOT/custom_nodes/ComfyUI-Majoor-ImageOps/__init__.py"
 
-          echo "=== Tests ==="
-          find tests -maxdepth 2 -type f -print
-          test -d tests/integration
+          echo "=== Integration test files ==="
 
-          echo "=== Environment valid ==="
+          find \
+            tests/integration \
+            -name 'test_*.py' \
+            -print
+
+          test "$(
+            find tests/integration \
+              -name 'test_*.py' \
+              | wc -l
+          )" -gt 0
 
       - name: Run integration tests
         env:
