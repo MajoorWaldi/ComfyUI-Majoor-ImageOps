@@ -1,91 +1,180 @@
-"""Tests for blend modes against golden fixtures.
+"""Tests for blend modes against golden fixtures."""
 
-Both this Python test and future frontend/WebGL tests consume the same
-blend_modes.json to ensure backend/preview parity.
-"""
 from __future__ import annotations
 
+import importlib.util
 import json
 import pathlib
+import sys
+import types
 
 import pytest
 import torch
 
-# The blend implementation lives in _helpers.py
-from nodes._helpers import _blend_rgb
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+NODES_DIR = ROOT / "nodes"
 
 
-GOLDEN_PATH = pathlib.Path(__file__).resolve().parent.parent / "golden" / "blend_modes.json"
+def _load_module(name: str, path: pathlib.Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+
+    assert spec is not None
+    assert spec.loader is not None
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+
+    return module
+
+
+# ---------------------------------------------------------
+# Create a lightweight "nodes" package WITHOUT importing
+# nodes/__init__.py.
+#
+# Unit tests must not require ComfyUI.
+# ---------------------------------------------------------
+
+if "nodes" not in sys.modules:
+    nodes_package = types.ModuleType("nodes")
+    nodes_package.__path__ = [str(NODES_DIR)]
+    sys.modules["nodes"] = nodes_package
+
+
+# _helpers.py depends on ._ops_constants.
+_load_module(
+    "nodes._ops_constants",
+    NODES_DIR / "_ops_constants.py",
+)
+
+helpers = _load_module(
+    "nodes._helpers",
+    NODES_DIR / "_helpers.py",
+)
+
+_blend_rgb = helpers._blend_rgb
+
+
+GOLDEN_PATH = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / "golden"
+    / "blend_modes.json"
+)
 
 
 @pytest.fixture(scope="module")
 def golden_data():
-    with open(GOLDEN_PATH) as f:
+    with open(GOLDEN_PATH, encoding="utf-8") as f:
         return json.load(f)
 
 
 def _make_uniform_tensor(value: float) -> torch.Tensor:
-    """Create a [1, 1, 1, 3] tensor with all channels set to value."""
-    return torch.full((1, 1, 1, 3), value, dtype=torch.float32)
+    return torch.full(
+        (1, 1, 1, 3),
+        value,
+        dtype=torch.float32,
+    )
 
 
 def _blend_modes_from_golden(golden_data):
-    """Yield (mode, case) pairs from golden fixture."""
     for mode, spec in golden_data["modes"].items():
         for case in spec["cases"]:
             yield mode, case
 
 
 class TestBlendModesGolden:
-    """Validate _blend_rgb against golden fixture values."""
 
     def test_golden_file_exists(self):
-        assert GOLDEN_PATH.exists(), f"Golden fixture not found: {GOLDEN_PATH}"
+        assert GOLDEN_PATH.exists()
 
     def test_golden_has_modes(self, golden_data):
         assert len(golden_data["modes"]) > 0
 
     def test_all_blend_cases(self, golden_data):
         tolerance = golden_data["_meta"]["tolerance_abs"]
+
         failures = []
-        for mode, case in _blend_modes_from_golden(golden_data):
+
+        for mode, case in _blend_modes_from_golden(
+            golden_data
+        ):
             base = _make_uniform_tensor(case["base"])
             top = _make_uniform_tensor(case["top"])
-            expected = case["expected"]
 
-            result = _blend_rgb(base[..., :3], top[..., :3], mode)
-            actual = float(result[0, 0, 0, 0].item())
+            result = _blend_rgb(
+                base[..., :3],
+                top[..., :3],
+                mode,
+            )
+
+            actual = float(
+                result[0, 0, 0, 0].item()
+            )
+
+            expected = case["expected"]
 
             if abs(actual - expected) > tolerance:
                 failures.append(
-                    f"  {mode}: base={case['base']}, top={case['top']}: "
-                    f"expected={expected}, got={actual:.10f}"
+                    f"{mode}: "
+                    f"base={case['base']} "
+                    f"top={case['top']} "
+                    f"expected={expected} "
+                    f"got={actual}"
                 )
 
         if failures:
-            msg = "Blend mode golden mismatches:\n" + "\n".join(failures)
-            pytest.fail(msg)
-
-    def test_no_nan_inf(self, golden_data):
-        """No blend mode should produce NaN or Inf for any golden input."""
-        for mode, case in _blend_modes_from_golden(golden_data):
-            base = _make_uniform_tensor(case["base"])
-            top = _make_uniform_tensor(case["top"])
-            result = _blend_rgb(base[..., :3], top[..., :3], mode)
-            assert torch.isfinite(result).all(), (
-                f"{mode}: NaN/Inf detected for base={case['base']}, top={case['top']}"
+            pytest.fail(
+                "Blend golden mismatches:\n"
+                + "\n".join(failures)
             )
 
-    def test_boundary_values_no_nan(self, golden_data):
-        """Run all modes with all boundary values — no NaN/Inf allowed."""
-        boundary_values = golden_data["boundary_values"]
-        modes = list(golden_data["modes"].keys())
+    def test_no_nan_inf(self, golden_data):
+
+        for mode, case in _blend_modes_from_golden(
+            golden_data
+        ):
+            base = _make_uniform_tensor(case["base"])
+            top = _make_uniform_tensor(case["top"])
+
+            result = _blend_rgb(
+                base[..., :3],
+                top[..., :3],
+                mode,
+            )
+
+            assert torch.isfinite(result).all()
+
+    def test_boundary_values_no_nan(
+        self,
+        golden_data,
+    ):
+        boundary_values = golden_data[
+            "boundary_values"
+        ]
+
+        modes = list(
+            golden_data["modes"].keys()
+        )
+
         for mode in modes:
-            for bv in boundary_values:
-                for tv in boundary_values:
-                    base = _make_uniform_tensor(bv)
-                    top = _make_uniform_tensor(tv)
-                    result = _blend_rgb(base[..., :3], top[..., :3], mode)
-                    assert torch.isfinite(result).all(), (
-                        f"{mode}: NaN/Inf for base={bv}, top={tv}"
+            for base_value in boundary_values:
+                for top_value in boundary_values:
+
+                    base = _make_uniform_tensor(
+                        base_value
                     )
+
+                    top = _make_uniform_tensor(
+                        top_value
+                    )
+
+                    result = _blend_rgb(
+                        base[..., :3],
+                        top[..., :3],
+                        mode,
+                    )
+
+                    assert torch.isfinite(
+                        result
+                    ).all()
