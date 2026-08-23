@@ -72,9 +72,18 @@ jobs:
           print("Unit environment isolation OK")
           PY
 
+      - name: Verify pytest unit root
+        run: |
+          python -m pytest \
+            -c tests/pytest.ini \
+            tests/unit \
+            --collect-only \
+            -q
+
       - name: Run unit tests
         run: |
           python -m pytest \
+            -c tests/pytest.ini \
             tests/unit \
             -vv \
             --maxfail=1
@@ -158,6 +167,7 @@ jobs:
           PYTHONPATH: /tmp/ComfyUI
         run: |
           python -m pytest \
+            -c tests/pytest.ini \
             tests/integration \
             -vv \
             --maxfail=1
