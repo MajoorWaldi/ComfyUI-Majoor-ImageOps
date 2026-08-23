@@ -9,8 +9,6 @@ __pycache__/
 
 # Tests
 # tests directory is tracked
-test_*.py
-*_test.py
 .tracking
 
 # IDE
@@ -36,3 +34,6 @@ docs/IMAGEOPS_VNEXT_UPDATE_ROADMAP.md
 
 # Codex browser profiles
 .codex-chrome-profile*/
+extract_fix_imports.js
+extract_vars.js
+extract.js
