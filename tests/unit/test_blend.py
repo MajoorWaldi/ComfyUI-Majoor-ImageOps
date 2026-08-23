@@ -2,58 +2,13 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import pathlib
-import sys
-import types
 
 import pytest
 import torch
 
-
-ROOT = pathlib.Path(__file__).resolve().parents[2]
-NODES_DIR = ROOT / "nodes"
-
-
-def _load_module(name: str, path: pathlib.Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-
-    assert spec is not None
-    assert spec.loader is not None
-
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-
-    return module
-
-
-# ---------------------------------------------------------
-# Create a lightweight "nodes" package WITHOUT importing
-# nodes/__init__.py.
-#
-# Unit tests must not require ComfyUI.
-# ---------------------------------------------------------
-
-if "nodes" not in sys.modules:
-    nodes_package = types.ModuleType("nodes")
-    nodes_package.__path__ = [str(NODES_DIR)]
-    sys.modules["nodes"] = nodes_package
-
-
-# _helpers.py depends on ._ops_constants.
-_load_module(
-    "nodes._ops_constants",
-    NODES_DIR / "_ops_constants.py",
-)
-
-helpers = _load_module(
-    "nodes._helpers",
-    NODES_DIR / "_helpers.py",
-)
-
-_blend_rgb = helpers._blend_rgb
+from nodes._helpers import _blend_rgb
 
 
 GOLDEN_PATH = (

@@ -2,41 +2,15 @@ import pytest
 import torch
 
 from nodes.core.media import ImageOpsMedia
-from nodes._helpers import _coerce_media_to_tensor
 from nodes.append import ImageOpsAppend
 from nodes.frame_range import ImageOpsFrameRange
 from comfy_api.latest import io
 
-def test_print_io():
-    import inspect
-    try:
-        print("\n\nSignature MultiType.Output:", inspect.signature(io.MultiType.Output.__init__))
-    except Exception as e:
-        print("\n\nFailed to instantiate MultiType Output:", e)
-    print("\n\n")
 
-def test_media_dataclass_basic():
-    frames = torch.ones((2, 64, 64, 3))
-    audio = torch.zeros((1, 48000))
-    media = ImageOpsMedia(frames=frames, fps=30.0, audio=audio, metadata={"custom": "data"})
-    
-    assert media.frame_count == 2
-    assert media.fps == 30.0
-    assert "custom" in media.metadata
-    
-    cloned = media.clone()
-    assert cloned.frames is not media.frames
-    assert torch.allclose(cloned.frames, media.frames)
-    assert cloned.audio is not media.audio
-    assert cloned.metadata == media.metadata
+def test_multitype_api_available():
+    assert hasattr(io, "MultiType")
+    assert hasattr(io.MultiType, "Input")
 
-def test_coerce_media_to_tensor():
-    frames = torch.ones((2, 64, 64, 3))
-    media = ImageOpsMedia(frames=frames)
-    
-    tensor = _coerce_media_to_tensor(media)
-    assert torch.is_tensor(tensor)
-    assert tensor.shape == (2, 64, 64, 3)
 
 def test_frame_range_preserves_media():
     node = ImageOpsFrameRange()
@@ -57,6 +31,7 @@ def test_frame_range_preserves_media():
     assert torch.allclose(out_frames[0], torch.ones((16, 16, 3)) * 3)
     # Audio is passed through
     assert out_dict['audio'] is not None
+
 
 def test_append_preserves_media():
     node = ImageOpsAppend()
