@@ -60,7 +60,7 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install CPU-only dependencies and ComfyUI
+      - name: Install CPU dependencies
         run: |
           python -m pip install --upgrade pip
 
@@ -70,21 +70,23 @@ jobs:
             torchaudio \
             --index-url https://download.pytorch.org/whl/cpu
 
+          pip install pytest numpy pillow
+
+      - name: Clone ComfyUI
+        run: |
           git clone \
             --depth 1 \
-            https://github.com/comfyanonymous/ComfyUI.git \
+            https://github.com/Comfy-Org/ComfyUI.git \
             /tmp/ComfyUI
 
           pip install -r /tmp/ComfyUI/requirements.txt
-
-          pip install pytest numpy pillow
 
       - name: Install ImageOps into ComfyUI
         run: |
           mkdir -p \
             /tmp/ComfyUI/custom_nodes/ComfyUI-Majoor-ImageOps
 
-          cp -r . \
+          cp -a ./. \
             /tmp/ComfyUI/custom_nodes/ComfyUI-Majoor-ImageOps/
 
       - name: Verify integration environment
@@ -92,23 +94,33 @@ jobs:
           COMFYUI_ROOT: /tmp/ComfyUI
           PYTHONPATH: /tmp/ComfyUI
         run: |
+          set -euxo pipefail
+
           echo "=== Python ==="
           python --version
 
           echo "=== ComfyUI ==="
           test -d "$COMFYUI_ROOT"
-          test -f "$COMFYUI_ROOT/comfy_api/__init__.py"
+          test -d "$COMFYUI_ROOT/comfy_api"
+          test -f "$COMFYUI_ROOT/comfy_api/latest/__init__.py"
+
+          echo "=== V3 API ==="
+          python - <<'PY'
+          from comfy_api.latest import io, ComfyExtension
+          print("ComfyUI V3 API OK")
+          print("io =", io)
+          print("ComfyExtension =", ComfyExtension)
+          PY
 
           echo "=== ImageOps ==="
           test -f \
             "$COMFYUI_ROOT/custom_nodes/ComfyUI-Majoor-ImageOps/__init__.py"
 
-          echo "=== Integration tests ==="
+          echo "=== Tests ==="
+          find tests -maxdepth 2 -type f -print
           test -d tests/integration
-          find tests/integration -maxdepth 2 -type f -print
 
-          echo "=== comfy_api import ==="
-          python -c "import comfy_api; print('comfy_api OK')"
+          echo "=== Environment valid ==="
 
       - name: Run integration tests
         env:
@@ -117,7 +129,7 @@ jobs:
         run: |
           python -m pytest \
             tests/integration \
-            -v \
+            -vv \
             --maxfail=1
 
   quality-gate:
