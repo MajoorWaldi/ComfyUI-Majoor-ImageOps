@@ -5,6 +5,7 @@ import { geometryOps } from "./ops/geometry.js";
 import { renderCompPreview } from "./ops/blend.js";
 import { renderDrawNodePreview } from "./ops/procedural.js";
 import { ops as runtimeOps } from "./ops/implementation.js";
+import { lensOps } from "./ops/lens.js";
 import { maskOps } from "./ops/masks.js";
 import { proceduralOps } from "./ops/procedural.js";
 import { videoOps } from "./ops/video.js";
@@ -12,6 +13,7 @@ import { videoOps } from "./ops/video.js";
 export { blendOps } from "./ops/blend.js";
 export { colorOps } from "./ops/color.js";
 export { geometryOps } from "./ops/geometry.js";
+export { lensOps } from "./ops/lens.js";
 export { maskOps } from "./ops/masks.js";
 export { proceduralOps } from "./ops/procedural.js";
 export { videoOps } from "./ops/video.js";
@@ -25,5 +27,6 @@ export const ops = {
   ...blendOps,
   ...maskOps,
   ...proceduralOps,
+  ...lensOps,
   ...videoOps,
 };

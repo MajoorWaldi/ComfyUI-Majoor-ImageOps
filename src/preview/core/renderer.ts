@@ -90,7 +90,12 @@ export function buildRenderer({ api, registry, canvasSize }: RendererConfig): Re
   async function render(node: ComfyNode, tick: number = 0, outputSlot: number | null = null, canvasSizeOverride?: number): Promise<RenderResult> {
     const ctx: RenderContext = { api, canvasSize: canvasSizeOverride ?? canvasSize, tick, cache: new Map(), visited: new Set() };
     const canvas = await renderNode(node, ctx, outputSlot);
-    return { canvas };
+    // An adapter that declares itself unsupported for this node (or has no
+    // registered adapter at all) is only ever a passthrough of the first
+    // input, not a preview of this node's own transform.
+    const adapter = registry.pick(node);
+    const unsupported = isImageOpsClass(node?.comfyClass) && (!adapter || adapter.previewSupport?.(node) === "unsupported");
+    return { canvas, unsupported };
   }
 
   async function renderNode(node: ComfyNode | null, ctx: RenderContext, outputSlot: number | null): Promise<HTMLCanvasElement | null> {

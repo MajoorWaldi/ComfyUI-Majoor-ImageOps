@@ -221,8 +221,9 @@ export function getFrameSelectorOutputCount(node: ComfyNode, sourceCountOverride
   if (repeat && repeatMode === "input_duration") return bounds.sourceCount;
   if (repeat) return customFrameCount;
   if (frameHold) return 1;
-  // An inverted trim range selects zero frames here, but execute() then falls
-  // back to a single frame (tensor[:1]) rather than an empty batch.
+  // An inverted trim range selects zero frames here; execute() now raises instead
+  // of silently falling back to a single frame. The floor of 1 is only so the
+  // preview estimate never renders a zero-length timeline while dragging.
   return Math.max(1, bounds.selectionCount);
 }
 

@@ -9,7 +9,6 @@ import torch
 from PIL import Image, ImageDraw, ImageFont
 
 from ._helpers import (
-    ,
     _apply_mask_to_image,
     _hex_to_rgb01,
     _prepare_effect_mask,

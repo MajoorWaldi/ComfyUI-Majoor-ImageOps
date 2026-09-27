@@ -3,7 +3,6 @@ from __future__ import annotations
 import torch
 
 from ._helpers import (
-    ,
     _apply_mask_to_image,
     _prepare_effect_mask,
     _resolve_mask_output_source,

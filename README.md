@@ -55,12 +55,26 @@
 | **ImageOps Noise** | `ImageOpsNoise` | GPU-backed procedural noise source with Perlin, value, seamless tiling, 3D Z animation, seed stepping, frame length/FPS controls, and color ramp output |
 | **ImageOps Paint** | `ImageOpsDraw` | Digital painting with brush/eraser tools, cropped overlay payloads, layer JSON support, and pen dynamics |
 | **ImageOps Comp** | `ImageOpsComp` | Multi-layer compositor with blend modes, positioning, and opacity per layer |
+| **ImageOps Grain** | `ImageOpsGrain` | Synthetic film grain with add/overlay/soft_light blend, size, luma response, and per-frame animation |
+| **ImageOps Camera Shake** | `ImageOpsCameraShake` | Procedural handheld camera jitter (translate/rotate/zoom) with smoothing and frequency control |
+| **ImageOps Keyer** | `ImageOpsKeyer` | Chroma/luma keying with multi-color keys and despill |
+| **ImageOps Text** | `ImageOpsText` | Text overlay with font size, alignment, stroke, and opacity |
+| **ImageOps Frame Range** | `ImageOpsFrameRange` | Trim, hold, and repeat (loop/bounce/reverse) a frame range |
+| **ImageOps Append** | `ImageOpsAppend` | Concatenate two IMAGE/VIDEO clips with FPS policy and padding options |
+| **ImageOps Constant** | `ImageOpsConstant` | Solid color, checkerboard, or grid generator |
+| **ImageOps Ramp** | `ImageOpsRamp` | Linear or radial gradient generator |
+| **ImageOps Crop Stitch** | `ImageOpsCropStitch` | Paste an edited crop back into its original-image position with feathered edges |
+| **ImageOps Vignette** | `ImageOpsVignette` | Radial darken-to-color falloff from a configurable center, size, and softness |
+| **ImageOps Chromatic Aberration** | `ImageOpsChromaticAberration` | Radial red/blue channel shift simulating lens color fringing |
+| **ImageOps Bloom** | `ImageOpsBloom` | Threshold + blur + additive glow on highlights, HDR-safe |
+| **ImageOps Lens Artifacts** | `ImageOpsLensArtifacts` | Dirt/smudge texture compositing plus procedural static dust specks |
+| **ImageOps Defocus** | `ImageOpsDefocus` | Depth-driven defocus/bokeh with shaped aperture kernels (circle/hexagon/octagon/custom) and highlight bloom |
 
 ### 📤 Output Nodes
 
-| Node | Description |
-|------|-------------|
-| **ImageOps Preview** | `ImageOpsPreview` | Preview bridge node with multiple display modes (images, strip, animated WebP/GIF) |
+| Node | Internal ID | Description |
+|------|-------------|-------------|
+| **ImageOps Preview** | `ImageOpsPreview` | Preview bridge node with multiple display modes (images, strip, animated WebP/GIF) and optional A/B compare against a second input |
 
 ---
 
@@ -83,8 +97,11 @@ Professional color grading with reference-based correction.
 - `contrast` (-100 to 100): Contrast adjustment
 - `saturation` (-100 to 100): Saturation adjustment
 - `gamma` (0.2 to 2.2): Gamma correction
+- `input_space`: `srgb` (default) or `linear` — set to `linear` for scene-linear/HDR sources so the node doesn't gamma-encode them twice
 - `invert_mask`: Invert mask effect
 - `bypass`: Skip processing
+
+Also exposes per-zone (shadows/midtones/highlights) temperature, tint, hue, contrast, saturation, vibrance, gamma, and brightness wheels for three-way color grading.
 
 **Outputs:** `IMAGE`, `MASK`
 
@@ -355,7 +372,7 @@ Blend two images with linear-light or sRGB blend modes.
 - `mask` (MASK, optional): Effect mask
 
 **Parameters:**
-- `mode`: over, add, subtract, multiply, screen, overlay, soft_light, difference, max, min, lighten, darken, color_dodge, color_burn, exclusion, vivid_light, pin_light, hard_mix
+- `mode`: over, add, multiply, screen, overlay, soft_light, difference, lighten, darken, color_dodge, color_burn, exclusion
 - `mix` (0.0 to 1.0): Blend opacity
 - `foreground_fit`: stretch, contain, cover, or none for adapting foreground B to background A
 - `blend_space`: linear or srgb; linear performs RGB blend math in gamma 1.0 then converts back to sRGB
@@ -424,6 +441,117 @@ The node still accepts older full-frame Base64 PNG `overlay_data` values. New pr
 
 ---
 
+### 🌑 ImageOps Vignette
+
+Radial darken-to-color falloff from a configurable center.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO): Source media
+- `mask` (MASK, optional): Effect mask
+
+**Parameters:**
+- `amount` (0.0 to 1.0): Strength of the darkening
+- `size` (0.0 to 2.0): Radius (normalized frame units) where the vignette reaches full amount
+- `softness` (0.01 to 2.0): Falloff width feathering the edge inward from `size`
+- `center_x`, `center_y` (-1.0 to 2.0): Vignette center, normalized
+- `color`: Color the vignette darkens toward (default black)
+- `invert_mask`: Invert mask effect
+- `bypass`: Skip processing
+
+**Outputs:** `IMAGE`, `MASK`
+
+---
+
+### 🌈 ImageOps Chromatic Aberration
+
+Radial red/blue channel shift simulating lens color fringing.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO): Source media
+- `mask` (MASK, optional): Effect mask
+
+**Parameters:**
+- `amount` (-30 to 30): Radial channel shift in pixels at the frame corner; positive shifts red outward and blue inward
+- `center_x`, `center_y` (-1.0 to 2.0): Aberration center, normalized
+- `invert_mask`: Invert mask effect
+- `bypass`: Skip processing
+
+**Outputs:** `IMAGE`, `MASK`
+
+---
+
+### ✨ ImageOps Bloom
+
+Threshold + blur + additive glow on highlights.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO): Source media
+- `mask` (MASK, optional): Effect mask
+
+**Parameters:**
+- `threshold` (0.0 to 4.0): Brightness level above which pixels start to glow
+- `intensity` (0.0 to 4.0): Strength of the added glow
+- `radius` (0 to 128): Gaussian blur radius of the glow, in pixels
+- `invert_mask`: Invert mask effect
+- `bypass`: Skip processing
+
+The glow is added, not screened, so highlights above 1.0 on HDR sources stay correct instead of clamping.
+
+**Outputs:** `IMAGE`, `MASK`
+
+---
+
+### 🧴 ImageOps Lens Artifacts
+
+Dirt/smudge texture compositing plus procedural static dust specks, in one node.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO): Source media
+- `dirt` (IMAGE/VIDEO, optional): Dirt/smudge texture plate (e.g. a stock lens-dirt asset); its luma attenuates the image multiplicatively
+- `mask` (MASK, optional): Effect mask
+
+**Parameters:**
+- `dirt_amount` (0.0 to 1.0): Opacity of the connected dirt texture
+- `dust_amount` (0.0 to 1.0): Procedural dust speck density and brightness
+- `dust_size` (0.5 to 20.0): Speck size in pixels
+- `seed`: Dust is a static lens artifact — the same seed always produces the same specks (doesn't drift frame to frame)
+- `invert_mask`: Invert mask effect
+- `bypass`: Skip processing
+
+Dirt darkens multiplicatively (HDR-safe); dust specks add light additively, like real dust catching a highlight.
+
+**Outputs:** `IMAGE`, `MASK`
+
+---
+
+### 🔵 ImageOps Defocus
+
+Depth-driven defocus/bokeh with shaped aperture kernels.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO): Source media
+- `depth` (IMAGE/VIDEO, optional): Depth map — its luma drives the per-pixel blur amount. Without it connected, the node is a no-op
+- `shape_texture` (IMAGE/VIDEO, optional): Grayscale bokeh aperture shape, used when `bokeh_shape` is `custom`
+- `mask` (MASK, optional): Effect mask
+
+**Parameters:**
+- `focus_distance` (0.0 to 1.0): Depth value that stays in focus
+- `focus_range` (0.0 to 0.99): Depth thickness around `focus_distance` that stays sharp before blur ramps up
+- `max_blur_radius` (0 to 128): Bokeh disc radius in pixels at the depth extremes
+- `num_layers` (2 to 32): Depth slices blurred and interpolated between — higher is smoother but slower
+- `bokeh_shape`: `circle`, `hexagon`, `octagon`, or `custom` (uses `shape_texture`)
+- `highlight_threshold` (0.0 to 2.0): Brightness above which pixels bloom into visible bokeh discs when blurred
+- `highlight_boost` (0.0 to 8.0): Strength of the bokeh highlight bloom
+- `invert_depth`: Flip the depth map convention (near/far)
+- `invert_mask`: Invert mask effect
+- `bypass`: Skip processing
+
+In-focus pixels stay pixel-perfect sharp; out-of-focus depth slices are convolved with the chosen aperture shape and interpolated per-pixel to avoid banding. The live canvas preview only approximates this (a few gaussian-blur bands by depth, no shape or highlight bloom) — the real shaped/glowing bokeh appears once the backend runs.
+
+**Outputs:** `IMAGE`, `MASK`
+
+---
+
 ### 🎬 ImageOps Comp
 
 ![ImageOps Comp preview](docs/OpsComp.gif)
@@ -461,15 +589,20 @@ Preview output node with advanced visualization modes.
 
 **Inputs:**
 - `image` (IMAGE/VIDEO): Source media
+- `image_b` (IMAGE/VIDEO, optional): Second source to compare against
 - `mask` (MASK, optional): Mask to preview
 
 **Parameters:**
 - `preview_target`: auto, image, or mask
-- `mode`: 
+- `mode`:
   - `images`: Individual frames
   - `strip`: Horizontal strip for batch inspection
   - `animated_webp`: Animated WebP preview
   - `animated_gif`: Animated GIF preview
+- `compare_mode`: `off`, `side_by_side`, `wipe`, or `diff` — when `image_b` is connected, builds the saved/queued preview thumbnail as an A/B comparison instead of Image alone
+- `wipe_position` (0.0 to 1.0): Split position used by `compare_mode=wipe`
+
+While editing (before queuing), the live canvas also offers its own on-demand A/B toggle (Live/B/Wipe/Diff buttons) — this compares the two live-rendered inputs directly and is independent of the `compare_mode`/`wipe_position` widgets above, which control what actually gets saved once the prompt runs. Without `image_b` connected, those same buttons fall back to comparing the live canvas proxy against the last real queued result of `image`, for checking preview accuracy.
 
 **Outputs:** `IMAGE`, `MASK`
 
@@ -544,18 +677,22 @@ Some packs expose video via custom types. Best results when upstream provides fr
 - **VIDEO**: Frame sources from video nodes (VHS, etc.)
 - **MASK**: Single-channel masks `[B, H, W]`
 
-### 🎨 Blend Modes Reference
+### 🎨 Blend Modes Reference (ImageOps Merge)
 
 | Mode | Description |
 |------|-------------|
 | `over` | Standard alpha compositing |
 | `add` | Additive blending (brightens) |
-| `subtract` | Subtractive blending (darkens) |
 | `multiply` | Multiply colors (darkens) |
 | `screen` | Screen blend (brightens) |
+| `overlay` | Contrast-boosting multiply/screen mix |
+| `soft_light` | Softer overlay variant |
 | `difference` | Absolute difference |
-| `max` | Maximum of each channel |
-| `min` | Minimum of each channel |
+| `lighten` | Maximum of each channel |
+| `darken` | Minimum of each channel |
+| `color_dodge` | Brightens base to reflect the blend color |
+| `color_burn` | Darkens base to reflect the blend color |
+| `exclusion` | Lower-contrast difference |
 
 ### 🎛️ Compositor Blend Modes
 
@@ -611,13 +748,18 @@ All nodes process batches natively:
 
 **Author**: Majoor  
 **Category**: `image/imageops`  
-**Version**: 0.1.5
+**Version**: 0.1.7
 
 ---
 
 ## 📋 Changelog
 
 ### Recent changes
+- **ImageOps Vignette, Chromatic Aberration, Bloom, Lens Artifacts** — new nodes for common lens/compositing effects: radial darken falloff, red/blue channel fringing, HDR-safe additive glow, and dirt/dust compositing
+- **ImageOps Defocus** — new depth-driven defocus/bokeh node with shaped aperture kernels (circle, hexagon, octagon, or a custom shape texture) and highlight bloom
+- **ImageOps Color Correct** — added `input_space` (`srgb`/`linear`) so scene-linear/HDR sources aren't gamma-encoded twice
+- **ImageOps Preview** — added an `image_b` input and `compare_mode`/`wipe_position` for a real A/B comparison baked into the saved/queued preview thumbnail, plus a separate live on-demand A/B toggle while editing
+- **Live preview HUD** — the frame-count badge now shows the real total (`3 / 24`) and hides itself for single-frame sources instead of always showing `f 0000`; the "Output" overlay only appears for Pad Out (where it's meaningful) and now shows the real pixel size instead of a static label
 - **ImageOps Spherize** — new node with five projection modes (spherize, fisheye, defisheye, latlong, unlatlong), bicubic/bilinear/nearest filter, edge modes, custom output size, and circle-mask output
 - **ImageOps Corner Pin** — bicubic interpolation option added
 - **ImageOps Color Correct** — enhanced color correction capabilities

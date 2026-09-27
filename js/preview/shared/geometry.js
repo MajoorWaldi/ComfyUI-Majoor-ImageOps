@@ -24,18 +24,13 @@ function drawFitSource(ctx, width, height, source, sourceWidth, sourceHeight, fi
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(source, placement.dx, placement.dy, placement.drawWidth, placement.drawHeight);
 }
-function drawOutputFormatBox(ctx, fit, label = "Output") {
+function drawOutputBounds(ctx, fit) {
   ctx.save();
-  ctx.strokeStyle = "rgba(255,255,255,0.24)";
+  ctx.strokeStyle = "rgba(251,191,36,0.55)";
   ctx.lineWidth = 1;
   ctx.setLineDash([6, 4]);
   ctx.strokeRect(fit.dx + 0.5, fit.dy + 0.5, fit.drawWidth, fit.drawHeight);
   ctx.setLineDash([]);
-  ctx.fillStyle = "rgba(10,12,16,0.72)";
-  ctx.fillRect(fit.dx + 6, fit.dy + 6, 52, 16);
-  ctx.fillStyle = "rgba(255,255,255,0.82)";
-  ctx.font = "10px sans-serif";
-  ctx.fillText(label, fit.dx + 10, fit.dy + 18);
   ctx.restore();
 }
 function getCanvasPointer(canvas, event) {
@@ -51,7 +46,7 @@ function getCanvasPointer(canvas, event) {
 export {
   clampPreviewZoom,
   drawFitSource,
-  drawOutputFormatBox,
+  drawOutputBounds,
   getCanvasPointer,
   getFitPlacement,
   screenToWorld

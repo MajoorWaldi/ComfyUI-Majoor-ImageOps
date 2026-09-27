@@ -9,6 +9,13 @@ function getNativePreviewImage(node) {
   const candidate = imgs[Math.max(0, Math.min(imgs.length - 1, index))] ?? imgs[imgs.length - 1] ?? null;
   return candidate instanceof HTMLImageElement ? candidate : null;
 }
+function getNativePreviewImageForTick(node, tick) {
+  const imgs = node.imgs;
+  if (!Array.isArray(imgs) || imgs.length === 0) return null;
+  const index = (Math.max(0, Math.round(tick)) % imgs.length + imgs.length) % imgs.length;
+  const candidate = imgs[index] ?? imgs[imgs.length - 1] ?? null;
+  return candidate instanceof HTMLImageElement ? candidate : null;
+}
 function parsePreviewSourceUrl(src) {
   try {
     return new URL(src, window.location.href);
@@ -96,6 +103,7 @@ export {
   buildMediaPreviewUrl,
   getInputIndexByName,
   getNativePreviewImage,
+  getNativePreviewImageForTick,
   hideNativeMediaPreview,
   nativePreviewFilename,
   parsePreviewSourceUrl,

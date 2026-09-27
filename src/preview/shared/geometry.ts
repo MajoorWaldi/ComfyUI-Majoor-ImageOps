@@ -58,18 +58,19 @@ export function drawFitSource(
   ctx.drawImage(source, placement.dx, placement.dy, placement.drawWidth, placement.drawHeight);
 }
 
-export function drawOutputFormatBox(ctx: CanvasRenderingContext2D, fit: FitPlacement, label: string = "Output"): void {
+/**
+ * Traces the output canvas bounds. Only meaningful when those bounds differ
+ * from the plain source fit (e.g. PadOut's padding) — the caller is
+ * responsible for only drawing this when that's actually the case, since for
+ * most nodes it would just retrace the image's own edge.
+ */
+export function drawOutputBounds(ctx: CanvasRenderingContext2D, fit: FitPlacement): void {
   ctx.save();
-  ctx.strokeStyle = "rgba(255,255,255,0.24)";
+  ctx.strokeStyle = "rgba(251,191,36,0.55)";
   ctx.lineWidth = 1;
   ctx.setLineDash([6, 4]);
   ctx.strokeRect(fit.dx + 0.5, fit.dy + 0.5, fit.drawWidth, fit.drawHeight);
   ctx.setLineDash([]);
-  ctx.fillStyle = "rgba(10,12,16,0.72)";
-  ctx.fillRect(fit.dx + 6, fit.dy + 6, 52, 16);
-  ctx.fillStyle = "rgba(255,255,255,0.82)";
-  ctx.font = "10px sans-serif";
-  ctx.fillText(label, fit.dx + 10, fit.dy + 18);
   ctx.restore();
 }
 

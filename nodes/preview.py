@@ -4,7 +4,7 @@ import uuid
 import torch
 from PIL import Image
 import folder_paths
-from ._helpers import _alpha_mask_from_image, _coerce_mask_tensor, _mask_to_preview_image, _scalar, _select_media_tensor, _tensor_batch_to_pil_list, logger
+from ._helpers import _alpha_mask_from_image, _coerce_mask_tensor, _mask_to_preview_image, _resize, _scalar, _select_media_tensor, _tensor_batch_to_pil_list, logger
 from ._progress import start_progress
 
 def _ensure_dir(p: str):
@@ -99,6 +99,28 @@ def save_temp_strip(images, prefix='imageops_strip', ext='png', max_frames=16, t
         return None
     return {'filename': name, 'subfolder': '', 'type': 'temp'}
 
+_COMPARE_MODES = ['off', 'side_by_side', 'wipe', 'diff']
+
+
+def _compose_compare(a: torch.Tensor, b: torch.Tensor, mode: str, wipe_position: float) -> torch.Tensor:
+    """Build the saved preview thumbnail for an A/B compare, not the passthrough output."""
+    if b.shape[1] != a.shape[1] or b.shape[2] != a.shape[2]:
+        b = _resize(b, a.shape[2], a.shape[1])
+    if b.shape[0] != a.shape[0]:
+        b = b[:1].expand(a.shape[0], -1, -1, -1) if b.shape[0] == 1 else b[:a.shape[0]]
+    a3 = a[..., :3].clamp(0.0, 1.0)
+    b3 = b[..., :3].clamp(0.0, 1.0)
+    if mode == 'diff':
+        return (a3 - b3).abs().clamp(0.0, 1.0)
+    if mode == 'side_by_side':
+        return torch.cat([a3, b3], dim=2)
+    width = a3.shape[2]
+    split = int(round(max(0.0, min(1.0, _scalar(wipe_position))) * width))
+    out = a3.clone()
+    out[:, :, split:, :] = b3[:, :, split:, :]
+    return out
+
+
 class ImageOpsPreview(io.ComfyNode):
     """
     Preview bridge node:
@@ -109,10 +131,10 @@ class ImageOpsPreview(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsPreview', display_name='〽️ Image Ops Preview', category='image/imageops', is_output_node=True, search_aliases=['preview', 'viewer', 'view', 'monitor', 'scope', 'histogram', 'waveform'], inputs=[io.Combo.Input('preview_target', options=['auto', 'image', 'mask'], default='auto'), io.Combo.Input('mode', options=['images', 'strip', 'animated_webp', 'animated_gif'], default='images'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo, io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsPreview', display_name='〽️ Image Ops Preview', category='image/imageops', is_output_node=True, search_aliases=['preview', 'viewer', 'view', 'monitor', 'scope', 'histogram', 'waveform', 'compare', 'a/b'], inputs=[io.Combo.Input('preview_target', options=['auto', 'image', 'mask'], default='auto'), io.Combo.Input('mode', options=['images', 'strip', 'animated_webp', 'animated_gif'], default='images'), io.Combo.Input('compare_mode', options=_COMPARE_MODES, default='off', tooltip='Compare against Image B in the saved preview thumbnail. off previews Image only.'), io.Float.Input('wipe_position', default=0.5, min=0.0, max=1.0, step=0.01, tooltip='Split position for compare_mode=wipe.'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.MultiType.Input('image_b', types=[io.Image, io.Video], tooltip='Optional second Images/Video input to compare against, via compare_mode.', display_name='Images/Video B', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo, io.Hidden.unique_id])
 
     @classmethod
-    def execute(cls, image=None, preview_target='auto', mode='images', mask=None, prompt=None, extra_pnginfo=None, unique_id=None, **kwargs):
+    def execute(cls, image=None, preview_target='auto', mode='images', compare_mode='off', wipe_position=0.5, image_b=None, mask=None, prompt=None, extra_pnginfo=None, unique_id=None, **kwargs):
         del prompt, extra_pnginfo
         progress = start_progress(unique_id=unique_id)
         image_tensor = None
@@ -133,6 +155,10 @@ class ImageOpsPreview(io.ComfyNode):
             preview_image = output_image
         else:
             preview_image = output_image if image_tensor is not None else _mask_to_preview_image(output_mask, device=output_image.device, dtype=output_image.dtype)
+        compare = str(compare_mode or 'off').strip().lower()
+        if compare != 'off' and image_b is not None:
+            image_b_tensor = _select_media_tensor(image_b, None)
+            preview_image = _compose_compare(preview_image, image_b_tensor, compare, _scalar(wipe_position, float))
         if mode == 'strip':
             item = save_temp_strip(preview_image, prefix='imageops_preview', ext='png')
             ui = {'images': [item]} if item else {'images': save_temp_images(preview_image, prefix='imageops_preview')}

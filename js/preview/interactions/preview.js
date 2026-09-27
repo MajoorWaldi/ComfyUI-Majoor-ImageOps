@@ -24,6 +24,43 @@ function attachInteractions(node, ctx) {
     st.nativeDirty = true;
     ctx.schedule(node, () => ctx.startLoopIfVideo(node), 0);
   });
+  for (const button of Array.from(root.querySelectorAll("button[data-compare-mode]"))) {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      st.previewCompareMode = button.dataset.compareMode ?? "live";
+      syncPreviewWidgets(node);
+      ctx.refreshPreviewOnly(node, 0);
+    });
+  }
+  const wipeTrack = root.querySelector("div[data-wipe-track]");
+  if (wipeTrack) {
+    const fractionFromPointer = (event) => {
+      const rect = wipeTrack.getBoundingClientRect();
+      return Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)));
+    };
+    wipeTrack.addEventListener("pointerdown", (event) => {
+      st.previewWipeDrag = { pointerId: event.pointerId };
+      st.previewWipeFraction = fractionFromPointer(event);
+      syncPreviewWidgets(node);
+      ctx.refreshPreviewOnly(node, 0);
+      wipeTrack.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+    wipeTrack.addEventListener("pointermove", (event) => {
+      if (!st.previewWipeDrag || st.previewWipeDrag.pointerId !== event.pointerId) return;
+      st.previewWipeFraction = fractionFromPointer(event);
+      syncPreviewWidgets(node);
+      ctx.refreshPreviewOnly(node, 0);
+      event.preventDefault();
+    });
+    const release = (event) => {
+      if (!st.previewWipeDrag || st.previewWipeDrag.pointerId !== event.pointerId) return;
+      st.previewWipeDrag = null;
+      wipeTrack.releasePointerCapture?.(event.pointerId);
+    };
+    wipeTrack.addEventListener("pointerup", release);
+    wipeTrack.addEventListener("pointercancel", release);
+  }
   syncPreviewWidgets(node);
 }
 export {

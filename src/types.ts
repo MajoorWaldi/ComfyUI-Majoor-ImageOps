@@ -97,12 +97,22 @@ export interface ComfyNode {
 
 // ── Adapter ──
 
+export type PreviewSupportLevel = "exact" | "approximate" | "unsupported";
+
 export interface Adapter {
   name?: string;
   match(node: ComfyNode): boolean;
   inputs: number | ((node: ComfyNode) => number);
   inputIndexes?: number[] | ((node: ComfyNode) => number[]);
   apply(ctx: AdapterApplyContext): Promise<HTMLCanvasElement | void> | HTMLCanvasElement | void;
+  /**
+   * How faithfully this adapter's canvas preview represents the node's real
+   * (tensor, full-resolution) backend output. Defaults to "approximate" when
+   * absent — none of the reduced-resolution Canvas2D adapters have been
+   * validated bit-for-bit against the backend, so "exact" must be earned per
+   * operation, not assumed.
+   */
+  previewSupport?(node: ComfyNode): PreviewSupportLevel;
 }
 
 export interface AdapterApplyContext {
@@ -130,8 +140,22 @@ export interface RenderContext {
   visited: Set<number>;
 }
 
+// ImageOpsPreview: how the node's canvas compares the interactive Canvas2D
+// proxy against the last real (tensor, full-resolution) queued result.
+// "live" is the existing always-on interactive proxy; the other three only
+// apply once a backend result exists for the current frame.
+export type PreviewCompareMode = "live" | "backend" | "wipe" | "diff";
+
 export interface RenderResult {
   canvas: HTMLCanvasElement | null;
+  /**
+   * True when `node` is an ImageOps node with no registered preview adapter,
+   * so `canvas` is just a passthrough of its first input rather than a real
+   * preview of this node's own transform (e.g. Append, which has no
+   * canvas-based compositing adapter). Callers should say so instead of
+   * showing the passthrough as if it were the node's actual output.
+   */
+  unsupported?: boolean;
 }
 
 export interface RenderInputInfo {
@@ -177,6 +201,15 @@ export interface NodeState {
   previewSourceWidth: number;
   previewSourceHeight: number;
   previewFrameIndex: number | null;
+  // Total frames in the current tick loop (batch/video length, join timeline, …).
+  // <= 1 means "nothing to count" — the frame HUD hides itself in that case.
+  previewFrameCount: number;
+  // ImageOpsPreview only: on-demand comparison between the interactive canvas
+  // proxy and the last real queued (backend) result, at the same frame.
+  previewCompareMode: PreviewCompareMode;
+  previewWipeFraction: number;
+  previewCompareHooked: boolean;
+  previewWipeDrag: { pointerId: number } | null;
   cropAspectRatio: number | null;
   fitGeometry?: { dx: number; dy: number; drawWidth: number; drawHeight: number } | null;
   cropGeometry: CropPreviewGeometry | null;

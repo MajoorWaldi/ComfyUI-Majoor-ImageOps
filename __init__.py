@@ -70,6 +70,11 @@ ImageOpsKeyer = _load_module(f"{_PKG}.nodes.keyer", _nodes_dir / "keyer.py").Ima
 ImageOpsText = _load_module(f"{_PKG}.nodes.text", _nodes_dir / "text.py").ImageOpsText
 ImageOpsFrameRange = _load_module(f"{_PKG}.nodes.frame_range", _nodes_dir / "frame_range.py").ImageOpsFrameRange
 ImageOpsAppend = _load_module(f"{_PKG}.nodes.append", _nodes_dir / "append.py").ImageOpsAppend
+ImageOpsVignette = _load_module(f"{_PKG}.nodes.vignette", _nodes_dir / "vignette.py").ImageOpsVignette
+ImageOpsChromaticAberration = _load_module(f"{_PKG}.nodes.chromatic_aberration", _nodes_dir / "chromatic_aberration.py").ImageOpsChromaticAberration
+ImageOpsBloom = _load_module(f"{_PKG}.nodes.bloom", _nodes_dir / "bloom.py").ImageOpsBloom
+ImageOpsLensArtifacts = _load_module(f"{_PKG}.nodes.lens_artifacts", _nodes_dir / "lens_artifacts.py").ImageOpsLensArtifacts
+ImageOpsDefocus = _load_module(f"{_PKG}.nodes.defocus", _nodes_dir / "defocus.py").ImageOpsDefocus
 
 NODES = [
     ImageOpsBlur,
@@ -98,6 +103,11 @@ NODES = [
     ImageOpsText,
     ImageOpsFrameRange,
     ImageOpsAppend,
+    ImageOpsVignette,
+    ImageOpsChromaticAberration,
+    ImageOpsBloom,
+    ImageOpsLensArtifacts,
+    ImageOpsDefocus,
 ]
 
 if ComfyExtension is not object:

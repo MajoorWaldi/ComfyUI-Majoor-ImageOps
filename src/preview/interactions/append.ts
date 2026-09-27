@@ -52,7 +52,9 @@ function selectionCount(start: number, end: number, frameCount: number): number 
   const max = Math.max(0, frameCount - 1);
   const s = Math.max(0, Math.min(max, Math.round(start)));
   const e = end < 0 ? max : Math.max(0, Math.min(max, Math.round(end)));
-  return Math.max(1, Math.abs(e - s) + 1);
+  // Match nodes/core/timeline.py trim_indices: an inverted range selects zero
+  // frames rather than a plausible-looking swapped count.
+  return e < s ? 0 : e - s + 1;
 }
 
 function syncFill(fill: HTMLDivElement, start: number, end: number, max: number): void {
@@ -301,14 +303,11 @@ function buildJoinTrimRow(node: ComfyNode, ctx: NodeInteractionContext, st: any,
         existing = { slot: rowState.slot, start: 0, end: -1 };
         next.push(existing);
       }
-      let startVal = Math.max(0, Math.min(rowState.maxFrame, Math.round(Number(rowState.startNumber.value || 0))));
-      let endVal = Math.max(0, Math.min(rowState.maxFrame, Math.round(Number(rowState.endNumber.value || rowState.maxFrame))));
-      // Match Python _trim_clip: swap if reversed so the rendered range is [min, max].
-      if (endVal < startVal) {
-        const tmp = startVal;
-        startVal = endVal;
-        endVal = tmp;
-      }
+      const startVal = Math.max(0, Math.min(rowState.maxFrame, Math.round(Number(rowState.startNumber.value || 0))));
+      // The backend (nodes/core/timeline.py trim_indices) rejects an inverted range
+      // instead of swapping it, so clamp here rather than construct a state execute()
+      // would reject.
+      const endVal = Math.max(startVal, Math.min(rowState.maxFrame, Math.round(Number(rowState.endNumber.value || rowState.maxFrame))));
       existing.start = startVal;
       // Preserve the "to end" sentinel (-1) so the trim auto-extends if upstream grows.
       existing.end = rowState.endIsAuto && endVal >= rowState.maxFrame ? -1 : endVal;

@@ -122,6 +122,26 @@ export const IMAGEOPS_NODE_METADATA: readonly ImageOpsNodeMeta[] = [
     "className": "ImageOpsText",
     "ui": "custom",
     "minPreviewHeight": 470
+  },
+  {
+    "className": "ImageOpsVignette",
+    "ui": "native"
+  },
+  {
+    "className": "ImageOpsChromaticAberration",
+    "ui": "native"
+  },
+  {
+    "className": "ImageOpsBloom",
+    "ui": "native"
+  },
+  {
+    "className": "ImageOpsLensArtifacts",
+    "ui": "native"
+  },
+  {
+    "className": "ImageOpsDefocus",
+    "ui": "native"
   }
 ] as const;
 

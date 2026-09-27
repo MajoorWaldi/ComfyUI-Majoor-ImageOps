@@ -25,7 +25,12 @@
     {"className":"ImageOpsPreview","module":"preview","classExport":"ImageOpsPreview","displayName":"ImageOps Preview","ui":"custom","minPreviewHeight":360,"aliases":["preview","viewer","view","monitor","scope","histogram","waveform"]},
     {"className":"ImageOpsRamp","module":"ramp","classExport":"ImageOpsRamp","displayName":"ImageOps Ramp","ui":"custom","minPreviewHeight":430,"aliases":["ramp","gradient","linear gradient","radial gradient"]},
     {"className":"ImageOpsSpherize","module":"spherize","classExport":"ImageOpsSpherize","displayName":"ImageOps Spherize","ui":"native","aliases":["spherize","sphere","fisheye","defisheye","latlong","lens"]},
-    {"className":"ImageOpsText","module":"text","classExport":"ImageOpsText","displayName":"ImageOps Text","ui":"custom","minPreviewHeight":470,"aliases":["text","title","caption","label","type","font"]}
+    {"className":"ImageOpsText","module":"text","classExport":"ImageOpsText","displayName":"ImageOps Text","ui":"custom","minPreviewHeight":470,"aliases":["text","title","caption","label","type","font"]},
+    {"className":"ImageOpsVignette","module":"vignette","classExport":"ImageOpsVignette","displayName":"ImageOps Vignette","ui":"native","aliases":["vignette","lens","darken edges","falloff"]},
+    {"className":"ImageOpsChromaticAberration","module":"chromatic_aberration","classExport":"ImageOpsChromaticAberration","displayName":"ImageOps Chromatic Aberration","ui":"native","aliases":["chromatic aberration","fringe","fringing","lens","color fringe","ca"]},
+    {"className":"ImageOpsBloom","module":"bloom","classExport":"ImageOpsBloom","displayName":"ImageOps Bloom","ui":"native","aliases":["bloom","glow","highlight glow","lens"]},
+    {"className":"ImageOpsLensArtifacts","module":"lens_artifacts","classExport":"ImageOpsLensArtifacts","displayName":"ImageOps Lens Artifacts","ui":"native","aliases":["lens dirt","dust","smudge","grime","lens artifacts"]},
+    {"className":"ImageOpsDefocus","module":"defocus","classExport":"ImageOpsDefocus","displayName":"ImageOps Defocus","ui":"native","aliases":["defocus","bokeh","depth of field","dof","depth blur","lens blur"]}
   ],
   "aliases": {
     "checker": "ImageOpsConstant",

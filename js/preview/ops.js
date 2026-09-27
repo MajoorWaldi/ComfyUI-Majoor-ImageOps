@@ -4,12 +4,14 @@ import { geometryOps } from "./ops/geometry.js";
 import { renderCompPreview } from "./ops/blend.js";
 import { renderDrawNodePreview } from "./ops/procedural.js";
 import { ops as runtimeOps } from "./ops/implementation.js";
+import { lensOps } from "./ops/lens.js";
 import { maskOps } from "./ops/masks.js";
 import { proceduralOps } from "./ops/procedural.js";
 import { videoOps } from "./ops/video.js";
 import { blendOps as blendOps2 } from "./ops/blend.js";
 import { colorOps as colorOps2 } from "./ops/color.js";
 import { geometryOps as geometryOps2 } from "./ops/geometry.js";
+import { lensOps as lensOps2 } from "./ops/lens.js";
 import { maskOps as maskOps2 } from "./ops/masks.js";
 import { proceduralOps as proceduralOps2 } from "./ops/procedural.js";
 import { videoOps as videoOps2 } from "./ops/video.js";
@@ -20,12 +22,14 @@ const ops = {
   ...blendOps,
   ...maskOps,
   ...proceduralOps,
+  ...lensOps,
   ...videoOps
 };
 export {
   blendOps2 as blendOps,
   colorOps2 as colorOps,
   geometryOps2 as geometryOps,
+  lensOps2 as lensOps,
   maskOps2 as maskOps,
   ops,
   proceduralOps2 as proceduralOps,

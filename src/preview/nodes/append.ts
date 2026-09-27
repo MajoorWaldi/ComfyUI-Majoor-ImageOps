@@ -191,8 +191,9 @@ function trimSelectionCount(frameCount: number, start: number, end: number): num
   const max = Math.max(0, Math.round(frameCount) - 1);
   const actualStart = Math.max(0, Math.min(max, Math.round(start)));
   const actualEnd = end < 0 ? max : Math.max(0, Math.min(max, Math.round(end)));
-  const [lo, hi] = actualStart <= actualEnd ? [actualStart, actualEnd] : [actualEnd, actualStart];
-  return Math.max(1, hi - lo + 1);
+  // Match nodes/core/timeline.py trim_indices: an inverted range selects zero
+  // frames rather than a plausible-looking swapped count.
+  return actualEnd < actualStart ? 0 : actualEnd - actualStart + 1;
 }
 
 function trimsBySlot(node: ComfyNode): Map<string, JoinTrim> {

@@ -15,7 +15,7 @@ import { getCompSlots } from "./comp.js";
 import { getPreviewConfig } from "./config.js";
 import { initOpsConstants } from "./constants.js";
 import { detectSourceUpstream, findDependents, getInputOriginSlot, getUpstreamNode, getUpstreamNodes, isGraphTooLarge } from "./core/graph.js";
-import { getInputIndexByName, getNativePreviewImage, getUpstreamVideoFps } from "./core/media.js";
+import { getInputIndexByName, getNativePreviewImage, getNativePreviewImageForTick, getUpstreamVideoFps } from "./core/media.js";
 import { buildRenderer } from "./core/renderer.js";
 import { schedule, stopRAF } from "./core/scheduler.js";
 import { attachInteractions as attachJoinInteractionsExt, syncJoinControls } from "./interactions/append.js";
@@ -79,7 +79,7 @@ import { renderCompPreview } from "./ops.js";
 import { attachProgressBus } from "./progress.js";
 import { buildAdapterRegistry } from "./registry.js";
 import { getProceduralFrameCount, getProceduralPlaybackFps, hasProceduralAnimation } from "./shared/animation.js";
-import { blit, tryRenderNativePreview } from "./shared/bounds.js";
+import { blit, blitCompare, tryRenderNativePreview } from "./shared/bounds.js";
 import { markCanvasDirty } from "./shared/canvas.js";
 import { isImageOpsClass } from "./shared/classes.js";
 import { noteFrame } from "./shared/fps-monitor.js";
@@ -677,18 +677,23 @@ export function registerImageOpsLivePreview(): void {
     return null;
   }
 
-  function getPreviewFrameIndex(node: ComfyNode, tick: number): number {
+  function getPreviewFrameIndex(node: ComfyNode, tick: number): { frameIndex: number; frameCount: number } {
     const frameIndex = Math.max(0, Math.round(tick || 0));
     const overlayFrameCount = isJoinNode(node)
       ? getJoinPreviewFrameCount(node)
       : getPreviewNodeFrameCount(getPrimaryOverlaySourceNode(node) ?? node);
-    return overlayFrameCount > 0 ? frameIndex % overlayFrameCount : frameIndex;
+    return {
+      frameIndex: overlayFrameCount > 0 ? frameIndex % overlayFrameCount : frameIndex,
+      frameCount: Math.max(1, overlayFrameCount),
+    };
   }
 
   function renderNode(node: ComfyNode, tick: number = 0): void {
     const st = ensurePreviewWidget(node, progress, canvasSize);
     if (!st) return;
-    st.previewFrameIndex = getPreviewFrameIndex(node, tick);
+    const frame = getPreviewFrameIndex(node, tick);
+    st.previewFrameIndex = frame.frameIndex;
+    st.previewFrameCount = frame.frameCount;
     const renderCanvasSize = getRenderCanvasSize(st);
     const renderKey = buildPreviewRenderKey(node, tick, st, renderCanvasSize);
 
@@ -846,6 +851,71 @@ export function registerImageOpsLivePreview(): void {
       return;
     }
 
+    if (isPreviewNode(node) && st.previewCompareMode !== "live") {
+      const compareMode = st.previewCompareMode;
+      const imageBIndex = getInputIndexByName(node, "image_b");
+      const imageBUpstream = imageBIndex >= 0 ? getUpstreamNode(node, imageBIndex) : null;
+
+      // With a B input connected, compare is a real A/B comparison between
+      // the two live-rendered sources instead of live-vs-last-queued-result.
+      if (imageBUpstream) {
+        Promise.all([
+          renderer.render(node, tick, null, renderCanvasSize),
+          renderer.render(imageBUpstream, tick, getInputOriginSlot(node, imageBIndex), renderCanvasSize),
+        ]).then(([resultA, resultB]) => {
+          if (!resultA?.canvas || !resultB?.canvas) {
+            setInfo(st, "Live preview: connect a supported loader/chain");
+            finishRender();
+            return;
+          }
+          const sourceWidth = resultB.canvas.width || resultA.canvas.width || 1;
+          const sourceHeight = resultB.canvas.height || resultA.canvas.height || 1;
+          if (compareMode === "backend") {
+            blit(node, st, resultB.canvas, renderCanvasSize, sourceWidth, sourceHeight);
+            setInfo(st, "Showing B input");
+          } else {
+            blitCompare(node, st, resultA.canvas, resultB.canvas, renderCanvasSize, compareMode, st.previewWipeFraction, sourceWidth, sourceHeight, {
+              solo: "B",
+              diff: "DIFF (A vs B)",
+              wipe: "A ← wipe → B",
+            });
+            setInfo(st, `Comparing A vs B (${compareMode})`);
+          }
+          commitRender();
+          finishRender();
+        }).catch(err => {
+          failRender("Compare preview error (check console)", err);
+        });
+        return;
+      }
+
+      // Compare only makes sense against per-frame stills (mode=images); a strip
+      // or animated export isn't indexable by our own playback tick.
+      const backendImg = widgetString(node, "mode", "images").toLowerCase() === "images"
+        ? getNativePreviewImageForTick(node, tick)
+        : null;
+      if (backendImg) {
+        renderer.render(node, tick, null, renderCanvasSize).then(result => {
+          if (!result?.canvas) {
+            setInfo(st, "Live preview: connect a supported loader/chain");
+            finishRender();
+            return;
+          }
+          const sourceWidth = backendImg.naturalWidth || result.canvas.width || 1;
+          const sourceHeight = backendImg.naturalHeight || result.canvas.height || 1;
+          blitCompare(node, st, result.canvas, backendImg, renderCanvasSize, compareMode, st.previewWipeFraction, sourceWidth, sourceHeight);
+          const frameCount = Array.isArray(node.imgs) ? node.imgs.length : 1;
+          const frameIndex = ((Math.max(0, Math.round(tick)) % frameCount) + frameCount) % frameCount;
+          setInfo(st, `Comparing frame ${frameIndex} (${compareMode}) — both sides are sRGB 8-bit display pixels, not raw HDR`);
+          commitRender();
+          finishRender();
+        }).catch(err => {
+          failRender("Compare preview error (check console)", err);
+        });
+        return;
+      }
+    }
+
     if (tryRenderNativePreview(node, st, renderCanvasSize)) {
       commitRender();
       finishRender();
@@ -883,7 +953,9 @@ export function registerImageOpsLivePreview(): void {
         }
       }
       blit(node, st, result.canvas, renderCanvasSize, sourceWidth, sourceHeight);
-      if (isCornerPinNode(node)) {
+      if (result.unsupported) {
+        setInfo(st, "No live preview for this node - showing its input; run the queue to see the real result");
+      } else if (isCornerPinNode(node)) {
         setInfo(st, getCornerPinInfoText(node, sourceWidth, sourceHeight));
       } else if (isTextNode(node)) {
         setInfo(st, getTextInfoText(node));

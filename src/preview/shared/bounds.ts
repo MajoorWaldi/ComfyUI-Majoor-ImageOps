@@ -6,7 +6,7 @@ import { getCropCanvasMetrics, getCropControlState, isNode as isCropNode } from 
 import { isNode as isDrawNode } from "../nodes/draw.js";
 import { isNode as isPadOutNode } from "../nodes/pad-out.js";
 import { isNode as isRampNode, rampControlPoints } from "../nodes/ramp.js";
-import { drawOutputFormatBox, getFitPlacement } from "./geometry.js";
+import { drawOutputBounds, getFitPlacement } from "./geometry.js";
 import { getNativePreviewImage, hideNativeMediaPreview, showNativeMediaPreview } from "./media.js";
 import { ensureState, setInfo } from "./state.js";
 import { widgetNumber } from "./widgets.js";
@@ -454,26 +454,85 @@ export function drawPadOutBounds(
   };
 }
 
-function drawFrameNumberOverlay(ctx: CanvasRenderingContext2D, canvasSize: number, frameIndex: number | null): void {
-  if (frameIndex == null || !Number.isFinite(frameIndex)) return;
-  const label = `f ${Math.max(0, Math.round(frameIndex)).toString().padStart(4, "0")}`;
+export type HudAnchor = "bottom-center" | "top-left" | "top-right";
+
+/**
+ * Shared pill-shaped HUD chip: rounded background, a small accent dot (colour
+ * carries meaning — e.g. blue for "frame position", amber for "output size"),
+ * and auto-sized monospace text. Every canvas-drawn overlay badge in this file
+ * renders through this one function so they share a single visual language.
+ */
+function drawHudPill(ctx: CanvasRenderingContext2D, canvasSize: number, anchor: HudAnchor, text: string, accent: string = "rgba(255,255,255,0.85)"): void {
   ctx.save();
   ctx.font = "11px ui-monospace, SFMono-Regular, Consolas, monospace";
-  ctx.textBaseline = "top";
-  const metrics = ctx.measureText(label);
-  const padX = 7;
-  const padY = 4;
-  const x = 8;
-  const w = Math.ceil(metrics.width + padX * 2);
+  ctx.textBaseline = "middle";
+  const metrics = ctx.measureText(text);
+  const padX = 10;
+  const dotRadius = 3;
+  const dotGap = 6;
   const h = 20;
-  const y = Math.max(8, canvasSize - h - 8);
-  ctx.fillStyle = "rgba(0,0,0,0.58)";
-  ctx.fillRect(x, y, w, h);
-  ctx.strokeStyle = "rgba(255,255,255,0.16)";
-  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-  ctx.fillStyle = "rgba(255,255,255,0.9)";
-  ctx.fillText(label, x + padX, y + padY);
+  const w = Math.ceil(metrics.width + padX * 2 + dotRadius * 2 + dotGap);
+
+  let x: number;
+  let y: number;
+  if (anchor === "bottom-center") {
+    x = Math.round((canvasSize - w) / 2);
+    y = canvasSize - h - 10;
+  } else if (anchor === "top-right") {
+    x = canvasSize - w - 8;
+    y = 8;
+  } else {
+    x = 8;
+    y = 8;
+  }
+
+  const r = h / 2;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(14,16,20,0.72)";
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(255,255,255,0.14)";
+  ctx.stroke();
+
+  const dotCx = x + padX;
+  const dotCy = y + h / 2;
+  ctx.beginPath();
+  ctx.arc(dotCx, dotCy, dotRadius, 0, Math.PI * 2);
+  ctx.fillStyle = accent;
+  ctx.fill();
+
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  ctx.fillText(text, dotCx + dotRadius + dotGap, dotCy + 0.5);
   ctx.restore();
+}
+
+const FRAME_HUD_ACCENT = "rgba(96,165,250,0.95)"; // blue: "where am I in the sequence"
+
+function drawFrameNumberOverlay(ctx: CanvasRenderingContext2D, canvasSize: number, frameIndex: number | null, frameCount: number): void {
+  if (frameIndex == null || !Number.isFinite(frameIndex)) return;
+  // A single still image has nothing to count — the chip would just be noise.
+  if (!Number.isFinite(frameCount) || frameCount <= 1) return;
+  const digits = String(frameCount).length;
+  // Display is 1-indexed ("3 / 24") to read like a normal frame counter; the
+  // internal frameIndex driving playback stays 0-indexed.
+  const current = (Math.max(0, Math.round(frameIndex)) + 1).toString().padStart(digits, "0");
+  const total = frameCount.toString().padStart(digits, "0");
+  drawHudPill(ctx, canvasSize, "bottom-center", `${current} / ${total}`, FRAME_HUD_ACCENT);
+}
+
+const OUTPUT_HUD_ACCENT = "rgba(251,191,36,0.95)"; // amber, matches the dashed output-bounds outline
+
+/** Real output pixel size, e.g. for PadOut where the output canvas extends past the source content. */
+function drawOutputSizePill(ctx: CanvasRenderingContext2D, canvasSize: number, outputWidth: number, outputHeight: number): void {
+  const w = Math.max(1, Math.round(outputWidth));
+  const h = Math.max(1, Math.round(outputHeight));
+  drawHudPill(ctx, canvasSize, "top-right", `${w} × ${h}`, OUTPUT_HUD_ACCENT);
 }
 
 export function blit(
@@ -618,10 +677,108 @@ export function blit(
   st.padOutGeometry = drawPadOutBounds(node, ctx, canvasSize, canvasSize, effOW, effOH, padOutSw, padOutSh);
   drawTransformBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
   drawCompBounds(node, ctx, canvasSize, canvasSize, st.compOutputWidth || resolvedWidth, st.compOutputHeight || resolvedHeight, st.compLayers);
-  drawOutputFormatBox(ctx, padOutFit ?? fit);
+  // Only PadOut's output canvas differs from the plain source fit (it extends
+  // past the source with padding) — everywhere else this would just retrace
+  // the image's own edge, so it stays hidden for every other node.
+  if (padOutFit) {
+    drawOutputBounds(ctx, padOutFit);
+    drawOutputSizePill(ctx, canvasSize, effOW, effOH);
+  }
 
   if (hasTransform) ctx.restore();
-  drawFrameNumberOverlay(ctx, canvasSize, st.previewFrameIndex);
+  drawFrameNumberOverlay(ctx, canvasSize, st.previewFrameIndex, st.previewFrameCount);
+}
+
+const COMPARE_HUD_ACCENT = "rgba(244,114,182,0.95)"; // pink: "this is a compare overlay, not the plain result"
+
+function drawTopLeftBadge(ctx: CanvasRenderingContext2D, canvasSize: number, label: string): void {
+  drawHudPill(ctx, canvasSize, "top-left", label, COMPARE_HUD_ACCENT);
+}
+
+export type CompareLabels = {
+  solo: string;
+  diff: string;
+  wipe: string;
+};
+
+const BACKEND_COMPARE_LABELS: CompareLabels = {
+  solo: "BACKEND",
+  diff: "DIFF (live vs backend)",
+  wipe: "LIVE ← wipe → BACKEND",
+};
+
+/**
+ * ImageOpsPreview compare modes: blit the interactive Canvas2D proxy against
+ * a second source at the same frame — either the last real queued (backend)
+ * result of the same input, or a live-rendered "B" input for a true A/B
+ * comparison. "backend" shows the second source alone; "wipe" splits the two
+ * at wipeFraction with a draggable divider; "diff" uses canvas difference
+ * compositing (abs(a-b) per channel) to highlight where they disagree. Both
+ * sources are already sRGB 8-bit by the time they reach the canvas, so this
+ * compares final display pixels, not the scene-linear/HDR values upstream of
+ * that.
+ */
+export function blitCompare(
+  node: ComfyNode,
+  st: NodeState,
+  liveSource: CanvasImageSource,
+  otherSource: CanvasImageSource,
+  canvasSize: number,
+  mode: "backend" | "wipe" | "diff",
+  wipeFraction: number,
+  sourceWidth: number,
+  sourceHeight: number,
+  labels: CompareLabels = BACKEND_COMPARE_LABELS,
+): void {
+  if (!st.canvas) return;
+  hideNativeMediaPreview(st);
+  const ctx = st.canvas.getContext("2d");
+  if (!ctx) return;
+  if (st.canvas.width !== canvasSize) st.canvas.width = canvasSize;
+  if (st.canvas.height !== canvasSize) st.canvas.height = canvasSize;
+  st.previewSourceWidth = sourceWidth;
+  st.previewSourceHeight = sourceHeight;
+  st.previewLastSource = liveSource;
+
+  const fit = getFitPlacement(canvasSize, canvasSize, sourceWidth, sourceHeight);
+  st.fitGeometry = fit;
+  ctx.clearRect(0, 0, canvasSize, canvasSize);
+  ctx.imageSmoothingEnabled = true;
+
+  if (mode === "backend") {
+    ctx.drawImage(otherSource, fit.dx, fit.dy, fit.drawWidth, fit.drawHeight);
+    drawTopLeftBadge(ctx, canvasSize, labels.solo);
+  } else if (mode === "diff") {
+    ctx.drawImage(otherSource, fit.dx, fit.dy, fit.drawWidth, fit.drawHeight);
+    ctx.save();
+    ctx.globalCompositeOperation = "difference";
+    ctx.drawImage(liveSource, fit.dx, fit.dy, fit.drawWidth, fit.drawHeight);
+    ctx.restore();
+    drawTopLeftBadge(ctx, canvasSize, labels.diff);
+  } else {
+    const fraction = Math.max(0, Math.min(1, wipeFraction));
+    const splitX = fit.dx + fit.drawWidth * fraction;
+    ctx.drawImage(liveSource, fit.dx, fit.dy, fit.drawWidth, fit.drawHeight);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(splitX, fit.dy, fit.dx + fit.drawWidth - splitX, fit.drawHeight);
+    ctx.clip();
+    ctx.drawImage(otherSource, fit.dx, fit.dy, fit.drawWidth, fit.drawHeight);
+    ctx.restore();
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(splitX, fit.dy);
+    ctx.lineTo(splitX, fit.dy + fit.drawHeight);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.beginPath();
+    ctx.arc(splitX, fit.dy + fit.drawHeight / 2, 5, 0, Math.PI * 2);
+    ctx.fill();
+    drawTopLeftBadge(ctx, canvasSize, labels.wipe);
+  }
+
+  drawFrameNumberOverlay(ctx, canvasSize, st.previewFrameIndex, st.previewFrameCount);
 }
 
 export function tryRenderNativePreview(node: ComfyNode, st: NodeState, canvasSize: number): boolean {

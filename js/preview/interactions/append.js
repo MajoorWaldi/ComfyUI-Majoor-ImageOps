@@ -19,7 +19,7 @@ function selectionCount(start, end, frameCount) {
   const max = Math.max(0, frameCount - 1);
   const s = Math.max(0, Math.min(max, Math.round(start)));
   const e = end < 0 ? max : Math.max(0, Math.min(max, Math.round(end)));
-  return Math.max(1, Math.abs(e - s) + 1);
+  return e < s ? 0 : e - s + 1;
 }
 function syncFill(fill, start, end, max) {
   const lo = Math.max(0, Math.min(max, Math.min(start, end)));
@@ -239,13 +239,8 @@ function buildJoinTrimRow(node, ctx, st, slot, index) {
         existing = { slot: rowState.slot, start: 0, end: -1 };
         next.push(existing);
       }
-      let startVal = Math.max(0, Math.min(rowState.maxFrame, Math.round(Number(rowState.startNumber.value || 0))));
-      let endVal = Math.max(0, Math.min(rowState.maxFrame, Math.round(Number(rowState.endNumber.value || rowState.maxFrame))));
-      if (endVal < startVal) {
-        const tmp = startVal;
-        startVal = endVal;
-        endVal = tmp;
-      }
+      const startVal = Math.max(0, Math.min(rowState.maxFrame, Math.round(Number(rowState.startNumber.value || 0))));
+      const endVal = Math.max(startVal, Math.min(rowState.maxFrame, Math.round(Number(rowState.endNumber.value || rowState.maxFrame))));
       existing.start = startVal;
       existing.end = rowState.endIsAuto && endVal >= rowState.maxFrame ? -1 : endVal;
       rowState.startNumber.value = String(startVal);

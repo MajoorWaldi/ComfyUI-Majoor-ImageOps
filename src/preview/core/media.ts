@@ -14,6 +14,20 @@ export function getNativePreviewImage(node: ComfyNode): HTMLImageElement | null 
   return candidate instanceof HTMLImageElement ? candidate : null;
 }
 
+/**
+ * Like getNativePreviewImage, but indexes by our own playback tick instead of
+ * ComfyUI's node.imageIndex (the dot-navigation index), so the Live/Backend
+ * compare feature in ImageOpsPreview shows the backend frame that matches
+ * what the live proxy is currently playing.
+ */
+export function getNativePreviewImageForTick(node: ComfyNode, tick: number): HTMLImageElement | null {
+  const imgs = node.imgs;
+  if (!Array.isArray(imgs) || imgs.length === 0) return null;
+  const index = ((Math.max(0, Math.round(tick)) % imgs.length) + imgs.length) % imgs.length;
+  const candidate = imgs[index] ?? imgs[imgs.length - 1] ?? null;
+  return candidate instanceof HTMLImageElement ? candidate : null;
+}
+
 export function parsePreviewSourceUrl(src: string): URL | null {
   try {
     return new URL(src, window.location.href);

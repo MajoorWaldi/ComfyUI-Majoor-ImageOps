@@ -114,6 +114,26 @@ const IMAGEOPS_NODE_METADATA = [
     "className": "ImageOpsText",
     "ui": "custom",
     "minPreviewHeight": 470
+  },
+  {
+    "className": "ImageOpsVignette",
+    "ui": "native"
+  },
+  {
+    "className": "ImageOpsChromaticAberration",
+    "ui": "native"
+  },
+  {
+    "className": "ImageOpsBloom",
+    "ui": "native"
+  },
+  {
+    "className": "ImageOpsLensArtifacts",
+    "ui": "native"
+  },
+  {
+    "className": "ImageOpsDefocus",
+    "ui": "native"
   }
 ];
 const IMAGEOPS_DEFAULT_PREVIEW_MIN_HEIGHT = 320;

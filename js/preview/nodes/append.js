@@ -151,8 +151,7 @@ function trimSelectionCount(frameCount, start, end) {
   const max = Math.max(0, Math.round(frameCount) - 1);
   const actualStart = Math.max(0, Math.min(max, Math.round(start)));
   const actualEnd = end < 0 ? max : Math.max(0, Math.min(max, Math.round(end)));
-  const [lo, hi] = actualStart <= actualEnd ? [actualStart, actualEnd] : [actualEnd, actualStart];
-  return Math.max(1, hi - lo + 1);
+  return actualEnd < actualStart ? 0 : actualEnd - actualStart + 1;
 }
 function trimsBySlot(node) {
   return new Map(readJoinTrims(node).map((trim) => [trim.slot, trim]));

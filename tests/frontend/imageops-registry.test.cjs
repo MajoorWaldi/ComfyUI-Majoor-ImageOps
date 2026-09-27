@@ -9,7 +9,7 @@ test("all manifest nodes are enabled for frontend previews", async () => {
   const classes = await import("../../js/preview/shared/classes.js");
 
   const expected = manifest.nodes.map((node) => node.className);
-  assert.equal(expected.length, 26, "the canonical manifest must contain all 26 ImageOps nodes");
+  assert.equal(expected.length, 31, "the canonical manifest must contain all 31 ImageOps nodes");
   assert.deepEqual([...classes.IMAGEOPS_CLASSES], expected);
 
   const custom = manifest.nodes.filter((node) => node.ui === "custom").map((node) => node.className);

@@ -4,21 +4,11 @@ import torch
 from ._helpers import _coerce_media_to_tensor, _scalar
 from ._preview import build_node_preview_result
 from ._progress import start_progress
+from .core.timeline import trim_indices as _timeline_indices
 from .core.video_io import extract_video_media, media_to_video
 
 def _clamp_int(value, low: int, high: int) -> int:
     return max(low, min(high, int(value)))
-
-def _timeline_indices(source_count: int, trim_start: int, trim_end: int) -> list[int]:
-    """Frame indices for [trim_start, trim_end]. An inverted range (trim_end < trim_start)
-    selects zero frames rather than silently swapping the bounds."""
-    if source_count <= 0:
-        return []
-    start = _clamp_int(trim_start, 0, source_count - 1)
-    end = source_count - 1 if trim_end < 0 else _clamp_int(trim_end, 0, source_count - 1)
-    if end < start:
-        return []
-    return list(range(start, end + 1))
 
 def _repeat_count(repeat: bool, repeat_mode: str, custom_frame_count: int, source_count: int) -> int:
     if not repeat:
@@ -108,32 +98,28 @@ class ImageOpsFrameRange(io.ComfyNode):
             progress.finish()
             video_out = media_to_video(tensor, media_obj.fps if is_media else 24.0, media_obj.audio if is_media else None, getattr(media_obj, 'sample_rate', 44100) if is_media else 44100)
             return build_node_preview_result(image, (image, source_count, video_out), metadata={'imageops_frame_range_source_count': [source_count]})
-        indices = _timeline_indices(source_count, _scalar(trim_start, int), _scalar(trim_end, int))
+        indices = _timeline_indices(source_count, _scalar(trim_start, int), _scalar(trim_end, int), label='ImageOps Frame Range')
         repeat_mode_text = str(repeat_mode or 'loop').strip().lower()
         repeat_uses_hold = repeat_mode_text in {'input_duration', 'custom_count', 'freeze'}
         apply_hold = _scalar(frame_hold, bool) and (not _scalar(repeat, bool) or repeat_uses_hold) or (_scalar(repeat, bool) and repeat_mode_text == 'freeze')
-        if apply_hold and indices:
+        if apply_hold:
             hold_min = indices[0]
             hold_max = indices[-1]
             base_index = _clamp_int(_scalar(hold_frame, int), hold_min, hold_max)
             indices = [base_index]
         repeat_enabled = _scalar(repeat, bool)
-        if repeat_enabled and indices:
+        if repeat_enabled:
             output_count = _repeat_count(True, str(repeat_mode or 'loop'), _scalar(custom_frame_count, int), source_count)
             indices = _repeat_indices(indices, output_count, str(repeat_mode or 'loop'))
-        if not indices:
-            out_tensor = tensor[:1].clone()
-            out_audio = media_obj.audio if media_obj and media_obj.audio is not None else None
+        from .core.memory import check_budget
+        check_budget(len(indices), int(tensor.shape[1]), int(tensor.shape[2]), int(tensor.shape[3]), multiplier=2.0, label='ImageOps Frame Range')
+        idx_tensor = torch.tensor(indices, device=tensor.device, dtype=torch.long)
+        out_tensor = tensor[idx_tensor]
+        if media_obj and media_obj.audio is not None and media_obj.fps > 0:
+            sample_rate = getattr(media_obj, 'sample_rate', 44100)
+            out_audio = _slice_audio_for_indices(media_obj.audio, indices, media_obj.fps, sample_rate)
         else:
-            from .core.memory import check_budget
-            check_budget(len(indices), int(tensor.shape[1]), int(tensor.shape[2]), int(tensor.shape[3]), multiplier=2.0, label='ImageOps Frame Range')
-            idx_tensor = torch.tensor(indices, device=tensor.device, dtype=torch.long)
-            out_tensor = tensor[idx_tensor]
-            if media_obj and media_obj.audio is not None and media_obj.fps > 0:
-                sample_rate = getattr(media_obj, 'sample_rate', 44100)
-                out_audio = _slice_audio_for_indices(media_obj.audio, indices, media_obj.fps, sample_rate)
-            else:
-                out_audio = None
+            out_audio = None
         if is_media:
             out = ImageOpsMedia(frames=out_tensor, fps=media_obj.fps, audio=out_audio, metadata=dict(media_obj.metadata))
             video_out = media_to_video(out_tensor, media_obj.fps, out_audio, getattr(media_obj, 'sample_rate', 44100))

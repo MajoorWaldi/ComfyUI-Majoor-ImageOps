@@ -25,6 +25,11 @@ from .keyer import ImageOpsKeyer
 from .text import ImageOpsText
 from .frame_range import ImageOpsFrameRange
 from .append import ImageOpsAppend
+from .vignette import ImageOpsVignette
+from .chromatic_aberration import ImageOpsChromaticAberration
+from .bloom import ImageOpsBloom
+from .lens_artifacts import ImageOpsLensArtifacts
+from .defocus import ImageOpsDefocus
 
 __all__ = [
     "ImageOpsBlur",
@@ -53,4 +58,9 @@ __all__ = [
     "ImageOpsText",
     "ImageOpsFrameRange",
     "ImageOpsAppend",
+    "ImageOpsVignette",
+    "ImageOpsChromaticAberration",
+    "ImageOpsBloom",
+    "ImageOpsLensArtifacts",
+    "ImageOpsDefocus",
 ]

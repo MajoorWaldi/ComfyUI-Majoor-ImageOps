@@ -95,10 +95,46 @@ async function seekFrozenVideoFrame(videoEl, targetTime, tolerance) {
     }
   });
 }
+const HANDLED_CLASSES = /* @__PURE__ */ new Set([
+  "ImageOpsMaskConvert",
+  "ImageOpsDraw",
+  "ImageOpsColorAjust",
+  "ImageOpsCameraShake",
+  "ImageOpsChannel",
+  "ImageOpsCrop",
+  "ImageOpsCropStitch",
+  "ImageOpsPadOut",
+  "ImageOpsCornerPin",
+  "ImageOpsBlur",
+  "ImageOpsTransform",
+  "ImageOpsInvert",
+  "ImageOpsClamp",
+  "ImageOpsGrain",
+  "ImageOpsText",
+  "ImageOpsKeyer",
+  "ImageOpsMerge",
+  "ImageOpsAppend",
+  "ImageOpsComp",
+  "ImageOpsDistort",
+  "ImageOpsSpherize",
+  "ImageOpsNoise",
+  "ImageOpsConstant",
+  "ImageOpsRamp",
+  "ImageOpsFrameRange",
+  "ImageOpsPreview",
+  "ImageOpsVignette",
+  "ImageOpsChromaticAberration",
+  "ImageOpsBloom",
+  "ImageOpsLensArtifacts",
+  "ImageOpsDefocus"
+]);
 function imageOpsAdapter() {
   return {
     match(node) {
       return isImageOpsClass(node?.comfyClass);
+    },
+    previewSupport(node) {
+      return HANDLED_CLASSES.has(resolveImageOpsClassName(node?.comfyClass)) ? "approximate" : "unsupported";
     },
     inputs: (node) => {
       const cls = resolveImageOpsClassName(node?.comfyClass);
@@ -118,6 +154,15 @@ function imageOpsAdapter() {
         return 1 + Number(displacementConnected) + Number(effectMaskConnected);
       }
       if (cls === "ImageOpsMerge") return bypass ? 1 : maskConnected ? 3 : 2;
+      if (cls === "ImageOpsLensArtifacts") {
+        const dirtConnected = connectedInput(node, "dirt");
+        return 1 + Number(dirtConnected) + Number(maskConnected);
+      }
+      if (cls === "ImageOpsDefocus") {
+        const depthConnected = connectedInput(node, "depth");
+        const shapeConnected = connectedInput(node, "shape_texture");
+        return 1 + Number(depthConnected) + Number(shapeConnected) + Number(maskConnected);
+      }
       if (cls === "ImageOpsCropStitch") {
         const cropMaskConnected = (node.inputs ?? []).some((input) => String(input?.name ?? "").toLowerCase() === "crop_mask" && (input?.link ?? null) != null);
         return 2 + Number(cropMaskConnected);
@@ -127,8 +172,9 @@ function imageOpsAdapter() {
       if (cls === "ImageOpsDraw") return (node.inputs?.[0]?.link ?? null) != null ? 1 : 0;
       if (cls === "ImageOpsPreview") {
         const imageConnected = connectedInput(node, "image");
+        const imageBConnected = connectedInput(node, "image_b");
         const maskConnected2 = connectedInput(node, "mask");
-        return Number(imageConnected) + Number(maskConnected2);
+        return Number(imageConnected) + Number(imageBConnected) + Number(maskConnected2);
       }
       return maskConnected ? 2 : 1;
     },
@@ -144,8 +190,14 @@ function imageOpsAdapter() {
       if (cls === "ImageOpsDistort") {
         return namedInputIndexes(node, ["image", "displacement", "mask"]);
       }
+      if (cls === "ImageOpsLensArtifacts") {
+        return namedInputIndexes(node, ["image", "dirt", "mask"]);
+      }
+      if (cls === "ImageOpsDefocus") {
+        return namedInputIndexes(node, ["image", "depth", "shape_texture", "mask"]);
+      }
       if (cls === "ImageOpsPreview") {
-        return namedInputIndexes(node, ["image", "mask"]);
+        return namedInputIndexes(node, ["image", "image_b", "mask"]);
       }
       if (cls === "ImageOpsCropStitch") {
         const indexes = namedInputIndexes(node, ["original", "crop"]);
@@ -211,6 +263,16 @@ function imageOpsAdapter() {
         return ops.keyer(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsMerge") {
         return ops.merge(ctx, canvasSize, node, inputs, void 0, tick ?? 0);
+      } else if (cls === "ImageOpsVignette") {
+        return ops.vignette(ctx, canvasSize, node, inputs, tick ?? 0);
+      } else if (cls === "ImageOpsChromaticAberration") {
+        return ops.chromaticAberration(ctx, canvasSize, node, inputs, tick ?? 0);
+      } else if (cls === "ImageOpsBloom") {
+        return ops.bloom(ctx, canvasSize, node, inputs, tick ?? 0);
+      } else if (cls === "ImageOpsLensArtifacts") {
+        return ops.lensArtifacts(ctx, canvasSize, node, inputs, tick ?? 0);
+      } else if (cls === "ImageOpsDefocus") {
+        return ops.defocus(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsAppend") {
         if (inputs.length === 0) return void 0;
         const infos = inputInfos ?? inputs.map((canvas, index) => ({ canvas, inputIndex: index, originSlot: null, upstreamNode: null }));
@@ -317,11 +379,15 @@ function imageOpsAdapter() {
         return inputs[0];
       } else if (cls === "ImageOpsPreview") {
         const previewTarget = String((node?.widgets ?? []).find((widget) => widget?.name === "preview_target")?.value ?? "auto").toLowerCase();
-        if (outputSlot === 1) return inputs[1] ?? inputs[0];
-        if (outputSlot === 0) return inputs[0] ?? inputs[1];
-        if (previewTarget === "mask") return inputs[1] ?? inputs[0];
-        if (previewTarget === "image") return inputs[0] ?? inputs[1];
-        return inputs[0] ?? inputs[1];
+        const imageBConnected = (node.inputs?.[1]?.link ?? null) != null;
+        const maskConnected = (node.inputs?.[2]?.link ?? null) != null;
+        const maskCursor = 1 + Number(imageBConnected);
+        const mask = maskConnected ? inputs[maskCursor] ?? null : null;
+        if (outputSlot === 1) return mask ?? inputs[0];
+        if (outputSlot === 0) return inputs[0] ?? mask;
+        if (previewTarget === "mask") return mask ?? inputs[0];
+        if (previewTarget === "image") return inputs[0] ?? mask;
+        return inputs[0] ?? mask;
       } else {
       }
     }

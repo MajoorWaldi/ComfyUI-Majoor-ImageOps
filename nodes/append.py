@@ -7,8 +7,10 @@ import torch
 from ._helpers import _resize, _select_media_tensor
 from ._preview import build_node_preview_result
 from ._progress import start_progress
+from .core.timeline import trim_indices
 from .core.video_io import extract_video_media, media_to_video
 _JOIN_FIT_MODES = ['strict', 'resize_to_first', 'pad_to_max']
+_FPS_RELATIVE_TOLERANCE = 0.001
 
 def _sorted_clip_inputs(inputs: dict[str, Any]) -> list[tuple[int, Any]]:
     clips: list[tuple[int, Any]] = []
@@ -57,15 +59,8 @@ def _parse_trims(trims_json: str | dict | list | None) -> dict[int, tuple[int, i
         trims[int(match.group(1))] = (start, end)
     return trims
 
-def _trim_clip(source: torch.Tensor, start: int, end: int) -> torch.Tensor:
-    count = int(source.shape[0])
-    if count <= 0:
-        return source
-    actual_start = max(0, min(int(start), count - 1))
-    actual_end = count - 1 if int(end) < 0 else max(0, min(int(end), count - 1))
-    if actual_end < actual_start:
-        actual_start, actual_end = (actual_end, actual_start)
-    return source[actual_start:actual_end + 1]
+def _fps_matches(a: float, b: float) -> bool:
+    return abs(a - b) <= max(a, b) * _FPS_RELATIVE_TOLERANCE
 
 def _coerce_channels(tensor: torch.Tensor, target_channels: int) -> torch.Tensor:
     batch, h, w, channels = tensor.shape
@@ -91,21 +86,21 @@ def _coerce_channels(tensor: torch.Tensor, target_channels: int) -> torch.Tensor
         return torch.cat([tensor, padding], dim=-1)
     return tensor[..., :target_channels]
 
-def _pad_to_size(source: torch.Tensor, target_w: int, target_h: int) -> torch.Tensor:
+def _pad_to_size(source: torch.Tensor, target_w: int, target_h: int, pad_alpha: str = 'opaque') -> torch.Tensor:
     batch, source_h, source_w, channels = source.shape
     if source_w == target_w and source_h == target_h:
         return source
     from .core.memory import check_budget
     check_budget(batch, target_h, target_w, channels, label='ImageOps Append (Pad to Size)')
     out = torch.zeros((batch, target_h, target_w, channels), device=source.device, dtype=source.dtype)
-    if channels >= 4:
+    if channels >= 4 and str(pad_alpha or 'opaque').strip().lower() != 'transparent':
         out[..., 3] = 1.0
     left = max(0, (target_w - source_w) // 2)
     top = max(0, (target_h - source_h) // 2)
     out[:, top:top + source_h, left:left + source_w, :] = source
     return out
 
-def _align_pair(image_a: torch.Tensor, image_b: torch.Tensor, fit_mode: str) -> tuple[torch.Tensor, torch.Tensor]:
+def _align_pair(image_a: torch.Tensor, image_b: torch.Tensor, fit_mode: str, pad_alpha: str = 'opaque') -> tuple[torch.Tensor, torch.Tensor]:
     a_h, a_w = (int(image_a.shape[1]), int(image_a.shape[2]))
     b_h, b_w = (int(image_b.shape[1]), int(image_b.shape[2]))
     if a_w == b_w and a_h == b_h:
@@ -116,17 +111,17 @@ def _align_pair(image_a: torch.Tensor, image_b: torch.Tensor, fit_mode: str) -> 
     if mode == 'pad_to_max':
         target_w = max(a_w, b_w)
         target_h = max(a_h, b_h)
-        return (_pad_to_size(image_a, target_w, target_h), _pad_to_size(image_b, target_w, target_h))
+        return (_pad_to_size(image_a, target_w, target_h, pad_alpha), _pad_to_size(image_b, target_w, target_h, pad_alpha))
     raise ValueError(f'ImageOps Append requires matching dimensions in strict mode. image_a is {a_w}x{a_h}, image_b is {b_w}x{b_h}. Use resize_to_first or pad_to_max to align them.')
 
 class ImageOpsAppend(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsAppend', display_name='〽️ Image Ops Append', category='image/imageops', search_aliases=['append', 'join', 'concat', 'concatenate', 'clips', 'sequence'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('fit_mode', options=['strict', 'resize_to_first', 'pad_to_max'], default='strict', tooltip='How to align two clips before concatenating their frame batches.'), io.String.Input('trims_json', default='{"version":1,"clips":[]}', multiline=False, tooltip='Managed by the Append preview controls.'), io.MultiType.Input('image_1', types=[io.Image, io.Video], display_name='Images/Video 1', optional=True, extra_dict={'forceInput': True}), io.MultiType.Input('image_2', types=[io.Image, io.Video], display_name='Images/Video 2', optional=True, extra_dict={'forceInput': True})], outputs=[io.Image.Output('image', display_name='image'), io.Int.Output('frame_count', display_name='frame_count'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Video.Output('video', display_name='video', tooltip='Native VIDEO output. Carries the real audio/fps from the first connected VIDEO clip (not a plain IMAGE batch), if any.')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsAppend', display_name='〽️ Image Ops Append', category='image/imageops', search_aliases=['append', 'join', 'concat', 'concatenate', 'clips', 'sequence'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('fit_mode', options=['strict', 'resize_to_first', 'pad_to_max'], default='strict', tooltip='How to align two clips before concatenating their frame batches.'), io.String.Input('trims_json', default='{"version":1,"clips":[]}', multiline=False, tooltip='Managed by the Append preview controls.'), io.MultiType.Input('image_1', types=[io.Image, io.Video], display_name='Images/Video 1', optional=True, extra_dict={'forceInput': True}), io.MultiType.Input('image_2', types=[io.Image, io.Video], display_name='Images/Video 2', optional=True, extra_dict={'forceInput': True}), io.Float.Input('image_fps', default=24.0, min=1.0, max=1000.0, step=0.001, optional=True, tooltip='Frame rate assumed for plain IMAGE clips (no VIDEO fps of their own) when checking that all clips share a frame rate.'), io.Combo.Input('pad_alpha', options=['opaque', 'transparent'], default='opaque', optional=True, tooltip='Alpha of the padding added by fit_mode=pad_to_max. opaque matches this node\'s historical behavior; transparent leaves the added margins see-through for compositing.')], outputs=[io.Image.Output('image', display_name='image'), io.Int.Output('frame_count', display_name='frame_count'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Video.Output('video', display_name='video', tooltip='Native VIDEO output. Carries the real audio/fps from the first connected VIDEO clip (not a plain IMAGE batch), if any.')], hidden=[io.Hidden.unique_id])
 
     @classmethod
-    def execute(cls, bypass=False, fit_mode='strict', trims_json='{"version":1,"clips":[]}', unique_id=None, **inputs):
+    def execute(cls, bypass=False, fit_mode='strict', trims_json='{"version":1,"clips":[]}', image_fps=24.0, pad_alpha='opaque', unique_id=None, **inputs):
         from .core.media import ImageOpsMedia
         progress = start_progress(unique_id=unique_id)
         clips = _sorted_clip_inputs(inputs)
@@ -141,9 +136,10 @@ class ImageOpsAppend(io.ComfyNode):
         fps = 24.0
         sample_rate = 44100
         audio_list = []
-        
-        from .frame_range import _slice_audio_for_indices, _timeline_indices
-        
+        effective_fps: list[tuple[int, float]] = []
+
+        from .frame_range import _slice_audio_for_indices
+
         for clip_index, value in clips:
             video_media = extract_video_media(value)
             if isinstance(value, ImageOpsMedia):
@@ -154,13 +150,15 @@ class ImageOpsAppend(io.ComfyNode):
                 _, clip_fps, clip_audio, clip_sample_rate = video_media
             else:
                 is_media = False
-                clip_audio, clip_fps, clip_sample_rate = None, 24.0, 44100
+                clip_audio, clip_fps, clip_sample_rate = None, float(image_fps), 44100
             tensor = _select_media_tensor(value, None).float()
             start, end = trims.get(clip_index, (0, -1))
 
             source_count = int(tensor.shape[0])
-            trimmed = _trim_clip(tensor, start, end)
+            indices = trim_indices(source_count, start, end, label=f'ImageOps Append (clip slot {clip_index})')
+            trimmed = tensor[indices]
             tensors.append(trimmed)
+            effective_fps.append((clip_index, clip_fps if is_media else float(image_fps)))
 
             if is_media:
                 if not has_media:
@@ -169,15 +167,28 @@ class ImageOpsAppend(io.ComfyNode):
                 has_media = True
 
                 if clip_audio is not None and clip_fps > 0:
-                    indices = _timeline_indices(source_count, start, end)
                     trimmed_audio = _slice_audio_for_indices(clip_audio, indices, clip_fps, clip_sample_rate)
                     audio_list.append(trimmed_audio)
                 else:
                     audio_list.append(None)
             else:
                 audio_list.append(None)
-            
+
             clip_metadata.append({'slot': int(clip_index), 'source_count': source_count, 'trimmed_count': int(trimmed.shape[0]), 'start': int(start), 'end': int(end), 'sample_rate': int(clip_sample_rate)})
+        if len(effective_fps) > 1:
+            ref_slot, ref_fps = effective_fps[0]
+            mismatched_fps = [
+                (slot, clip_fps, next(m['trimmed_count'] for m in clip_metadata if m['slot'] == slot) / clip_fps)
+                for slot, clip_fps in effective_fps[1:]
+                if not _fps_matches(clip_fps, ref_fps)
+            ]
+            if mismatched_fps:
+                details = ', '.join(f'slot {slot}: {clip_fps:.3f} fps ({duration:.2f}s)' for slot, clip_fps, duration in mismatched_fps)
+                raise ValueError(
+                    f'ImageOps Append requires matching frame rates. Output fps is {ref_fps:.3f} '
+                    f'(from clip slot {ref_slot}); {details} do not match. Use clips with a matching '
+                    f'frame rate, or set image_fps to declare the rate of plain IMAGE clips.'
+                )
         max_channels = max((int(t.shape[3]) for t in tensors))
         tensors = [_coerce_channels(t, max_channels) for t in tensors]
         if len(tensors) == 1:
@@ -185,9 +196,9 @@ class ImageOpsAppend(io.ComfyNode):
         else:
             aligned = [tensors[0]]
             for tensor in tensors[1:]:
-                first, current = _align_pair(aligned[0], tensor, fit_mode)
+                first, current = _align_pair(aligned[0], tensor, fit_mode, pad_alpha)
                 if first is not aligned[0]:
-                    aligned = [first] + [_align_pair(first, item, fit_mode)[1] for item in aligned[1:]]
+                    aligned = [first] + [_align_pair(first, item, fit_mode, pad_alpha)[1] for item in aligned[1:]]
                 aligned.append(current)
             out_tensor = torch.cat(aligned, dim=0)
         if has_media:

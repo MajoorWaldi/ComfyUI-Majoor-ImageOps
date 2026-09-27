@@ -71,7 +71,9 @@ function buildRenderer({ api, registry, canvasSize }) {
   async function render(node, tick = 0, outputSlot = null, canvasSizeOverride) {
     const ctx = { api, canvasSize: canvasSizeOverride ?? canvasSize, tick, cache: /* @__PURE__ */ new Map(), visited: /* @__PURE__ */ new Set() };
     const canvas = await renderNode(node, ctx, outputSlot);
-    return { canvas };
+    const adapter = registry.pick(node);
+    const unsupported = isImageOpsClass(node?.comfyClass) && (!adapter || adapter.previewSupport?.(node) === "unsupported");
+    return { canvas, unsupported };
   }
   async function renderNode(node, ctx, outputSlot) {
     if (!node) return null;

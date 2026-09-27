@@ -277,6 +277,7 @@ def _apply_color_adjust(
     highlights_vibrance: ScalarOrList = 0.0,
     highlights_gamma: ScalarOrList = 1.0,
     highlights_brightness: ScalarOrList = 0.0,
+    input_space: str = "srgb",
 ) -> torch.Tensor:
     """Pure PyTorch color adjustment in linear RGB; alpha/extra channels pass through."""
     if image is None:
@@ -311,7 +312,8 @@ def _apply_color_adjust(
     # is non-zero the corresponding param tensor becomes per-pixel. When all
     # zone sliders are zero, eff(P) collapses back to a [B,1,1,1] scalar and
     # the code path is identical to the previous global-only version.
-    rgb_src_linear = _srgb_to_linear(x[..., :3])
+    is_linear_input = str(input_space or "srgb").strip().lower() in ("linear", "lin")
+    rgb_src_linear = x[..., :3] if is_linear_input else _srgb_to_linear(x[..., :3])
     luma_src = _linear_luma(rgb_src_linear)
     shadow_mask = ((0.5 - luma_src) / 0.5).clamp(0.0, 1.0)
     shadow_mask = shadow_mask * shadow_mask
@@ -396,7 +398,7 @@ def _apply_color_adjust(
     if has_gamma:
         # Prevent pow() crash on negative values
         rgb = rgb.clamp(min=0.0).pow(1.0 / gamma_t)
-    rgb = _linear_to_srgb(rgb)
+    rgb = rgb if is_linear_input else _linear_to_srgb(rgb)
 
     if extra is not None:
         extra = extra.clamp(0.0, 1.0)
@@ -603,22 +605,60 @@ def _disk_kernel2d(radius: int) -> torch.Tensor:
     return k / k.sum().clamp(min=EPSILON)
 
 
+def _apply_kernel_blur(image: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
+    """Depthwise conv2d with an arbitrary normalized 2D kernel (disk/polygon/custom bokeh shapes)."""
+    if image.shape[1] == 0 or image.shape[2] == 0:
+        return image
+    x = image.permute(0, 3, 1, 2).contiguous()
+    _, C, H, W = x.shape
+    kh, kw = kernel.shape
+    pad_h, pad_w = kh // 2, kw // 2
+    pad_mode = "reflect" if min(H, W) > max(pad_h, pad_w) else "replicate"
+    x_padded = torch.nn.functional.pad(x, (pad_w, pad_w, pad_h, pad_h), mode=pad_mode)
+    k2d = kernel.to(device=x.device, dtype=x.dtype).unsqueeze(0).unsqueeze(0).repeat(C, 1, 1, 1)
+    result = torch.nn.functional.conv2d(x_padded, k2d, groups=C)
+    return result.permute(0, 2, 3, 1).contiguous()
+
+
 def _apply_defocus_blur(image: torch.Tensor, radius: int) -> torch.Tensor:
     """Disk / bokeh blur simulating an out-of-focus lens aperture."""
     r = int(max(0, radius))
     if r <= 0:
         return image
-    if image.shape[1] == 0 or image.shape[2] == 0:
-        return image
-    x = image.permute(0, 3, 1, 2).contiguous()
-    _, C, H, W = x.shape
-    k = _disk_kernel2d(r).to(device=x.device, dtype=x.dtype)
-    pad = r
-    pad_mode = "reflect" if min(H, W) > pad else "replicate"
-    x_padded = torch.nn.functional.pad(x, (pad, pad, pad, pad), mode=pad_mode)
-    k2d = k.unsqueeze(0).unsqueeze(0).repeat(C, 1, 1, 1)
-    result = torch.nn.functional.conv2d(x_padded, k2d, groups=C)
-    return result.permute(0, 2, 3, 1).contiguous()
+    return _apply_kernel_blur(image, _disk_kernel2d(r))
+
+
+@functools.lru_cache(maxsize=128)
+def _polygon_kernel2d(radius: int, sides: int) -> torch.Tensor:
+    """Normalized regular-polygon aperture kernel (sides < 3 falls back to a disk), for shaped bokeh."""
+    r = max(1, int(radius))
+    ys, xs = torch.meshgrid(
+        torch.arange(-r, r + 1, dtype=torch.float32),
+        torch.arange(-r, r + 1, dtype=torch.float32),
+        indexing="ij",
+    )
+    dist = torch.sqrt(xs * xs + ys * ys)
+    if sides < 3:
+        boundary = torch.full_like(dist, float(r))
+    else:
+        # Inscribed-radius formula for a regular n-gon: boundary(theta) traces the
+        # polygon edge so the shape's flats touch radius r at each side midpoint.
+        n = float(sides)
+        sector = (2.0 * math.pi) / n
+        theta = torch.remainder(torch.atan2(ys, xs), sector) - sector / 2.0
+        boundary = r * math.cos(math.pi / n) / torch.cos(theta)
+    k = (1.0 - (dist - boundary).clamp(0.0, 1.0)).clamp(min=0.0)
+    return k / k.sum().clamp(min=EPSILON)
+
+
+def _custom_shape_kernel2d(radius: int, shape_luma: torch.Tensor) -> torch.Tensor:
+    """Normalized kernel resampled from a user-supplied grayscale bokeh shape texture."""
+    r = max(1, int(radius))
+    size = 2 * r + 1
+    k = shape_luma.view(1, 1, *shape_luma.shape[-2:])
+    k = torch.nn.functional.interpolate(k, size=(size, size), mode="bilinear", align_corners=False)[0, 0]
+    k = k.clamp(min=0.0)
+    return k / k.sum().clamp(min=EPSILON)
 
 
 # Maximum spatial radius for the surface (bilateral) filter before memory becomes
