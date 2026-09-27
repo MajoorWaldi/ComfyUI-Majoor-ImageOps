@@ -1586,12 +1586,6 @@ def _ensure_rgba(image: torch.Tensor) -> torch.Tensor:
     return torch.cat([rgb, alpha], dim=-1)
 
 
-    if image.shape[0] == 1:
-        return image.expand(target_batch, -1, -1, -1)
-    reps = math.ceil(target_batch / image.shape[0])
-    return image.repeat(reps, 1, 1, 1)[:target_batch]
-
-
 def _resize_mask(mask: torch.Tensor, out_w: int, out_h: int) -> torch.Tensor:
     if mask is None:
         raise ValueError("mask is None")

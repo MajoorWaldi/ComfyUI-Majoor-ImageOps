@@ -2,7 +2,7 @@ from __future__ import annotations
 from comfy_api.latest import io
 import torch
 import torch.nn.functional as F
-from ._helpers import EPSILON, LUMA_WEIGHTS, MEDIA_INPUT_TYPE, _alpha_mask_from_image, _apply_blur, _coerce_media_to_tensor, _extract_channel_mask, _match_image_to_reference, _prepare_effect_mask, _prepare_mask_tensor, _scalar, _select_media_tensor
+from ._helpers import EPSILON, LUMA_WEIGHTS, _alpha_mask_from_image, _apply_blur, _coerce_media_to_tensor, _extract_channel_mask, _match_image_to_reference, _prepare_effect_mask, _prepare_mask_tensor, _scalar, _select_media_tensor
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 _DISTORT_MAP_SOURCES = ['source_channel', 'displacement_channel', 'stmap', 'mask']
@@ -156,6 +156,7 @@ class ImageOpsDistort(io.ComfyNode):
             progress.finish()
             return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_distort')
 
+        progress.finish()
         progress = start_progress(total=max(1, int(source.shape[0])), unique_id=unique_id)
         result = _warp_image(source, x_map=x_map, y_map=y_map, strength_x=strength_x, strength_y=strength_y, centered_map=centered_map, invert_map=invert_map, filter_mode=filter, edge_mode=edge_mode, map_source=map_source, progress=progress)
         if apply_effect_mask is not None:

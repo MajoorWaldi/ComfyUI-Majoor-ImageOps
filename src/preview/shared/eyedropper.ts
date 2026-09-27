@@ -61,10 +61,16 @@ function readCanvasPixel(canvas: HTMLCanvasElement, clientX: number, clientY: nu
   }
 }
 
+function isPickableCanvas(el: HTMLCanvasElement): boolean {
+  // Exclude LiteGraph's own node-graph canvas - it's not a preview surface and
+  // picking from it would sample the graph background/node chrome, not an image.
+  return el.id !== "graph-canvas";
+}
+
 function findCanvasAt(clientX: number, clientY: number): HTMLCanvasElement | null {
   const els = document.elementsFromPoint(clientX, clientY);
   for (const el of els) {
-    if (el instanceof HTMLCanvasElement) return el;
+    if (el instanceof HTMLCanvasElement && isPickableCanvas(el)) return el;
   }
   return null;
 }

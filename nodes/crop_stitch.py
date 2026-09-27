@@ -1,7 +1,7 @@
 from comfy_api.latest import io
 import json
 import torch
-from ._helpers import MEDIA_INPUT_TYPE, _alpha_mask_from_image, _coerce_media_to_tensor, _prepare_mask_tensor, _resize, _scalar
+from ._helpers import _alpha_mask_from_image, _coerce_media_to_tensor, _prepare_mask_tensor, _resize, _scalar
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 from .core.batch import match_batch

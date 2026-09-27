@@ -1,7 +1,6 @@
 from comfy_api.latest import io
 import torch
-from ._helpers import CHANNEL_OPTIONS, LUMA_WEIGHTS, MEDIA_INPUT_TYPE, _alpha_mask_from_image, _channel_mask_to_image, _extract_channel_mask, _prepare_mask_tensor, _scalar, _select_media_tensor
-from .compat.comfy_v3 import V3NodeBase
+from ._helpers import CHANNEL_OPTIONS, LUMA_WEIGHTS, _alpha_mask_from_image, _channel_mask_to_image, _extract_channel_mask, _prepare_mask_tensor, _scalar, _select_media_tensor
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 

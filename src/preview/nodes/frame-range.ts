@@ -176,17 +176,20 @@ function getFrameSelectorTrimBounds(node: ComfyNode, sourceCountOverride?: numbe
 
   const trimStart = Math.max(0, Math.round(widgetNumber(node, "trim_start", 0)));
   const trimEndRaw = Math.round(widgetNumber(node, "trim_end", -1));
-  const lo = Math.max(0, Math.min(trimStart, sourceCount - 1));
-  const hi = trimEndRaw < 0
+  const start = Math.max(0, Math.min(trimStart, sourceCount - 1));
+  const end = trimEndRaw < 0
     ? sourceCount - 1
     : Math.max(0, Math.min(trimEndRaw, sourceCount - 1));
-  const [start, end] = lo <= hi ? [lo, hi] : [hi, lo];
-  const indices = Array.from({ length: Math.max(0, end - start + 1) }, (_, index) => start + index);
+  // Match _timeline_indices in frame_range.py: an inverted range (end < start)
+  // selects zero frames rather than silently swapping the bounds.
+  const indices = end < start
+    ? []
+    : Array.from({ length: end - start + 1 }, (_, index) => start + index);
   return {
     sourceCount,
     start,
     end,
-    selectionCount: Math.max(1, end - start + 1),
+    selectionCount: indices.length,
     indices,
   };
 }
@@ -218,7 +221,9 @@ export function getFrameSelectorOutputCount(node: ComfyNode, sourceCountOverride
   if (repeat && repeatMode === "input_duration") return bounds.sourceCount;
   if (repeat) return customFrameCount;
   if (frameHold) return 1;
-  return bounds.selectionCount;
+  // An inverted trim range selects zero frames here, but execute() then falls
+  // back to a single frame (tensor[:1]) rather than an empty batch.
+  return Math.max(1, bounds.selectionCount);
 }
 
 export function getFrameSelectorSourceFrame(node: ComfyNode, tick: number, sourceCountOverride?: number): number {

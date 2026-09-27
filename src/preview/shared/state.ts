@@ -84,6 +84,8 @@ function createInitialState(node: ComfyNode): NodeState {
     colorTemperatureLabel: null,
     colorTintInput: null,
     colorTintLabel: null,
+    colorHueInput: null,
+    colorHueValueLabel: null,
     colorContrastInput: null,
     colorContrastLabel: null,
     colorSaturationInput: null,

@@ -3,7 +3,7 @@ from comfy_api.latest import io
 import math
 import torch
 import torch.nn.functional as F
-from ._helpers import MEDIA_INPUT_TYPE, _prepare_effect_mask, _resize, _scalar, _select_media_tensor
+from ._helpers import _prepare_effect_mask, _resize, _scalar, _select_media_tensor
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 _SPHERIZE_MODES = ['spherize', 'fisheye', 'defisheye', 'latlong', 'unlatlong']

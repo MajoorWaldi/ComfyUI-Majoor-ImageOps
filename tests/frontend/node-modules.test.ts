@@ -26,7 +26,7 @@ import * as invert from "../../src/preview/nodes/invert.js";
 import * as maskConvert from "../../src/preview/nodes/mask-convert.js";
 import * as merge from "../../src/preview/nodes/merge.js";
 import * as noise from "../../src/preview/nodes/noise.js";
-import * as padOutStitch from "../../src/preview/nodes/pad-out-stitch.js";
+import * as cropStitch from "../../src/preview/nodes/crop-stitch.js";
 import * as padOut from "../../src/preview/nodes/pad-out.js";
 import * as preview from "../../src/preview/nodes/preview.js";
 import * as transform from "../../src/preview/nodes/transform.js";
@@ -49,7 +49,7 @@ const invertModule: BasicNodeModule = invert;
 const maskConvertModule: BasicNodeModule = maskConvert;
 const mergeModule: BasicNodeModule = merge;
 const noiseModule: BasicNodeModule = noise;
-const padOutStitchModule: BasicNodeModule = padOutStitch;
+const cropStitchModule: BasicNodeModule = cropStitch;
 const padOutModule: BasicNodeModule = padOut;
 const previewModule: BasicNodeModule = preview;
 const transformModule: BasicNodeModule = transform;
@@ -236,7 +236,7 @@ void [
   maskConvertModule,
   mergeModule,
   noiseModule,
-  padOutStitchModule,
+  cropStitchModule,
   padOutModule,
   previewModule,
   transformModule,

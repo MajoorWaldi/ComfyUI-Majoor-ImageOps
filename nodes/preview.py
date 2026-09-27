@@ -4,7 +4,7 @@ import uuid
 import torch
 from PIL import Image
 import folder_paths
-from ._helpers import MEDIA_INPUT_TYPE, _alpha_mask_from_image, _coerce_mask_tensor, _mask_to_preview_image, _scalar, _select_media_tensor, _tensor_batch_to_pil_list, logger
+from ._helpers import _alpha_mask_from_image, _coerce_mask_tensor, _mask_to_preview_image, _scalar, _select_media_tensor, _tensor_batch_to_pil_list, logger
 from ._progress import start_progress
 
 def _ensure_dir(p: str):
@@ -109,7 +109,7 @@ class ImageOpsPreview(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsPreview', display_name='〽️ Image Ops Preview', category='image/imageops', search_aliases=['preview', 'viewer', 'view', 'monitor', 'scope', 'histogram', 'waveform'], inputs=[io.Combo.Input('preview_target', options=['auto', 'image', 'mask'], default='auto'), io.Combo.Input('mode', options=['images', 'strip', 'animated_webp', 'animated_gif'], default='images'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo, io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsPreview', display_name='〽️ Image Ops Preview', category='image/imageops', is_output_node=True, search_aliases=['preview', 'viewer', 'view', 'monitor', 'scope', 'histogram', 'waveform'], inputs=[io.Combo.Input('preview_target', options=['auto', 'image', 'mask'], default='auto'), io.Combo.Input('mode', options=['images', 'strip', 'animated_webp', 'animated_gif'], default='images'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo, io.Hidden.unique_id])
 
     @classmethod
     def execute(cls, image=None, preview_target='auto', mode='images', mask=None, prompt=None, extra_pnginfo=None, unique_id=None, **kwargs):
@@ -123,7 +123,7 @@ class ImageOpsPreview(io.ComfyNode):
             progress.finish()
             blank_image = torch.zeros(1, 1, 1, 3)
             blank_mask = torch.zeros(1, 1, 1)
-            return {'ui': {'images': []}, 'result': (blank_image, blank_mask)}
+            return io.NodeOutput(blank_image, blank_mask, ui={'images': []})
         output_image = image_tensor if image_tensor is not None else _mask_to_preview_image(mask_tensor)
         output_mask = mask_tensor if mask_tensor is not None else _alpha_mask_from_image(output_image)
         target = str(preview_target or 'auto').strip().lower()
@@ -145,4 +145,4 @@ class ImageOpsPreview(io.ComfyNode):
         else:
             ui = {'images': save_temp_images(preview_image, prefix='imageops_preview')}
         progress.finish()
-        return {'ui': ui, 'result': (output_image, output_mask)}
+        return io.NodeOutput(output_image, output_mask, ui=ui)

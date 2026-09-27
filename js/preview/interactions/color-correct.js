@@ -95,7 +95,8 @@ function attachInteractions(node, ctx) {
   st.colorInteractiveHooked = true;
   bindZoneRange(node, ctx, st.colorBrightnessInput, "brightness");
   bindZoneRange(node, ctx, st.colorTemperatureInput, "temperature");
-  bindZoneRange(node, ctx, st.colorTintInput, "hue");
+  bindZoneRange(node, ctx, st.colorTintInput, "tint");
+  bindZoneRange(node, ctx, st.colorHueInput, "hue");
   bindZoneRange(node, ctx, st.colorContrastInput, "contrast");
   bindZoneRange(node, ctx, st.colorSaturationInput, "saturation");
   bindZoneRange(node, ctx, st.colorVibranceInput, "vibrance");

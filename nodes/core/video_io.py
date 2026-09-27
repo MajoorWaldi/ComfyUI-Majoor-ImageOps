@@ -14,6 +14,7 @@ import torch
 from comfy_api.latest import VideoComponents, VideoFromComponents
 
 
+
 def extract_video_media(media) -> tuple[torch.Tensor, float, torch.Tensor | None, int] | None:
     """If media exposes ComfyUI's VideoInput contract (get_components()), return
     (images, fps, audio, sample_rate) with audio in this pack's [C, T] convention

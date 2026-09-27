@@ -265,7 +265,13 @@ export function getJoinConnectedInputFrameCounts(node: ComfyNode): JoinConnected
 }
 
 export function getJoinPreviewFrameCount(node: ComfyNode): number {
-  return getJoinConnectedInputFrameCounts(node).reduce((sum, entry) => sum + Math.max(1, entry.frameCount), 0);
+  const counts = getJoinConnectedInputFrameCounts(node);
+  if (widgetBoolean(node, "bypass", false)) {
+    // Bypassed Append only ever renders the first connected clip - match that
+    // here so the tick modulo doesn't wrap around the full multi-clip timeline.
+    return Math.max(1, counts[0]?.frameCount ?? 1);
+  }
+  return counts.reduce((sum, entry) => sum + Math.max(1, entry.frameCount), 0);
 }
 
 export function ensureJoinInputs(node: ComfyNode, minClips: number = 2): void {

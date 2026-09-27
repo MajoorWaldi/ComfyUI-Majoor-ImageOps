@@ -178,6 +178,7 @@ export interface NodeState {
   previewSourceHeight: number;
   previewFrameIndex: number | null;
   cropAspectRatio: number | null;
+  fitGeometry?: { dx: number; dy: number; drawWidth: number; drawHeight: number } | null;
   cropGeometry: CropPreviewGeometry | null;
   cropDrag: CropDragState | null;
   cropResetButton: HTMLButtonElement | null;
@@ -223,6 +224,8 @@ export interface NodeState {
   colorTemperatureLabel: HTMLDivElement | null;
   colorTintInput: HTMLInputElement | null;
   colorTintLabel: HTMLDivElement | null;
+  colorHueInput: HTMLInputElement | null;
+  colorHueValueLabel: HTMLDivElement | null;
   colorContrastInput: HTMLInputElement | null;
   colorContrastLabel: HTMLDivElement | null;
   colorSaturationInput: HTMLInputElement | null;

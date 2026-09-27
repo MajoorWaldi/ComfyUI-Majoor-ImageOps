@@ -147,7 +147,10 @@ function createColorCorrectControlsUi() {
   primariesCard.appendChild(makeRangeRow("Temp", temperatureInput, temperatureLabel, -100, 100, 1, 0, "#ffb347"));
   const tintInput = document.createElement("input");
   const tintLabel = document.createElement("div");
-  primariesCard.appendChild(makeRangeRow("Hue", tintInput, tintLabel, -180, 180, 1, 0, "#d77dff"));
+  primariesCard.appendChild(makeRangeRow("Tint", tintInput, tintLabel, -100, 100, 1, 0, "#69e28f"));
+  const hueInput = document.createElement("input");
+  const hueValueLabel = document.createElement("div");
+  primariesCard.appendChild(makeRangeRow("Hue", hueInput, hueValueLabel, -180, 180, 1, 0, "#d77dff"));
   const contrastInput = document.createElement("input");
   const contrastLabel = document.createElement("div");
   primariesCard.appendChild(makeRangeRow("Contrast", contrastInput, contrastLabel, -100, 100, 1, 0, ""));
@@ -172,6 +175,8 @@ function createColorCorrectControlsUi() {
     temperatureLabel,
     tintInput,
     tintLabel,
+    hueInput,
+    hueValueLabel,
     contrastInput,
     contrastLabel,
     saturationInput,
@@ -243,6 +248,7 @@ function syncColorCorrectWidgets(node) {
   const readZ = (param) => widgetNumber(node, colorWidgetNameForZone(param, zone), colorWidgetDefaultFor(param));
   const brightness = readZ("brightness");
   const temperature = readZ("temperature");
+  const tint = readZ("tint");
   const contrast = readZ("contrast");
   const vibrance = readZ("vibrance");
   const gamma = readZ("gamma");
@@ -250,7 +256,8 @@ function syncColorCorrectWidgets(node) {
   const saturation = readZ("saturation");
   syncRange(st.colorBrightnessInput, st.colorBrightnessLabel, brightness);
   syncRange(st.colorTemperatureInput, st.colorTemperatureLabel, temperature);
-  syncRange(st.colorTintInput, st.colorTintLabel, hue);
+  syncRange(st.colorTintInput, st.colorTintLabel, tint);
+  syncRange(st.colorHueInput, st.colorHueValueLabel, hue);
   syncRange(st.colorContrastInput, st.colorContrastLabel, contrast);
   syncRange(st.colorSaturationInput, st.colorSaturationValueLabel, saturation);
   syncRange(st.colorVibranceInput, st.colorVibranceLabel, vibrance);
@@ -275,7 +282,7 @@ function syncColorCorrectWidgets(node) {
   if (st.colorResetButton) {
     const anyZoneNonDefault = (zoneName) => {
       const z = (p) => widgetNumber(node, colorWidgetNameForZone(p, zoneName), colorWidgetDefaultFor(p));
-      return Math.abs(z("brightness")) > 0.01 || Math.abs(z("temperature")) > 0.01 || Math.abs(z("hue")) > 0.01 || Math.abs(z("contrast")) > 0.01 || Math.abs(z("saturation")) > 0.01 || Math.abs(z("vibrance")) > 0.01 || Math.abs(z("gamma") - 1) > 0.01;
+      return Math.abs(z("brightness")) > 0.01 || Math.abs(z("temperature")) > 0.01 || Math.abs(z("tint")) > 0.01 || Math.abs(z("hue")) > 0.01 || Math.abs(z("contrast")) > 0.01 || Math.abs(z("saturation")) > 0.01 || Math.abs(z("vibrance")) > 0.01 || Math.abs(z("gamma") - 1) > 0.01;
     };
     styleSoftButton(
       st.colorResetButton,

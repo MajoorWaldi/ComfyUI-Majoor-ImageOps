@@ -3,7 +3,7 @@ import torch
 from ._helpers import (
     EPSILON,
     LUMA_WEIGHTS,
-    MEDIA_INPUT_TYPE,
+    ,
     _apply_blur,
     _coerce_mask_tensor,
     _has_list_param,

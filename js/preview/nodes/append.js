@@ -204,7 +204,11 @@ function getJoinConnectedInputFrameCounts(node) {
   return getJoinConnectedInputFrameCountsInternal(node, /* @__PURE__ */ new Set([node.id]));
 }
 function getJoinPreviewFrameCount(node) {
-  return getJoinConnectedInputFrameCounts(node).reduce((sum, entry) => sum + Math.max(1, entry.frameCount), 0);
+  const counts = getJoinConnectedInputFrameCounts(node);
+  if (widgetBoolean(node, "bypass", false)) {
+    return Math.max(1, counts[0]?.frameCount ?? 1);
+  }
+  return counts.reduce((sum, entry) => sum + Math.max(1, entry.frameCount), 0);
 }
 function ensureJoinInputs(node, minClips = 2) {
   if (!isNode(node) || !node.addInput) return;

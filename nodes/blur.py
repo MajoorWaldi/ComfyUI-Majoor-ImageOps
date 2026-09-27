@@ -1,5 +1,5 @@
 from comfy_api.latest import io
-from ._helpers import _apply_mask_to_image, _apply_blur_with_mask_pair, _dispatch_blur, _gaussian_effective_radius, MEDIA_INPUT_TYPE, _prepare_effect_mask, _resolve_mask_output_source, _scalar, _select_media_tensor
+from ._helpers import _apply_mask_to_image, _apply_blur_with_mask_pair, _dispatch_blur, _prepare_effect_mask, _resolve_mask_output_source, _scalar, _select_media_tensor
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 _BLUR_TYPES = ['gaussian', 'box', 'defocus', 'surface']

@@ -565,6 +565,7 @@ export function blit(
     }
   }
   const fit = getFitPlacement(canvasSize, canvasSize, resolvedWidth, resolvedHeight);
+  st.fitGeometry = fit;
 
   // Draw uses Ctrl+scroll for zoom and Ctrl+drag for pan; plain scroll changes brush size.
   // The same previewZoom/panX/panY state applies — no restriction needed.

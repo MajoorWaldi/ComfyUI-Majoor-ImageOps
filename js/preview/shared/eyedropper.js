@@ -23,10 +23,13 @@ function readCanvasPixel(canvas, clientX, clientY) {
     return null;
   }
 }
+function isPickableCanvas(el) {
+  return el.id !== "graph-canvas";
+}
 function findCanvasAt(clientX, clientY) {
   const els = document.elementsFromPoint(clientX, clientY);
   for (const el of els) {
-    if (el instanceof HTMLCanvasElement) return el;
+    if (el instanceof HTMLCanvasElement && isPickableCanvas(el)) return el;
   }
   return null;
 }

@@ -112,11 +112,13 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
   const padOutNode = isPadOutNode(node);
 
   const root = document.createElement("div");
+  root.classList.add("imageops-root");
   root.style.width = "100%";
   root.style.boxSizing = "border-box";
   root.style.padding = "6px";
 
   const canvas = document.createElement("canvas");
+  canvas.setAttribute("data-imageops-canvas", "true");
   canvas.width = canvasSize;
   canvas.height = canvasSize;
   canvas.style.width = "100%";
@@ -211,6 +213,8 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
   let colorTemperatureLabel: HTMLDivElement | null = null;
   let colorTintInput: HTMLInputElement | null = null;
   let colorTintLabel: HTMLDivElement | null = null;
+  let colorHueInput: HTMLInputElement | null = null;
+  let colorHueValueLabel: HTMLDivElement | null = null;
   let colorContrastInput: HTMLInputElement | null = null;
   let colorContrastLabel: HTMLDivElement | null = null;
   let colorSaturationInput: HTMLInputElement | null = null;
@@ -249,6 +253,8 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
     colorTemperatureLabel = colorUi.temperatureLabel;
     colorTintInput = colorUi.tintInput;
     colorTintLabel = colorUi.tintLabel;
+    colorHueInput = (colorUi as any).hueInput ?? null;
+    colorHueValueLabel = (colorUi as any).hueValueLabel ?? null;
     colorContrastInput = colorUi.contrastInput;
     colorContrastLabel = colorUi.contrastLabel;
     colorSaturationInput = colorUi.saturationInput;
@@ -563,6 +569,8 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
   st.colorTemperatureLabel = colorTemperatureLabel;
   st.colorTintInput = colorTintInput;
   st.colorTintLabel = colorTintLabel;
+  st.colorHueInput = colorHueInput;
+  st.colorHueValueLabel = colorHueValueLabel;
   st.colorContrastInput = colorContrastInput;
   st.colorContrastLabel = colorContrastLabel;
   st.colorSaturationInput = colorSaturationInput;

@@ -21,6 +21,8 @@ export type ColorCorrectControlsUi = {
   temperatureLabel: HTMLDivElement;
   tintInput: HTMLInputElement;
   tintLabel: HTMLDivElement;
+  hueInput: HTMLInputElement;
+  hueValueLabel: HTMLDivElement;
   contrastInput: HTMLInputElement;
   contrastLabel: HTMLDivElement;
   saturationInput: HTMLInputElement;
@@ -218,7 +220,11 @@ export function createColorCorrectControlsUi(): ColorCorrectControlsUi {
 
   const tintInput = document.createElement("input");
   const tintLabel = document.createElement("div");
-  primariesCard.appendChild(makeRangeRow("Hue", tintInput, tintLabel, -180, 180, 1, 0, "#d77dff"));
+  primariesCard.appendChild(makeRangeRow("Tint", tintInput, tintLabel, -100, 100, 1, 0, "#69e28f"));
+
+  const hueInput = document.createElement("input");
+  const hueValueLabel = document.createElement("div");
+  primariesCard.appendChild(makeRangeRow("Hue", hueInput, hueValueLabel, -180, 180, 1, 0, "#d77dff"));
 
   const contrastInput = document.createElement("input");
   const contrastLabel = document.createElement("div");
@@ -249,6 +255,8 @@ export function createColorCorrectControlsUi(): ColorCorrectControlsUi {
     temperatureLabel,
     tintInput,
     tintLabel,
+    hueInput,
+    hueValueLabel,
     contrastInput,
     contrastLabel,
     saturationInput,
@@ -338,6 +346,7 @@ export function syncColorCorrectWidgets(node: ComfyNode): void {
   const readZ = (param: string): number => widgetNumber(node, colorWidgetNameForZone(param, zone), colorWidgetDefaultFor(param));
   const brightness = readZ("brightness");
   const temperature = readZ("temperature");
+  const tint = readZ("tint");
   const contrast = readZ("contrast");
   const vibrance = readZ("vibrance");
   const gamma = readZ("gamma");
@@ -347,8 +356,8 @@ export function syncColorCorrectWidgets(node: ComfyNode): void {
 
   syncRange(st.colorBrightnessInput, st.colorBrightnessLabel, brightness);
   syncRange(st.colorTemperatureInput, st.colorTemperatureLabel, temperature);
-  // The "Tint" slot in DOM was repurposed as the Hue slider.
-  syncRange(st.colorTintInput, st.colorTintLabel, hue);
+  syncRange(st.colorTintInput, st.colorTintLabel, tint);
+  syncRange(st.colorHueInput, st.colorHueValueLabel, hue);
   syncRange(st.colorContrastInput, st.colorContrastLabel, contrast);
   syncRange(st.colorSaturationInput, st.colorSaturationValueLabel, saturation);
   syncRange(st.colorVibranceInput, st.colorVibranceLabel, vibrance);
@@ -386,6 +395,7 @@ export function syncColorCorrectWidgets(node: ComfyNode): void {
       const z = (p: string): number => widgetNumber(node, colorWidgetNameForZone(p, zoneName), colorWidgetDefaultFor(p));
       return Math.abs(z("brightness")) > 0.01
         || Math.abs(z("temperature")) > 0.01
+        || Math.abs(z("tint")) > 0.01
         || Math.abs(z("hue")) > 0.01
         || Math.abs(z("contrast")) > 0.01
         || Math.abs(z("saturation")) > 0.01

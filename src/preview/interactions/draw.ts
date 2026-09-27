@@ -376,7 +376,6 @@ export function attachInteractions(node: ComfyNode, ctx: DrawInteractionContext)
     }
     if (!st.drawGeometry) return;
     const mapped = canvasToSource(point.x, point.y);
-    if (!mapped.inside) return;
     event.preventDefault();
     if (event.shiftKey) {
       ctx.restoreCanvas(st.drawCanvas, drag.snapshot);

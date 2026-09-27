@@ -112,15 +112,14 @@ function getFrameSelectorTrimBounds(node, sourceCountOverride) {
   }
   const trimStart = Math.max(0, Math.round(widgetNumber(node, "trim_start", 0)));
   const trimEndRaw = Math.round(widgetNumber(node, "trim_end", -1));
-  const lo = Math.max(0, Math.min(trimStart, sourceCount - 1));
-  const hi = trimEndRaw < 0 ? sourceCount - 1 : Math.max(0, Math.min(trimEndRaw, sourceCount - 1));
-  const [start, end] = lo <= hi ? [lo, hi] : [hi, lo];
-  const indices = Array.from({ length: Math.max(0, end - start + 1) }, (_, index) => start + index);
+  const start = Math.max(0, Math.min(trimStart, sourceCount - 1));
+  const end = trimEndRaw < 0 ? sourceCount - 1 : Math.max(0, Math.min(trimEndRaw, sourceCount - 1));
+  const indices = end < start ? [] : Array.from({ length: end - start + 1 }, (_, index) => start + index);
   return {
     sourceCount,
     start,
     end,
-    selectionCount: Math.max(1, end - start + 1),
+    selectionCount: indices.length,
     indices
   };
 }
@@ -147,7 +146,7 @@ function getFrameSelectorOutputCount(node, sourceCountOverride) {
   if (repeat && repeatMode === "input_duration") return bounds.sourceCount;
   if (repeat) return customFrameCount;
   if (frameHold) return 1;
-  return bounds.selectionCount;
+  return Math.max(1, bounds.selectionCount);
 }
 function getFrameSelectorSourceFrame(node, tick, sourceCountOverride) {
   const bounds = getFrameSelectorTrimBounds(node, sourceCountOverride);

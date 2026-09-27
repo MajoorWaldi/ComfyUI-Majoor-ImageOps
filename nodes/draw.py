@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from ._helpers import MEDIA_INPUT_TYPE, _hex_to_rgb01, _scalar, _select_media_tensor
+from ._helpers import _hex_to_rgb01, _scalar, _select_media_tensor
 from comfy_api.latest import io
 from ._progress import start_progress
 from ._preview import build_node_preview_result

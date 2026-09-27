@@ -126,23 +126,20 @@ export function registerImageOpsLivePreview(): void {
     style.id = "comfyui-imageops-styles";
     style.textContent = `
       /* Scrollbars in custom UI panel */
-      .comfy-menu::-webkit-scrollbar,
-      .comfy-panel::-webkit-scrollbar {
+      .imageops-root ::-webkit-scrollbar {
         width: 6px;
         height: 6px;
       }
-      .comfy-menu::-webkit-scrollbar-thumb,
-      .comfy-panel::-webkit-scrollbar-thumb {
+      .imageops-root ::-webkit-scrollbar-thumb {
         background: #444;
         border-radius: 3px;
       }
-      .comfy-menu::-webkit-scrollbar-track,
-      .comfy-panel::-webkit-scrollbar-track {
+      .imageops-root ::-webkit-scrollbar-track {
         background: rgba(0, 0, 0, 0.1);
       }
 
       /* Fields & Inputs */
-      .comfy-input {
+      .imageops-root .comfy-input {
         font-family: var(--comfy-font-sans, Inter, sans-serif);
         font-size: 11px !important;
         border-radius: 4px !important;
@@ -153,14 +150,14 @@ export function registerImageOpsLivePreview(): void {
         box-sizing: border-box !important;
         transition: border-color 0.15s ease, box-shadow 0.15s ease;
       }
-      .comfy-input:focus {
+      .imageops-root .comfy-input:focus {
         border-color: #555 !important;
         outline: none !important;
         box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.05);
       }
 
       /* Buttons */
-      .comfy-btn {
+      .imageops-root .comfy-btn {
         font-family: var(--comfy-font-sans, Inter, sans-serif);
         font-size: 11px !important;
         border-radius: 4px !important;
@@ -173,16 +170,16 @@ export function registerImageOpsLivePreview(): void {
         transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
         user-select: none;
       }
-      .comfy-btn:hover {
+      .imageops-root .comfy-btn:hover {
         background: #3e3e3e !important;
         color: #fff !important;
         border-color: #555 !important;
       }
-      .comfy-btn:active {
+      .imageops-root .comfy-btn:active {
         background: #1c1c1c !important;
         color: #aaa !important;
       }
-      .comfy-btn.active {
+      .imageops-root .comfy-btn.active {
         background: #444 !important;
         color: #fff !important;
         border-color: #666 !important;
@@ -190,7 +187,7 @@ export function registerImageOpsLivePreview(): void {
       }
 
       /* Range/Slider Input */
-      .comfy-slider {
+      .imageops-root .comfy-slider {
         -webkit-appearance: none;
         appearance: none;
         width: 100%;
@@ -203,12 +200,12 @@ export function registerImageOpsLivePreview(): void {
         cursor: ew-resize !important;
         transition: border-color 0.15s ease;
       }
-      .comfy-slider:hover {
+      .imageops-root .comfy-slider:hover {
         border-color: #3f3f3f !important;
       }
 
       /* WebKit Slider Thumb (Chrome, Safari, Edge) */
-      .comfy-slider::-webkit-slider-thumb {
+      .imageops-root .comfy-slider::-webkit-slider-thumb {
         -webkit-appearance: none;
         appearance: none;
         width: 12px;
@@ -219,16 +216,16 @@ export function registerImageOpsLivePreview(): void {
         cursor: ew-resize;
         transition: background-color 0.15s ease, transform 0.1s ease;
       }
-      .comfy-slider::-webkit-slider-thumb:hover {
+      .imageops-root .comfy-slider::-webkit-slider-thumb:hover {
         background: #fff;
         transform: scale(1.15);
       }
-      .comfy-slider::-webkit-slider-thumb:active {
+      .imageops-root .comfy-slider::-webkit-slider-thumb:active {
         background: #aaa;
       }
 
       /* Firefox Slider Thumb */
-      .comfy-slider::-moz-range-thumb {
+      .imageops-root .comfy-slider::-moz-range-thumb {
         width: 12px;
         height: 12px;
         border-radius: 50%;
@@ -237,13 +234,13 @@ export function registerImageOpsLivePreview(): void {
         cursor: ew-resize;
         transition: background-color 0.15s ease, transform 0.1s ease;
       }
-      .comfy-slider::-moz-range-thumb:hover {
+      .imageops-root .comfy-slider::-moz-range-thumb:hover {
         background: #fff;
         transform: scale(1.15);
       }
 
       /* Details Panel (Collapsible Panel) */
-      .comfy-details {
+      .imageops-root .comfy-details {
         margin-top: 8px !important;
         background: rgba(255, 255, 255, 0.02) !important;
         border: 1px solid #333333 !important;
@@ -251,7 +248,7 @@ export function registerImageOpsLivePreview(): void {
         padding: 4px 8px 8px !important;
         font-family: var(--comfy-font-sans, Inter, sans-serif);
       }
-      .comfy-details summary {
+      .imageops-root .comfy-details summary {
         cursor: pointer;
         font-size: 11px;
         font-weight: 600;
@@ -260,25 +257,8 @@ export function registerImageOpsLivePreview(): void {
         user-select: none;
         color: #fff;
       }
-      .comfy-details summary:hover {
+      .imageops-root .comfy-details summary:hover {
         opacity: 1;
-      }
-
-      /* Custom Dropdown Context Menu */
-      .comfy-menu {
-        background: #1c1c1f !important;
-        border: 1px solid #3e3e3e !important;
-        border-radius: 4px !important;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6) !important;
-        box-sizing: border-box;
-      }
-      .comfy-menu button {
-        border-radius: 3px !important;
-        font-family: var(--comfy-font-sans, Inter, sans-serif);
-        transition: background-color 0.1s ease;
-      }
-      .comfy-menu button:hover {
-        background: #3e3e42 !important;
       }
     `;
     document.head.appendChild(style);
@@ -982,6 +962,31 @@ export function registerImageOpsLivePreview(): void {
     const hasProcedural = proceduralFrameCount != null;
     const startedAt = performance.now();
     const loop = (): void => {
+      if (!st.canvas) {
+        stopRAF(st);
+        return;
+      }
+      if (!st.canvas.isConnected) {
+        // The canvas can be briefly detached from the DOM (workflow tab switch,
+        // widget re-layout) and reattached later without ever recreating it -
+        // ensurePreviewWidget() never rebuilds an existing canvas. Keep polling
+        // instead of stopping for good so playback resumes on its own.
+        st.rafId = requestAnimationFrame(loop);
+        return;
+      }
+      if ((node as any).flags?.collapsed) {
+        st.rafId = requestAnimationFrame(loop);
+        return;
+      }
+      const rect = st.canvas.getBoundingClientRect();
+      const isVisible = rect.bottom >= -50 && rect.right >= -50
+        && rect.top <= (window.innerHeight || document.documentElement.clientHeight) + 50
+        && rect.left <= (window.innerWidth || document.documentElement.clientWidth) + 50;
+      if (!isVisible) {
+        st.rafId = requestAnimationFrame(loop);
+        return;
+      }
+
       // Feed the global FPS monitor so getRenderCanvasSize() can downscale
       // automatically when the system is stressed (LOD adaptive).
       noteFrame(performance.now());
@@ -1052,6 +1057,9 @@ export function registerImageOpsLivePreview(): void {
     // Node 2.0 instances may not expose the legacy comfyClass field. Keep the
     // rest of the preview host on one stable class-name contract.
     const nodeAny = node as any;
+    if (typeof nodeAny.title === "string" && nodeAny.title.includes("Color Color Correct")) {
+      nodeAny.title = nodeAny.title.replace("Color Color Correct", "Color Correct");
+    }
     if (!nodeAny.comfyClass) {
       nodeAny.comfyClass = nodeAny.type
         ?? nodeAny.constructor?.nodeData?.name
@@ -1276,6 +1284,9 @@ export function registerImageOpsLivePreview(): void {
     const chainCb = (prop: "onConnectionsChange" | "onConfigure"): void => {
       const orig = node[prop];
       (node as any)[prop] = function (this: any) {
+        if (typeof (node as any).title === "string" && (node as any).title.includes("Color Color Correct")) {
+          (node as any).title = (node as any).title.replace("Color Color Correct", "Color Correct");
+        }
         if (prop === "onConfigure") {
           try { st._abortController?.abort(); } catch {}
           st._abortController = new AbortController();
@@ -1366,9 +1377,9 @@ export function registerImageOpsLivePreview(): void {
           syncPreviewWidgets(node);
         }
         if (isFrameSelectorNode(node) && prop === "onConfigure") {
-          // Re-hide widgets that onConfigure may restore - do NOT reset frameSelectorHooked
-          // or re-call attachFrameSelectorControls (that would double the event listeners).
           hideFrameSelectorWidgets(node);
+          st.frameSelectorHooked = false;
+          attachFrameSelectorControls(node, nodeCtx);
           syncFrameSelectorWidgets(node);
         }
         if (prop === "onConfigure" && isImageOpsClass(node.comfyClass)) {
@@ -1430,17 +1441,34 @@ export function registerImageOpsLivePreview(): void {
   app.registerExtension({
     name: EXT_NAME,
     async beforeRegisterNodeDef(nodeType: ComfyNodeConstructor, nodeData: any) {
+      if (nodeData?.display_name && typeof nodeData.display_name === "string" && nodeData.display_name.includes("Color Color Correct")) {
+        nodeData.display_name = nodeData.display_name.replace("Color Color Correct", "Color Correct");
+      }
+      if ((nodeType as any).title && typeof (nodeType as any).title === "string" && (nodeType as any).title.includes("Color Color Correct")) {
+        (nodeType as any).title = (nodeType as any).title.replace("Color Color Correct", "Color Correct");
+      }
       const nodeName = nodeData?.name ?? nodeData?.id ?? nodeData?.class_type ?? nodeData?.comfyClass ?? "";
       if (!isImageOpsClass(nodeName)) return;
       const origOnNodeCreated = nodeType.prototype.onNodeCreated;
       nodeType.prototype.onNodeCreated = function (this: ComfyNode) {
         try { origOnNodeCreated?.apply(this, arguments as any); } catch (e) { console.warn("[ImageOps] origOnNodeCreated threw", e); }
+        try {
+          const self = this as any;
+          if (typeof self.title === "string" && self.title.includes("Color Color Correct")) {
+            self.title = self.title.replace("Color Color Correct", "Color Correct");
+          }
+        } catch {}
         try { hydrateKeyerDefaults(this, nodeData); } catch (e) { console.warn("[ImageOps] hydrateKeyerDefaults failed for", this?.comfyClass, e); }
         try { hookNode(this); } catch (e) { console.warn("[ImageOps] hookNode failed for", this?.comfyClass, e); }
       };
     },
     // Node 2.0 fallback: called per-instance after the node is fully constructed.
     nodeCreated(node: ComfyNode) {
+      try {
+        if (typeof (node as any).title === "string" && (node as any).title.includes("Color Color Correct")) {
+          (node as any).title = (node as any).title.replace("Color Color Correct", "Color Correct");
+        }
+      } catch {}
       try {
         const ctor = node?.constructor as { nodeData?: any } | undefined;
         hydrateKeyerDefaults(node, ctor?.nodeData);

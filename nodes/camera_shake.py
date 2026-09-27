@@ -3,7 +3,7 @@ from comfy_api.latest import io
 import math
 import random
 import torch
-from ._helpers import MEDIA_INPUT_TYPE, _prepare_effect_mask, _resolve_mask_output_source, _scalar, _select_media_tensor
+from ._helpers import _prepare_effect_mask, _resolve_mask_output_source, _scalar, _select_media_tensor
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 from .transform import _composite_fill, _make_fill_background, _normalize_fill_mode, _padding_mode_from_fill, _transform_batch_affine, _transform_mask_affine, _transform_masked_source

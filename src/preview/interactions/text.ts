@@ -119,8 +119,14 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
       event.stopPropagation();
       const rect = canvas.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) return;
-      const dx = (event.clientX - drag.startClientX) / rect.width;
-      const dy = (event.clientY - drag.startClientY) / rect.height;
+      const fit = (st as any).fitGeometry;
+      const zoom = Math.max(0.35, (st as any).previewZoom ?? 1);
+      const scaleX = fit && canvas.width > 0 ? (fit.drawWidth / canvas.width) : 1;
+      const scaleY = fit && canvas.height > 0 ? (fit.drawHeight / canvas.height) : 1;
+      const effWidth = Math.max(1, rect.width * scaleX * zoom);
+      const effHeight = Math.max(1, rect.height * scaleY * zoom);
+      const dx = (event.clientX - drag.startClientX) / effWidth;
+      const dy = (event.clientY - drag.startClientY) / effHeight;
       const newX = clampFloat(drag.startWX + dx, 0.5, -2, 3);
       const newY = clampFloat(drag.startWY + dy, 0.5, -2, 3);
       setWidgetValue(findWidget(node, "x"), Math.round(newX * 1000) / 1000);

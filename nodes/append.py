@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any
 import torch
-from ._helpers import MEDIA_INPUT_TYPE, _resize, _select_media_tensor
+from ._helpers import _resize, _select_media_tensor
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 from .core.video_io import extract_video_media, media_to_video
@@ -132,6 +132,8 @@ class ImageOpsAppend(io.ComfyNode):
         clips = _sorted_clip_inputs(inputs)
         if not clips:
             raise ValueError('ImageOps Append needs at least one connected image/video input.')
+        if bool(bypass):
+            clips = clips[:1]
         trims = _parse_trims(trims_json)
         tensors: list[torch.Tensor] = []
         clip_metadata: list[dict[str, int]] = []
@@ -178,7 +180,7 @@ class ImageOpsAppend(io.ComfyNode):
             clip_metadata.append({'slot': int(clip_index), 'source_count': source_count, 'trimmed_count': int(trimmed.shape[0]), 'start': int(start), 'end': int(end), 'sample_rate': int(clip_sample_rate)})
         max_channels = max((int(t.shape[3]) for t in tensors))
         tensors = [_coerce_channels(t, max_channels) for t in tensors]
-        if bool(bypass) or len(tensors) == 1:
+        if len(tensors) == 1:
             out_tensor = tensors[0]
         else:
             aligned = [tensors[0]]

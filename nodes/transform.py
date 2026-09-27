@@ -2,7 +2,7 @@ from __future__ import annotations
 from comfy_api.latest import io
 import math
 import torch
-from ._helpers import MEDIA_INPUT_TYPE, EPSILON, _hex_to_rgb01, _prepare_effect_mask, _resolve_mask_output_source, _select_media_tensor, _unpremultiply_rgb_by_mask, _param_tensor, _scalar
+from ._helpers import EPSILON, _hex_to_rgb01, _prepare_effect_mask, _resolve_mask_output_source, _select_media_tensor, _unpremultiply_rgb_by_mask, _param_tensor, _scalar
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 

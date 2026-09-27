@@ -451,6 +451,7 @@ function blit(node, st, source, canvasSize, sourceWidth, sourceHeight) {
     }
   }
   const fit = getFitPlacement(canvasSize, canvasSize, resolvedWidth, resolvedHeight);
+  st.fitGeometry = fit;
   const zoom = Math.max(0.35, st.previewZoom ?? 1);
   const panX = st.previewPanX ?? 0;
   const panY = st.previewPanY ?? 0;

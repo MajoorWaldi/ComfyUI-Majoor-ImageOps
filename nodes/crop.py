@@ -1,5 +1,5 @@
 from comfy_api.latest import io
-from ._helpers import ASPECT_RATIO_PRESETS, MEDIA_INPUT_TYPE, _apply_interactive_crop_resize, _apply_interactive_crop_resize_with_mask_pair, _compute_crop_box, _prepare_effect_mask, _resolve_mask_output_source, _scalar, _select_media_tensor
+from ._helpers import ASPECT_RATIO_PRESETS, _apply_interactive_crop_resize, _apply_interactive_crop_resize_with_mask_pair, _compute_crop_box, _prepare_effect_mask, _resolve_mask_output_source, _scalar, _select_media_tensor
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 
@@ -68,7 +68,10 @@ class ImageOpsCrop(io.ComfyNode):
         progress = start_progress(unique_id=unique_id)
         if _scalar(bypass, bool):
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_crop')
+            source_h, source_w = int(source.shape[1]), int(source.shape[2])
+            bbox = _crop_bbox_payload(source, source_w, source_h, 'custom', 0.5, 0.5, 1.0)
+            metadata = {'imageops_crop_bbox': bbox} if bbox is not None else None
+            return build_node_preview_result(source, (source, output_mask_source, bbox), prefix='imageops_crop', metadata=metadata)
         if _is_noop_crop(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale):
             progress.finish()
             bbox = _crop_bbox_payload(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)

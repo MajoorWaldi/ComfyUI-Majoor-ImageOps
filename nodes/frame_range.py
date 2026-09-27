@@ -1,7 +1,7 @@
 from __future__ import annotations
 from comfy_api.latest import io
 import torch
-from ._helpers import MEDIA_INPUT_TYPE, _coerce_media_to_tensor, _scalar
+from ._helpers import _coerce_media_to_tensor, _scalar
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 from .core.video_io import extract_video_media, media_to_video

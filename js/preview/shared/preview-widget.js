@@ -83,10 +83,12 @@ function ensurePreviewWidget(node, progress, canvasSize, onNativeWidgetChange) {
   const keyerNode = isKeyerNode(node);
   const padOutNode = isPadOutNode(node);
   const root = document.createElement("div");
+  root.classList.add("imageops-root");
   root.style.width = "100%";
   root.style.boxSizing = "border-box";
   root.style.padding = "6px";
   const canvas = document.createElement("canvas");
+  canvas.setAttribute("data-imageops-canvas", "true");
   canvas.width = canvasSize;
   canvas.height = canvasSize;
   canvas.style.width = "100%";
@@ -170,6 +172,8 @@ function ensurePreviewWidget(node, progress, canvasSize, onNativeWidgetChange) {
   let colorTemperatureLabel = null;
   let colorTintInput = null;
   let colorTintLabel = null;
+  let colorHueInput = null;
+  let colorHueValueLabel = null;
   let colorContrastInput = null;
   let colorContrastLabel = null;
   let colorSaturationInput = null;
@@ -204,6 +208,8 @@ function ensurePreviewWidget(node, progress, canvasSize, onNativeWidgetChange) {
     colorTemperatureLabel = colorUi.temperatureLabel;
     colorTintInput = colorUi.tintInput;
     colorTintLabel = colorUi.tintLabel;
+    colorHueInput = colorUi.hueInput ?? null;
+    colorHueValueLabel = colorUi.hueValueLabel ?? null;
     colorContrastInput = colorUi.contrastInput;
     colorContrastLabel = colorUi.contrastLabel;
     colorSaturationInput = colorUi.saturationInput;
@@ -498,6 +504,8 @@ function ensurePreviewWidget(node, progress, canvasSize, onNativeWidgetChange) {
   st.colorTemperatureLabel = colorTemperatureLabel;
   st.colorTintInput = colorTintInput;
   st.colorTintLabel = colorTintLabel;
+  st.colorHueInput = colorHueInput;
+  st.colorHueValueLabel = colorHueValueLabel;
   st.colorContrastInput = colorContrastInput;
   st.colorContrastLabel = colorContrastLabel;
   st.colorSaturationInput = colorSaturationInput;

@@ -1,5 +1,5 @@
 from comfy_api.latest import io
-from ._helpers import MEDIA_INPUT_TYPE, _apply_merge, _apply_mask_to_image, _coerce_media_to_tensor, _prepare_effect_mask, _resolve_mask_output_source, _scalar
+from ._helpers import _apply_merge, _apply_mask_to_image, _coerce_media_to_tensor, _prepare_effect_mask, _resolve_mask_output_source, _scalar
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 

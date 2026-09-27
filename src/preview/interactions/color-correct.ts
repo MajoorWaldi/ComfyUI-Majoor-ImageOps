@@ -130,9 +130,8 @@ export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext)
 
   bindZoneRange(node, ctx, st.colorBrightnessInput, "brightness");
   bindZoneRange(node, ctx, st.colorTemperatureInput, "temperature");
-  // The DOM input previously labelled "Tint" is reused as the Hue slider —
-  // it edits the active zone's `hue` widget (or `<zone>_hue`).
-  bindZoneRange(node, ctx, st.colorTintInput, "hue");
+  bindZoneRange(node, ctx, st.colorTintInput, "tint");
+  bindZoneRange(node, ctx, st.colorHueInput, "hue");
   bindZoneRange(node, ctx, st.colorContrastInput, "contrast");
   bindZoneRange(node, ctx, st.colorSaturationInput, "saturation");
   bindZoneRange(node, ctx, st.colorVibranceInput, "vibrance");

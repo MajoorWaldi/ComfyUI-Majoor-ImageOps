@@ -3,7 +3,7 @@ import torch
 from ._helpers import (
     EPSILON,
     LUMA_WEIGHTS,
-    MEDIA_INPUT_TYPE,
+    ,
     _blur_mask,
     _param_tensor,
     _prepare_effect_mask,
@@ -117,12 +117,12 @@ def _apply_keyer(
         weights = torch.tensor(LUMA_WEIGHTS, device=rgb_for_key.device, dtype=rgb_for_key.dtype)
         distance = (rgb_for_key * weights).sum(dim=-1).clamp(0.0, 1.0)
     else:
-                colors = _parse_key_colors(key_colors)
-                if not colors:
-                    colors = [_hex_to_rgb(key_color)]
-                targets = torch.tensor(colors, device=rgb_for_key.device, dtype=rgb_for_key.dtype).view(1, 1, 1, len(colors), 3)
-                rgb_expanded = rgb_for_key.unsqueeze(-2)
-                distance = torch.linalg.vector_norm(rgb_expanded - targets, dim=-1).amin(dim=-1) / (3.0 ** 0.5)
+        colors = _parse_key_colors(key_colors)
+        if not colors:
+            colors = [_hex_to_rgb(key_color)]
+        targets = torch.tensor(colors, device=rgb_for_key.device, dtype=rgb_for_key.dtype).view(1, 1, 1, len(colors), 3)
+        rgb_expanded = rgb_for_key.unsqueeze(-2)
+        distance = torch.linalg.vector_norm(rgb_expanded - targets, dim=-1).amin(dim=-1) / (3.0 ** 0.5)
 
     matte = 1.0 - _soft_threshold(distance, tolerance, softness, batch)
     matte = _apply_matte_gain_and_blur(matte, gain, blur)

@@ -623,10 +623,57 @@ function blur(ctx, W, node, inputs = [], frameIndex = 0) {
 }
 function channel(ctx, W, node, outputSlot, inputs = [], frameIndex = 0) {
   const source = inputs[0] ?? ctx.canvas;
-  const splitMode = strAny(node, ["mode"], "RGBA", frameIndex);
+  const mode = strAny(node, ["mode"], "extract", frameIndex).trim().toLowerCase();
   const hasSingleChannelWidget = !!wAny(node, ["channel"]);
   if (!hasSingleChannelWidget && outputSlot != null) {
-    return extractSplitChannelCanvas(source, outputSlot, splitMode);
+    return extractSplitChannelCanvas(source, outputSlot, strAny(node, ["mode"], "RGBA", frameIndex));
+  }
+  if (mode === "shuffle") {
+    const outR = strAny(node, ["out_r"], "R", frameIndex).trim().toLowerCase();
+    const outG = strAny(node, ["out_g"], "G", frameIndex).trim().toLowerCase();
+    const outB = strAny(node, ["out_b"], "B", frameIndex).trim().toLowerCase();
+    const outA = strAny(node, ["out_a"], "A", frameIndex).trim().toLowerCase();
+    const maskCanvas = inputs[1] ?? null;
+    const output = makeCanvas(source.width, source.height);
+    const outCtx = output.getContext("2d", { willReadFrequently: true });
+    const srcCtx = source.getContext("2d", { willReadFrequently: true });
+    const srcData = srcCtx.getImageData(0, 0, source.width, source.height).data;
+    const outImg = outCtx.createImageData(source.width, source.height);
+    const outData = outImg.data;
+    let maskData = null;
+    if (maskCanvas) {
+      const mCanvas = makeCanvas(source.width, source.height);
+      const mCtx = mCanvas.getContext("2d", { willReadFrequently: true });
+      mCtx.drawImage(maskCanvas, 0, 0, source.width, source.height);
+      maskData = mCtx.getImageData(0, 0, source.width, source.height).data;
+    }
+    if (!maskData && [outR, outG, outB, outA].includes("mask")) {
+      throw new Error('ImageOps Channel: "Mask" selected as a shuffle source but no mask is connected.');
+    }
+    const getChannelVal = (norm, r, g, b, a, luma, idx) => {
+      if (norm === "r") return r;
+      if (norm === "g") return g;
+      if (norm === "b") return b;
+      if (norm === "a") return a;
+      if (norm === "luma") return luma;
+      if (norm === "zero") return 0;
+      if (norm === "one") return 255;
+      if (norm === "mask") return maskData[idx];
+      return r;
+    };
+    for (let i = 0; i < srcData.length; i += 4) {
+      const r = srcData[i];
+      const g = srcData[i + 1];
+      const b = srcData[i + 2];
+      const a = srcData[i + 3];
+      const luma = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+      outData[i] = getChannelVal(outR, r, g, b, a, luma, i);
+      outData[i + 1] = getChannelVal(outG, r, g, b, a, luma, i);
+      outData[i + 2] = getChannelVal(outB, r, g, b, a, luma, i);
+      outData[i + 3] = getChannelVal(outA, r, g, b, a, luma, i);
+    }
+    outCtx.putImageData(outImg, 0, 0);
+    return output;
   }
   const extracted = applyEffectToCanvas(source, (effectCtx, width, height) => {
     applyChannel(effectCtx, width, height, strAny(node, ["channel"], "Red", frameIndex));
