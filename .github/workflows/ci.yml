@@ -89,8 +89,16 @@ jobs:
             --maxfail=1
 
   comfy-integration:
-    name: ComfyUI integration tests
+    name: ComfyUI integration tests (${{ matrix.comfyui-ref }})
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # comfyui-ref pins the compatibility floor declared as requires-comfyui
+        # in pyproject.toml, plus the current stable release. Bump the floor
+        # entry only after confirming this job passes against it.
+        comfyui-ref: ["v0.11.0", "v0.37.4"]
 
     steps:
       - uses: actions/checkout@v7
@@ -114,6 +122,7 @@ jobs:
         run: |
           git clone \
             --depth 1 \
+            --branch ${{ matrix.comfyui-ref }} \
             https://github.com/Comfy-Org/ComfyUI.git \
             /tmp/ComfyUI
 

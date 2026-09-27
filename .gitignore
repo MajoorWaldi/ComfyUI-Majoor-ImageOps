@@ -10,6 +10,7 @@ __pycache__/
 # Tests
 # tests directory is tracked
 .tracking
+tests/frontend/*-esm-*/
 
 # IDE
 .vscode/

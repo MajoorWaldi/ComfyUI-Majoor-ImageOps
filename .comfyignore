@@ -1,0 +1,18 @@
+# Development-only assets excluded from the published Registry package.
+# Runtime needs only __init__.py, nodes/, js/ (WEB_DIRECTORY), server.py.
+
+tests/
+.github/
+
+# TypeScript source and build tooling; compiled output lives in js/.
+src/
+scripts/
+tsconfig.json
+tsconfig.frontend-tests.json
+esbuild.mjs
+package.json
+package-lock.json
+imageops_nodes.json
+
+# Internal planning notes, not user-facing docs. docs/*.gif stays (used by README).
+docs/*.md

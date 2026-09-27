@@ -31,7 +31,9 @@ def _is_noop_crop(source, width, height, aspect_ratio, crop_center_x, crop_cente
             return False
     return True
 
-def _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale):
+def _crop_bbox_payload(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale):
+    """Per-frame crop geometry in source coordinates. Consumed by Crop Stitch's
+    optional bbox input, and mirrored into UI metadata for the frontend preview."""
     if source is None or source.dim() != 4:
         return None
     source_h = int(source.shape[1])
@@ -47,13 +49,15 @@ def _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop
         scale = _scalar(crop_scale, index=index)
         crop_x, crop_y, crop_w, crop_h = _compute_crop_box(source_w, source_h, ratio, target_w, target_h, center_x=center_x, center_y=center_y, scale=scale)
         frames.append({'frame': index, 'x': crop_x, 'y': crop_y, 'width': crop_w, 'height': crop_h, 'source_width': source_w, 'source_height': source_h, 'target_width': target_w, 'target_height': target_h, 'aspect_ratio': ratio, 'center_x': center_x, 'center_y': center_y, 'scale': scale})
-    return {'imageops_crop_bbox': {'type': 'bbox', 'coordinate_space': 'source', 'bbox': frames[0] if frames else None, 'frames': frames}}
+    return {'type': 'bbox', 'coordinate_space': 'source', 'bbox': frames[0] if frames else None, 'frames': frames}
+
+
 
 class ImageOpsCrop(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsCrop', display_name='〽️ Image Ops Crop', category='image/imageops', search_aliases=['crop', 'resize', 'reformat', 'format', 'recadrer', 'taille'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('aspect_ratio', options=['custom', '1:1', '3:4', '4:3', '16:9', '9:16'], default='1:1'), io.Int.Input('width', default=1024, min=1, max=8192, step=1), io.Int.Input('height', default=1024, min=1, max=8192, step=1), io.Boolean.Input('sync_dimensions', default=True, label_on='Linked', label_off='Free'), io.Float.Input('crop_center_x', default=0.5, min=0.0, max=1.0, step=0.001), io.Float.Input('crop_center_y', default=0.5, min=0.0, max=1.0, step=0.001), io.Float.Input('crop_scale', default=1.0, min=0.05, max=1.0, step=0.001), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', tooltip='Optional mask to crop with the image using identical geometry.', display_name='Mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsCrop', display_name='〽️ Image Ops Crop', category='image/imageops', search_aliases=['crop', 'resize', 'reformat', 'format', 'recadrer', 'taille'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('aspect_ratio', options=['custom', '1:1', '3:4', '4:3', '16:9', '9:16'], default='1:1'), io.Int.Input('width', default=1024, min=1, max=8192, step=1), io.Int.Input('height', default=1024, min=1, max=8192, step=1), io.Boolean.Input('sync_dimensions', default=True, label_on='Linked', label_off='Free'), io.Float.Input('crop_center_x', default=0.5, min=0.0, max=1.0, step=0.001), io.Float.Input('crop_center_y', default=0.5, min=0.0, max=1.0, step=0.001), io.Float.Input('crop_scale', default=1.0, min=0.05, max=1.0, step=0.001), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', tooltip='Optional mask to crop with the image using identical geometry.', display_name='Mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Custom('IMAGEOPS_BBOX').Output('bbox', display_name='bbox', tooltip='Per-frame crop geometry in source coordinates. Connect to Crop Stitch to place the result precisely instead of estimating it from a mask.')], hidden=[io.Hidden.unique_id])
 
     @classmethod
     def execute(cls, image=None, bypass=False, aspect_ratio='1:1', width=1024, height=1024, sync_dimensions=True, video=None, mask=None, crop_center_x=0.5, crop_center_y=0.5, crop_scale=1.0, unique_id=None, **kwargs):
@@ -67,13 +71,15 @@ class ImageOpsCrop(io.ComfyNode):
             return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_crop')
         if _is_noop_crop(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale):
             progress.finish()
-            metadata = _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
-            return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_crop', metadata=metadata)
+            bbox = _crop_bbox_payload(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
+            metadata = {'imageops_crop_bbox': bbox} if bbox is not None else None
+            return build_node_preview_result(source, (source, output_mask_source, bbox), prefix='imageops_crop', metadata=metadata)
         if input_mask is not None:
             result, output_mask = _apply_interactive_crop_resize_with_mask_pair(source, input_mask, width, height, aspect_ratio, center_x=crop_center_x, center_y=crop_center_y, scale=crop_scale)
         else:
             result = _apply_interactive_crop_resize(source, width, height, aspect_ratio, center_x=crop_center_x, center_y=crop_center_y, scale=crop_scale)
             output_mask = _apply_interactive_crop_resize(output_mask_source.unsqueeze(-1), width, height, aspect_ratio, center_x=crop_center_x, center_y=crop_center_y, scale=crop_scale, resize_mode='bilinear', antialias=True)[..., 0]
         progress.finish()
-        metadata = _crop_bbox_metadata(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
-        return build_node_preview_result(result, (result, output_mask), prefix='imageops_crop', metadata=metadata)
+        bbox = _crop_bbox_payload(source, width, height, aspect_ratio, crop_center_x, crop_center_y, crop_scale)
+        metadata = {'imageops_crop_bbox': bbox} if bbox is not None else None
+        return build_node_preview_result(result, (result, output_mask, bbox), prefix='imageops_crop', metadata=metadata)

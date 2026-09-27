@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-import io
+import io as _stdlib_io
 import json
 
 import numpy as np
@@ -13,6 +13,15 @@ from ._helpers import MEDIA_INPUT_TYPE, _hex_to_rgb01, _scalar, _select_media_te
 from comfy_api.latest import io
 from ._progress import start_progress
 from ._preview import build_node_preview_result
+
+# Reject an oversized paint overlay payload before base64-decoding it, rather than
+# decoding first and risking a large allocation or a PIL decompression bomb.
+_MAX_PAYLOAD_B64_CHARS = 32_000_000  # ~24 MB decoded
+
+# Reject an oversized/absurdly long overlay_layers payload before JSON-parsing it,
+# and cap how many layers get decoded regardless of how many the JSON claims.
+_MAX_OVERLAY_LAYERS_JSON_CHARS = 64_000_000
+_MAX_OVERLAY_LAYERS = 256
 
 
 def _blank_draw_base(width: int, height: int, bg_color: str) -> torch.Tensor:
@@ -75,9 +84,12 @@ def _decode_payload_rgba(
     if not raw:
         return blank
 
+    if len(raw) > _MAX_PAYLOAD_B64_CHARS:
+        return blank
+
     try:
         decoded = base64.b64decode(raw)
-        with Image.open(io.BytesIO(decoded)) as painter:
+        with Image.open(_stdlib_io.BytesIO(decoded)) as painter:
             overlay = painter.convert("RGBA")
             if bounds is not None:
                 x, y, w, h = bounds
@@ -115,13 +127,13 @@ def _iter_overlay_layers(overlay_data: str | None, overlay_layers: str | None):
     raw_layers = str(overlay_layers or "").strip()
     parsed_layers = False
     emitted = False
-    if raw_layers:
+    if raw_layers and len(raw_layers) <= _MAX_OVERLAY_LAYERS_JSON_CHARS:
         try:
             payload = json.loads(raw_layers)
             entries = payload.get("layers", []) if isinstance(payload, dict) else payload
             if isinstance(entries, list):
                 parsed_layers = True
-                for entry in entries:
+                for entry in entries[:_MAX_OVERLAY_LAYERS]:
                     enabled = True
                     opacity = 1.0
                     data = entry

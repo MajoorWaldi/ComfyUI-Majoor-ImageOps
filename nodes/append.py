@@ -7,6 +7,7 @@ import torch
 from ._helpers import MEDIA_INPUT_TYPE, _resize, _select_media_tensor
 from ._preview import build_node_preview_result
 from ._progress import start_progress
+from .core.video_io import extract_video_media, media_to_video
 _JOIN_FIT_MODES = ['strict', 'resize_to_first', 'pad_to_max']
 
 def _sorted_clip_inputs(inputs: dict[str, Any]) -> list[tuple[int, Any]]:
@@ -122,7 +123,7 @@ class ImageOpsAppend(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsAppend', display_name='〽️ Image Ops Append', category='image/imageops', search_aliases=['append', 'join', 'concat', 'concatenate', 'clips', 'sequence'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('fit_mode', options=['strict', 'resize_to_first', 'pad_to_max'], default='strict', tooltip='How to align two clips before concatenating their frame batches.'), io.String.Input('trims_json', default='{"version":1,"clips":[]}', multiline=False, tooltip='Managed by the Append preview controls.'), io.MultiType.Input('image_1', types=[io.Image, io.Video], display_name='Images/Video 1', optional=True, extra_dict={'forceInput': True}), io.MultiType.Input('image_2', types=[io.Image, io.Video], display_name='Images/Video 2', optional=True, extra_dict={'forceInput': True})], outputs=[io.Image.Output('image', display_name='image'), io.Int.Output('frame_count', display_name='frame_count'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsAppend', display_name='〽️ Image Ops Append', category='image/imageops', search_aliases=['append', 'join', 'concat', 'concatenate', 'clips', 'sequence'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('fit_mode', options=['strict', 'resize_to_first', 'pad_to_max'], default='strict', tooltip='How to align two clips before concatenating their frame batches.'), io.String.Input('trims_json', default='{"version":1,"clips":[]}', multiline=False, tooltip='Managed by the Append preview controls.'), io.MultiType.Input('image_1', types=[io.Image, io.Video], display_name='Images/Video 1', optional=True, extra_dict={'forceInput': True}), io.MultiType.Input('image_2', types=[io.Image, io.Video], display_name='Images/Video 2', optional=True, extra_dict={'forceInput': True})], outputs=[io.Image.Output('image', display_name='image'), io.Int.Output('frame_count', display_name='frame_count'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Video.Output('video', display_name='video', tooltip='Native VIDEO output. Carries the real audio/fps from the first connected VIDEO clip (not a plain IMAGE batch), if any.')], hidden=[io.Hidden.unique_id])
 
     @classmethod
     def execute(cls, bypass=False, fit_mode='strict', trims_json='{"version":1,"clips":[]}', unique_id=None, **inputs):
@@ -142,35 +143,39 @@ class ImageOpsAppend(io.ComfyNode):
         from .frame_range import _slice_audio_for_indices, _timeline_indices
         
         for clip_index, value in clips:
-            is_media = isinstance(value, ImageOpsMedia)
+            video_media = extract_video_media(value)
+            if isinstance(value, ImageOpsMedia):
+                is_media = True
+                clip_audio, clip_fps, clip_sample_rate = value.audio, value.fps, getattr(value, 'sample_rate', 44100)
+            elif video_media is not None:
+                is_media = True
+                _, clip_fps, clip_audio, clip_sample_rate = video_media
+            else:
+                is_media = False
+                clip_audio, clip_fps, clip_sample_rate = None, 24.0, 44100
             tensor = _select_media_tensor(value, None).float()
             start, end = trims.get(clip_index, (0, -1))
-            
+
             source_count = int(tensor.shape[0])
             trimmed = _trim_clip(tensor, start, end)
             tensors.append(trimmed)
-            
-            clip_fps = 24.0
-            clip_sample_rate = 44100
-            
+
             if is_media:
-                clip_fps = value.fps
-                clip_sample_rate = getattr(value, 'sample_rate', 44100)
                 if not has_media:
                     fps = clip_fps
                     sample_rate = clip_sample_rate
                 has_media = True
-                
-                if value.audio is not None and clip_fps > 0:
+
+                if clip_audio is not None and clip_fps > 0:
                     indices = _timeline_indices(source_count, start, end)
-                    trimmed_audio = _slice_audio_for_indices(value.audio, indices, clip_fps, clip_sample_rate)
+                    trimmed_audio = _slice_audio_for_indices(clip_audio, indices, clip_fps, clip_sample_rate)
                     audio_list.append(trimmed_audio)
                 else:
                     audio_list.append(None)
             else:
                 audio_list.append(None)
             
-            clip_metadata.append({'slot': int(clip_index), 'source_count': source_count, 'trimmed_count': int(trimmed.shape[0]), 'start': int(start), 'end': int(end)})
+            clip_metadata.append({'slot': int(clip_index), 'source_count': source_count, 'trimmed_count': int(trimmed.shape[0]), 'start': int(start), 'end': int(end), 'sample_rate': int(clip_sample_rate)})
         max_channels = max((int(t.shape[3]) for t in tensors))
         tensors = [_coerce_channels(t, max_channels) for t in tensors]
         if bool(bypass) or len(tensors) == 1:
@@ -185,6 +190,17 @@ class ImageOpsAppend(io.ComfyNode):
             out_tensor = torch.cat(aligned, dim=0)
         if has_media:
             # Concatenate audio
+            mismatched_slots = [
+                meta['slot'] for meta, audio in zip(clip_metadata, audio_list)
+                if audio is not None and meta['sample_rate'] != sample_rate
+            ]
+            if mismatched_slots:
+                raise ValueError(
+                    f'ImageOps Append cannot concatenate audio at different sample rates without resampling. '
+                    f'Output sample rate is {sample_rate} Hz (from the first clip); '
+                    f'clip slot(s) {mismatched_slots} use a different sample rate. '
+                    f'Resample those clips to {sample_rate} Hz before Append, or trim out their audio.'
+                )
             out_audio = None
             if any(a is not None for a in audio_list):
                 chunks = []
@@ -200,10 +216,12 @@ class ImageOpsAppend(io.ComfyNode):
                 if chunks:
                     out_audio = torch.cat(chunks, dim=-1)
             out = ImageOpsMedia(frames=out_tensor, fps=fps, audio=out_audio, sample_rate=sample_rate)
+            video_out = media_to_video(out_tensor, fps, out_audio, sample_rate)
         else:
             out = out_tensor
+            video_out = media_to_video(out_tensor, 24.0, None, 44100)
         progress.finish()
         frame_count = int(out_tensor.shape[0])
         height = int(out_tensor.shape[1])
         width = int(out_tensor.shape[2])
-        return build_node_preview_result(out_tensor, (out, frame_count, width, height), prefix='imageops_append', metadata={'imageops_append_frame_count': [frame_count], 'imageops_append_clip_counts': [clip_metadata]})
+        return build_node_preview_result(out_tensor, (out, frame_count, width, height, video_out), prefix='imageops_append', metadata={'imageops_append_frame_count': [frame_count], 'imageops_append_clip_counts': [clip_metadata]})

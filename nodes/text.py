@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -21,19 +23,37 @@ from ._progress import start_progress
 
 _ALIGN = ["left", "center", "right"]
 
+# User-supplied fonts are only ever loaded from this directory, by bare filename.
+# font_path never resolves an arbitrary filesystem path.
+_FONTS_DIR = (Path(__file__).resolve().parent.parent / "fonts").resolve()
 
-def _load_font(font_path: str, size: int):
+
+def _resolve_user_font_path(font_path: str) -> str | None:
+    raw = str(font_path or "").strip()
+    if not raw:
+        return None
+    name = os.path.basename(raw)
+    if not name or name != raw:
+        return None
+    candidate = (_FONTS_DIR / name).resolve()
+    if _FONTS_DIR not in candidate.parents:
+        return None
+    return str(candidate) if candidate.is_file() else None
+
+
+@lru_cache(maxsize=128)
+def _load_font_cached(path: str | None, size: int):
     target_size = max(1, int(size))
-    path = str(font_path or "").strip()
-    candidates = [path] if path else []
-    candidates += ["arial.ttf", "DejaVuSans.ttf"]
-    for candidate in candidates:
+    for candidate in ([path] if path else []) + ["arial.ttf", "DejaVuSans.ttf"]:
         try:
-            if candidate and (os.path.isfile(candidate) or candidate.endswith(".ttf")):
-                return ImageFont.truetype(candidate, target_size)
+            return ImageFont.truetype(candidate, target_size)
         except Exception:
             continue
     return ImageFont.load_default()
+
+
+def _load_font(font_path: str, size: int, supersample: int = 1):
+    return _load_font_cached(_resolve_user_font_path(font_path), max(1, int(size)) * max(1, int(supersample)))
 
 
 def _rgba_tuple(color: str, opacity: float) -> tuple[int, int, int, int]:
@@ -67,13 +87,15 @@ def _draw_text_overlay(
     stroke_width: int,
     stroke_color: str,
     font_path: str,
+    supersample: int = 1,
 ) -> torch.Tensor:
     if not str(text or ""):
         return source
     device = source.device
     dtype = source.dtype
     out = []
-    font = _load_font(font_path, font_size)
+    ss = max(1, int(supersample))
+    font = _load_font(font_path, font_size, supersample=ss)
     fill = _rgba_tuple(color, opacity)
     stroke_fill = _rgba_tuple(stroke_color, opacity)
     normalized_align = str(align or "left").strip().lower()
@@ -83,18 +105,21 @@ def _draw_text_overlay(
     for frame in source:
         # frame is [H, W, C]
         height, width = int(frame.shape[0]), int(frame.shape[1])
-        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        render_w, render_h = width * ss, height * ss
+        overlay = Image.new("RGBA", (render_w, render_h), (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
-        px = float(x) * max(1, width - 1)
-        py = float(y) * max(1, height - 1)
+        px = float(x) * max(1, width - 1) * ss
+        py = float(y) * max(1, height - 1) * ss
+        line_spacing_ss = int(line_spacing) * ss
+        stroke_width_ss = max(0, int(stroke_width)) * ss
         lines = str(text).splitlines() or [str(text)]
         try:
             bbox = draw.multiline_textbbox(
                 (0, 0),
                 "\n".join(lines),
                 font=font,
-                spacing=int(line_spacing),
-                stroke_width=max(0, int(stroke_width)),
+                spacing=line_spacing_ss,
+                stroke_width=stroke_width_ss,
             )
             text_w = bbox[2] - bbox[0]
         except Exception:
@@ -108,11 +133,13 @@ def _draw_text_overlay(
             "\n".join(lines),
             font=font,
             fill=fill,
-            spacing=int(line_spacing),
+            spacing=line_spacing_ss,
             align=normalized_align,
-            stroke_width=max(0, int(stroke_width)),
+            stroke_width=stroke_width_ss,
             stroke_fill=stroke_fill,
         )
+        if ss > 1:
+            overlay = overlay.resize((width, height), Image.LANCZOS)
         overlay_t = _pil_rgba_to_tensor(overlay, device, dtype)
         alpha = overlay_t[..., 3:4]
         rgb = frame[..., :3]
@@ -136,6 +163,7 @@ class ImageOpsText(io.ComfyNode):
                 io.Float.Input("x", default=0.5, min=-2.0, max=3.0, step=0.001),
                 io.Float.Input("y", default=0.5, min=-2.0, max=3.0, step=0.001),
                 io.Int.Input("font_size", default=64, min=1, max=512, step=1),
+                io.Int.Input("supersample", default=1, min=1, max=4, step=1, tooltip="Render text at N× resolution and downsample for smoother edges, especially at small sizes or with a stroke. 1 = off (previous default)."),
                 io.Color.Input("color", default="#ffffff"),
                 io.Float.Input("opacity", default=1.0, min=0.0, max=1.0, step=0.01),
                 io.Combo.Input("align", options=_ALIGN, default="center"),
@@ -162,6 +190,7 @@ class ImageOpsText(io.ComfyNode):
         x: float = 0.5,
         y: float = 0.5,
         font_size: int = 64,
+        supersample: int = 1,
         color: str = "#ffffff",
         opacity: float = 1.0,
         align: str = "center",
@@ -195,6 +224,7 @@ class ImageOpsText(io.ComfyNode):
             _scalar(stroke_width, int),
             stroke_color,
             str(font_path or ""),
+            supersample=_scalar(supersample, int),
         )
         result = _apply_mask_to_image(source, processed, effect_mask) if effect_mask is not None else processed
         progress.finish()

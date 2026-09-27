@@ -111,6 +111,11 @@ if ComfyExtension is not object:
             register_imageops_routes()
         except ImportError:
             pass
+        try:
+            from .node_replacements import register_node_replacements
+            await register_node_replacements()
+        except ImportError:
+            pass
         return MajoorImageOpsExtension()
 
 # Fallback mappings for tests or extreme edge cases expecting legacy dictionary

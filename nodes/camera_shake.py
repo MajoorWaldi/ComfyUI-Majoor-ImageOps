@@ -59,7 +59,7 @@ class ImageOpsCameraShake(io.ComfyNode):
 
     @classmethod
     def execute(cls, image=None, bypass=False, translate_px=12.0, rotate_deg=1.5, zoom=0.03, smoothing=0.65, shake_frequency=1.0, frame_length=24, fps=12.0, seed=12345, filter='bilinear', fill_mode='mirror', fill_color='#000000', invert_mask=False, video=None, mask=None, unique_id=None, **kwargs):
-        source = _select_media_tensor(image, video).float().clamp(0.0, 1.0)
+        source = _select_media_tensor(image, video).float()
         preview_fps = max(1.0, _scalar(fps, float))
         progress = start_progress(unique_id=unique_id)
         if isinstance(bypass, bool) and bypass:

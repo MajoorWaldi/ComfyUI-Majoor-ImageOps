@@ -79,10 +79,12 @@ def _make_fill_background(source: torch.Tensor, fill_mode, fill_color) -> torch.
     return background.to(device=source.device, dtype=source.dtype)
 
 def _composite_fill(result: torch.Tensor, coverage_mask: torch.Tensor, background: torch.Tensor | None) -> torch.Tensor:
+    # RGB (fg/bg/out) is intentionally left unclamped: scene-linear/HDR values must
+    # survive the fill composite. Alpha (fg_alpha/bg_alpha/out_alpha) stays canonical [0,1].
     if background is None:
         return result
     fg = result.float()
-    bg = background.float().clamp(0.0, 1.0)
+    bg = background.float()
     blend = coverage_mask.unsqueeze(-1).float().clamp(0.0, 1.0)
     if fg.shape[-1] >= 4:
         fg_alpha = torch.maximum(fg[..., 3:4].clamp(0.0, 1.0), blend)
@@ -92,7 +94,7 @@ def _composite_fill(result: torch.Tensor, coverage_mask: torch.Tensor, backgroun
         safe_alpha = torch.where(out_alpha > EPSILON, out_alpha, torch.ones_like(out_alpha))
         out_rgb = torch.where(out_alpha > EPSILON, premul_rgb / safe_alpha, torch.zeros_like(premul_rgb))
         return torch.cat([out_rgb, out_alpha.clamp(0.0, 1.0)], dim=-1).to(device=result.device, dtype=result.dtype)
-    return (fg * blend + bg * (1.0 - blend)).clamp(0.0, 1.0).to(device=result.device, dtype=result.dtype)
+    return (fg * blend + bg * (1.0 - blend)).to(device=result.device, dtype=result.dtype)
 
 def _build_affine_theta_batch(B: int, translate_x, translate_y, rotate_deg, scale, H: int, W: int, device: torch.device) -> torch.Tensor:
     """Build a [B, 2, 3] batch of inverse affine matrices for affine_grid / grid_sample.
@@ -134,8 +136,14 @@ def _transform_batch_affine(source: torch.Tensor, filter_mode, translate_x, tran
     theta = _build_affine_theta_batch(B, translate_x, translate_y, rotate_deg, scale, H, W, d)
     grid = torch.nn.functional.affine_grid(theta, size=(B, C, H, W), align_corners=False)
     x = source.float().permute(0, 3, 1, 2)
-    out = torch.nn.functional.grid_sample(x, grid, mode=mode, padding_mode=padding_mode, align_corners=False)
-    return out.permute(0, 2, 3, 1).clamp(0.0, 1.0).to(device=d, dtype=dt)
+    sampled = torch.nn.functional.grid_sample(x, grid, mode=mode, padding_mode=padding_mode, align_corners=False)
+    out = sampled.permute(0, 2, 3, 1).to(device=d, dtype=dt)
+    # RGB is intentionally left unclamped: scene-linear/HDR values must survive the
+    # sample, and a bicubic filter can also legitimately overshoot [0,1] slightly at
+    # high-contrast edges (ringing). Alpha stays canonical [0,1] regardless.
+    if out.shape[-1] >= 4:
+        out = torch.cat([out[..., :3], out[..., 3:4].clamp(0.0, 1.0)], dim=-1)
+    return out
 
 def _transform_mask_affine(mask: torch.Tensor, filter_mode, translate_x, translate_y, rotate_deg, scale, device: torch.device, dtype: torch.dtype, padding_mode: str='zeros') -> torch.Tensor:
     """Batched GPU affine transform for a [B, H, W] mask tensor."""
@@ -154,7 +162,7 @@ def _transform_mask_affine(mask: torch.Tensor, filter_mode, translate_x, transla
 def _transform_masked_source(source: torch.Tensor, input_mask: torch.Tensor, filter_mode, translate_x, translate_y, rotate_deg, scale, progress=None, padding_mode: str='zeros') -> tuple[torch.Tensor, torch.Tensor]:
     if source.shape[0] != input_mask.shape[0]:
         raise ValueError(f'ImageOpsTransform: source batch ({source.shape[0]}) and mask batch ({input_mask.shape[0]}) must match. Broadcasting would produce incorrect per-frame transforms.')
-    premult_rgb = source[..., :3].float().clamp(0.0, 1.0) * input_mask.unsqueeze(-1)
+    premult_rgb = source[..., :3].float() * input_mask.unsqueeze(-1)
     has_alpha = source.shape[-1] >= 4
     if has_alpha:
         combined = torch.cat([premult_rgb, source[..., 3:4].float().clamp(0.0, 1.0)], dim=-1)

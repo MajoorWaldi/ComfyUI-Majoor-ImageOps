@@ -116,7 +116,11 @@ def _spherize_frame(frame: torch.Tensor, mode: str, strength: float, invert: boo
         safe_edge = 'border'
     img = frame.float().permute(0, 3, 1, 2)
     warped = F.grid_sample(img, grid, mode=safe_filter, padding_mode=safe_edge, align_corners=True)
-    warped = warped.permute(0, 2, 3, 1).clamp(0.0, 1.0).to(device=device, dtype=dtype)
+    warped = warped.permute(0, 2, 3, 1).to(device=device, dtype=dtype)
+    # RGB is intentionally left unclamped (scene-linear/HDR survives the warp);
+    # alpha, if present, stays canonical [0,1].
+    if warped.shape[-1] >= 4:
+        warped = torch.cat([warped[..., :3], warped[..., 3:4].clamp(0.0, 1.0)], dim=-1)
     if m not in ('latlong', 'unlatlong'):
         r2 = grid_x * grid_x + grid_y * grid_y
         circle = (r2 <= 1.0).to(dtype=warped.dtype)
@@ -173,7 +177,7 @@ class ImageOpsSpherize(io.ComfyNode):
                 warped_mask_frame = _spherize_frame(mask_frame, mode=frame_mode, strength=frame_strength, invert=frame_invert, filter_mode=frame_filter, edge_mode='zeros')
                 warped_masks.append(warped_mask_frame[..., 0])
             progress.update()
-        out = torch.cat(frames, dim=0).clamp(0.0, 1.0)
+        out = torch.cat(frames, dim=0)
         H, W = (out.shape[1], out.shape[2])
         ys = torch.linspace(-1.0, 1.0, H, device=out.device, dtype=torch.float32)
         xs = torch.linspace(-1.0, 1.0, W, device=out.device, dtype=torch.float32)

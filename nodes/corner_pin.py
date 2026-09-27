@@ -63,7 +63,7 @@ def _composite_fill(result: torch.Tensor, coverage_mask: torch.Tensor, backgroun
     if background is None:
         return result
     fg = result.float()
-    bg = background.float().clamp(0.0, 1.0)
+    bg = background.float()
     blend = coverage_mask.unsqueeze(-1).float().clamp(0.0, 1.0)
     if fg.shape[-1] >= 4:
         fg_alpha = torch.maximum(fg[..., 3:4].clamp(0.0, 1.0), blend)
@@ -73,7 +73,7 @@ def _composite_fill(result: torch.Tensor, coverage_mask: torch.Tensor, backgroun
         safe_alpha = torch.where(out_alpha > EPSILON, out_alpha, torch.ones_like(out_alpha))
         out_rgb = torch.where(out_alpha > EPSILON, premul_rgb / safe_alpha, torch.zeros_like(premul_rgb))
         return torch.cat([out_rgb, out_alpha.clamp(0.0, 1.0)], dim=-1).to(device=result.device, dtype=result.dtype)
-    return (fg * blend + bg * (1.0 - blend)).clamp(0.0, 1.0).to(device=result.device, dtype=result.dtype)
+    return (fg * blend + bg * (1.0 - blend)).to(device=result.device, dtype=result.dtype)
 
 def _build_corner_pin_grid(height: int, width: int, Hinv: torch.Tensor, supersample: int=1) -> tuple[torch.Tensor, torch.Tensor]:
     batch = int(Hinv.shape[0])
@@ -151,7 +151,7 @@ class ImageOpsCornerPin(io.ComfyNode):
 
     @classmethod
     def execute(cls, image=None, bypass=False, tl_x=0.0, tl_y=0.0, tr_x=1.0, tr_y=0.0, bl_x=0.0, bl_y=1.0, br_x=1.0, br_y=1.0, filter='bilinear', supersample=1, fill_mode='transparent', fill_color='#000000', edge_mode='transparent', invert_mask=False, video=None, unique_id=None, **kwargs):
-        source = _select_media_tensor(image, video).float().clamp(0.0, 1.0)
+        source = _select_media_tensor(image, video).float()
         batch = int(source.shape[0])
         height = int(source.shape[1])
         width = int(source.shape[2])
@@ -184,8 +184,8 @@ class ImageOpsCornerPin(io.ComfyNode):
             warped_nchw.index_copy_(0, index_tensor, group_warped)
             valid_nchw.index_copy_(0, index_tensor, group_valid)
             progress.update(len(indices))
-        result = warped_nchw.permute(0, 2, 3, 1).contiguous().clamp(0.0, 1.0)
-        result = _unpremultiply_alpha_after_warp(result).clamp(0.0, 1.0)
+        result = warped_nchw.permute(0, 2, 3, 1).contiguous()
+        result = _unpremultiply_alpha_after_warp(result)
         mask = valid_nchw[:, 0, :, :].clamp(0.0, 1.0)
         if channels >= 4:
             mask = (mask * result[..., 3].clamp(0.0, 1.0)).clamp(0.0, 1.0)

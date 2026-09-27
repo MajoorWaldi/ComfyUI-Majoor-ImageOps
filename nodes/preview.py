@@ -11,10 +11,17 @@ def _ensure_dir(p: str):
     os.makedirs(p, exist_ok=True)
     return p
 
-def save_temp_images(images, prefix='imageops', ext='png', quality=95):
+# Cap how many frames get written to disk per execution. Without this, previewing
+# a long IMAGE batch (e.g. a video's frames) writes one temp PNG per frame and
+# never cleans them up, accumulating unbounded temp-dir files across re-runs.
+_MAX_PREVIEW_FRAMES = 16
+
+def save_temp_images(images, prefix='imageops', ext='png', quality=95, max_frames=_MAX_PREVIEW_FRAMES):
     temp_dir = _ensure_dir(folder_paths.get_temp_directory())
     subfolder = ''
     pil_list = _tensor_batch_to_pil_list(images)
+    if max_frames is not None and len(pil_list) > max_frames:
+        pil_list = pil_list[:max(1, int(max_frames))]
     ui_items = []
     for idx, img in enumerate(pil_list):
         name = f'{prefix}_{uuid.uuid4().hex[:10]}_{idx:03d}.{ext}'
@@ -32,9 +39,13 @@ def save_temp_images(images, prefix='imageops', ext='png', quality=95):
         ui_items.append({'filename': name, 'subfolder': subfolder, 'type': 'temp'})
     return ui_items
 
-def save_temp_animated(images, prefix='imageops_anim', ext='webp', fps=12, quality=80):
+_MAX_PREVIEW_ANIMATED_FRAMES = 240
+
+def save_temp_animated(images, prefix='imageops_anim', ext='webp', fps=12, quality=80, max_frames=_MAX_PREVIEW_ANIMATED_FRAMES):
     temp_dir = _ensure_dir(folder_paths.get_temp_directory())
     pil_list = _tensor_batch_to_pil_list(images)
+    if max_frames is not None and len(pil_list) > max_frames:
+        pil_list = pil_list[:max(1, int(max_frames))]
     if not pil_list:
         return None
     name = f'{prefix}_{uuid.uuid4().hex[:10]}.{ext}'

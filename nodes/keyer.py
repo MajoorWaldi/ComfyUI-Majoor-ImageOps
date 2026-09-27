@@ -71,6 +71,25 @@ def _apply_matte_gain_and_blur(matte: torch.Tensor, gain, blur) -> torch.Tensor:
     return _blur_mask(boosted, blur_radius, sigma, blur_type="gaussian").clamp(0.0, 1.0)
 
 
+def _apply_despill(rgb: torch.Tensor, screen_rgb: tuple[float, float, float], amount) -> torch.Tensor:
+    """Suppress screen-color spill by limiting the dominant screen channel to the
+    average of the other two, blended by amount. Not modulated by the matte:
+    despill fixes color contamination on kept foreground pixels, wherever it is."""
+    if _scalar(amount, float) <= 0.0:
+        return rgb
+    dominant = int(max(range(3), key=lambda i: screen_rgb[i]))
+    others = [i for i in range(3) if i != dominant]
+    channel = rgb[..., dominant]
+    other_avg = (rgb[..., others[0]] + rgb[..., others[1]]) * 0.5
+    suppressed = torch.minimum(channel, other_avg)
+    strength = _scalar(amount, float)
+    new_channel = channel * (1.0 - strength) + suppressed * strength
+    return torch.cat([
+        new_channel.unsqueeze(-1) if i == dominant else rgb[..., i:i + 1]
+        for i in range(3)
+    ], dim=-1)
+
+
 def _apply_keyer(
     image: torch.Tensor,
     mode="color",
@@ -81,6 +100,7 @@ def _apply_keyer(
     gain=1.0,
     blur=0.0,
     invert=False,
+    despill=0.0,
     mask=None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     if image is None:
@@ -111,11 +131,15 @@ def _apply_keyer(
     if _scalar(invert, bool):
         matte = 1.0 - matte
 
+    rgb = source[..., :3]
+    if mode_value not in ("luma", "luminance"):
+        rgb = _apply_despill(rgb, _hex_to_rgb(key_color), despill)
+
     if source.shape[-1] >= 4:
         alpha = (source[..., 3] * matte).unsqueeze(-1)
-        out = torch.cat([source[..., :3], alpha, source[..., 4:]], dim=-1) if source.shape[-1] > 4 else torch.cat([source[..., :3], alpha], dim=-1)
+        out = torch.cat([rgb, alpha, source[..., 4:]], dim=-1) if source.shape[-1] > 4 else torch.cat([rgb, alpha], dim=-1)
     else:
-        out = torch.cat([source[..., :3], matte.unsqueeze(-1)], dim=-1)
+        out = torch.cat([rgb, matte.unsqueeze(-1)], dim=-1)
     return out.to(dtype=image.dtype), matte.to(dtype=image.dtype)
 
 
@@ -135,6 +159,7 @@ class ImageOpsKeyer(io.ComfyNode):
                 io.Float.Input("softness", default=0.10, min=0.0, max=1.0, step=0.01),
                 io.Float.Input("gain", default=1.0, min=0.0, max=4.0, step=0.01),
                 io.Float.Input("blur", default=0.0, min=0.0, max=64.0, step=0.1),
+                io.Float.Input("despill", default=0.0, min=0.0, max=1.0, step=0.01, tooltip="Suppress screen-color spill on the kept foreground. Limits the dominant screen channel (from Key Color) to the average of the other two."),
                 io.Boolean.Input("invert", default=False),
                 io.Boolean.Input("invert_mask", default=False),
                 io.MultiType.Input("image", types=[io.Image, io.Video], optional=True, display_name="Images/Video", tooltip="Images/Video input. Accepts IMAGE batches and VIDEO frame sources."),
@@ -158,6 +183,7 @@ class ImageOpsKeyer(io.ComfyNode):
         softness: float = 0.1,
         gain: float = 1.0,
         blur: float = 0.0,
+        despill: float = 0.0,
         invert: bool = False,
         invert_mask: bool = False,
         image=None,
@@ -173,6 +199,6 @@ class ImageOpsKeyer(io.ComfyNode):
             alpha = source[..., 3] if source.shape[-1] >= 4 else torch.ones(source.shape[:3], device=source.device, dtype=source.dtype)
             progress.finish()
             return build_node_preview_result(source, (source, alpha), prefix="imageops_keyer")
-        result, matte = _apply_keyer(source, mode, key_color, key_colors, tolerance, softness, gain, blur, invert, effect_mask)
+        result, matte = _apply_keyer(source, mode, key_color, key_colors, tolerance, softness, gain, blur, invert, despill, effect_mask)
         progress.finish()
         return build_node_preview_result(result, (result, matte), prefix="imageops_keyer")

@@ -4,7 +4,7 @@ import torch
 from ._helpers import _hex_to_rgb01, _resolve_aspect_ratio, _scalar, ASPECT_RATIO_PRESETS
 from ._preview import build_node_preview_result
 from ._progress import start_progress
-_MODES = ['constant', 'checkerboard']
+_MODES = ['constant', 'checkerboard', 'grid']
 
 def _constant_image(batch: int, height: int, width: int, color: str, alpha: float) -> torch.Tensor:
     rgb = torch.tensor(_hex_to_rgb01(color), dtype=torch.float32).view(1, 1, 1, 3)
@@ -24,11 +24,25 @@ def _checkerboard_image(batch: int, height: int, width: int, color_a: str, color
     a = torch.full((batch, height, width, 1), float(alpha), dtype=torch.float32).clamp(0.0, 1.0)
     return torch.cat([rgb, a], dim=-1)
 
+def _grid_image(batch: int, height: int, width: int, color: str, color_b: str, alpha: float, tile_size: int, offset_x: int, offset_y: int) -> torch.Tensor:
+    tile = max(1, int(tile_size))
+    line_width = max(1, tile // 32)
+    yy = torch.remainder(torch.arange(height, dtype=torch.int64).view(height, 1) + int(offset_y), tile)
+    xx = torch.remainder(torch.arange(width, dtype=torch.int64).view(1, width) + int(offset_x), tile)
+    is_line = ((yy < line_width) | (xx < line_width)).to(torch.float32).view(1, height, width, 1)
+    rgb_bg = torch.tensor(_hex_to_rgb01(color_b), dtype=torch.float32).view(1, 1, 1, 3)
+    rgb_line = torch.tensor(_hex_to_rgb01(color), dtype=torch.float32).view(1, 1, 1, 3)
+    rgb = rgb_bg * (1.0 - is_line) + rgb_line * is_line
+    rgb = rgb.expand(batch, height, width, 3)
+    a = torch.full((batch, height, width, 1), float(alpha), dtype=torch.float32).clamp(0.0, 1.0)
+    return torch.cat([rgb, a], dim=-1)
+
+
 class ImageOpsConstant(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsConstant', display_name='〽️ Image Ops Constant', category='image/imageops', search_aliases=['constant', 'color', 'source', 'checker'], inputs=[io.Combo.Input('mode', options=['constant', 'checkerboard'], default='constant'), io.Int.Input('width', default=1024, min=1, max=8192, step=1), io.Int.Input('height', default=1024, min=1, max=8192, step=1), io.Combo.Input('aspect_ratio', options=['custom', '1:1', '3:4', '4:3', '16:9', '9:16'], default='custom'), io.Int.Input('frame_count', default=1, min=1, max=4096, step=1), io.Color.Input('color', default='#ffffff'), io.Color.Input('color_b', default='#000000'), io.Float.Input('alpha', default=1.0, min=0.0, max=1.0, step=0.01), io.Int.Input('tile_size', default=64, min=1, max=2048, step=1), io.Int.Input('offset_x', default=0, min=-8192, max=8192, step=1), io.Int.Input('offset_y', default=0, min=-8192, max=8192, step=1)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Int.Output('frame_count', display_name='frame_count')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsConstant', display_name='〽️ Image Ops Constant', category='image/imageops', search_aliases=['constant', 'color', 'source', 'checker'], inputs=[io.Combo.Input('mode', options=_MODES, default='constant', tooltip='grid: alignment/graph-paper lines using tile_size as spacing.'), io.Int.Input('width', default=1024, min=1, max=8192, step=1), io.Int.Input('height', default=1024, min=1, max=8192, step=1), io.Combo.Input('aspect_ratio', options=['custom', '1:1', '3:4', '4:3', '16:9', '9:16'], default='custom'), io.Int.Input('frame_count', default=1, min=1, max=4096, step=1), io.Color.Input('color', default='#ffffff'), io.Color.Input('color_b', default='#000000'), io.Float.Input('alpha', default=1.0, min=0.0, max=1.0, step=0.01), io.Int.Input('tile_size', default=64, min=1, max=2048, step=1), io.Int.Input('offset_x', default=0, min=-8192, max=8192, step=1), io.Int.Input('offset_y', default=0, min=-8192, max=8192, step=1)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Int.Output('frame_count', display_name='frame_count')], hidden=[io.Hidden.unique_id])
 
     @classmethod
     def execute(cls, mode='constant', width=1024, height=1024, aspect_ratio='custom', frame_count=None, frame_length=None, batch_size=None, color='#ffffff', color_b='#000000', alpha=1.0, tile_size=64, offset_x=0, offset_y=0, unique_id=None, **kwargs):
@@ -52,6 +66,8 @@ class ImageOpsConstant(io.ComfyNode):
         check_budget(batch, out_h, out_w, 4, multiplier=1.5, label='ImageOps Constant')
         if normalized_mode == 'checkerboard':
             image = _checkerboard_image(batch, out_h, out_w, color, color_b, opacity, _scalar(tile_size, int), _scalar(offset_x, int), _scalar(offset_y, int))
+        elif normalized_mode == 'grid':
+            image = _grid_image(batch, out_h, out_w, color, color_b, opacity, _scalar(tile_size, int), _scalar(offset_x, int), _scalar(offset_y, int))
         else:
             image = _constant_image(batch, out_h, out_w, color, opacity)
         mask = image[..., 3].clamp(0.0, 1.0)

@@ -52,6 +52,19 @@ def _bbox_from_mask(mask: torch.Tensor, frame_index: int, source_w: int, source_
     y1 = int(ys.max().item()) + 1
     return (x0, y0, max(1, x1 - x0), max(1, y1 - y0))
 
+def _dilate_erode_mask(mask: torch.Tensor, amount: int) -> torch.Tensor:
+    """Grow (amount > 0) or shrink (amount < 0) the stitch mask before feathering."""
+    radius = abs(int(amount))
+    if radius <= 0:
+        return mask
+    kernel = radius * 2 + 1
+    x = mask.unsqueeze(1)
+    if amount > 0:
+        x = torch.nn.functional.max_pool2d(x, kernel_size=kernel, stride=1, padding=radius)
+    else:
+        x = -torch.nn.functional.max_pool2d(-x, kernel_size=kernel, stride=1, padding=radius)
+    return x.squeeze(1).clamp(0.0, 1.0)
+
 def _blur_mask(mask: torch.Tensor, feather: int) -> torch.Tensor:
     radius = max(0, int(feather))
     if radius <= 0:
@@ -60,6 +73,26 @@ def _blur_mask(mask: torch.Tensor, feather: int) -> torch.Tensor:
     x = mask.unsqueeze(1)
     x = torch.nn.functional.avg_pool2d(x, kernel_size=kernel, stride=1, padding=radius)
     return x.squeeze(1).clamp(0.0, 1.0)
+
+def _edge_color_match(original_region: torch.Tensor, crop_rgb: torch.Tensor, strength: float) -> torch.Tensor:
+    """Bias the patch's RGB so its border ring's average color matches the
+    surrounding original, hiding small color mismatches at the seam."""
+    if strength <= 0.0:
+        return crop_rgb
+    h, w = crop_rgb.shape[0], crop_rgb.shape[1]
+    ring_width = max(1, min(h, w) // 8)
+    if h > 2 * ring_width and w > 2 * ring_width:
+        ring = torch.ones((h, w), device=crop_rgb.device, dtype=crop_rgb.dtype)
+        ring[ring_width:h - ring_width, ring_width:w - ring_width] = 0.0
+    else:
+        ring = torch.ones((h, w), device=crop_rgb.device, dtype=crop_rgb.dtype)
+    ring = ring.unsqueeze(-1)
+    denom = ring.sum().clamp_min(1.0)
+    original_mean = (original_region[..., :3] * ring).sum(dim=(0, 1)) / denom
+    crop_mean = (crop_rgb * ring).sum(dim=(0, 1)) / denom
+    bias = (original_mean - crop_mean) * strength
+    return crop_rgb + bias
+
 
 def _match_channels(image: torch.Tensor, channels: int) -> torch.Tensor:
     current = int(image.shape[-1])
@@ -76,12 +109,12 @@ class ImageOpsCropStitch(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsCropStitch', display_name='〽️ Image Ops Crop Stitch', category='image/imageops', search_aliases=['crop stitch', 'stitch', 'restitch', 'reassemble', 'recoller', 'paste crop'], inputs=[io.MultiType.Input('original', types=[io.Image, io.Video], tooltip='Original image/video before Resize/Crop.', display_name='Original'), io.MultiType.Input('crop', types=[io.Image, io.Video], tooltip='Edited cropped image/video to stitch back.', display_name='Edited Crop'), io.Boolean.Input('bypass', default=False), io.Int.Input('feather', default=0, min=0, max=128, step=1, tooltip='Softens the crop mask edge before compositing.'), io.Mask.Input('crop_mask', tooltip='Source-space mask from ImageOps Resize/Crop.', display_name='Crop Mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsCropStitch', display_name='〽️ Image Ops Crop Stitch', category='image/imageops', search_aliases=['crop stitch', 'stitch', 'restitch', 'reassemble', 'recoller', 'paste crop'], inputs=[io.MultiType.Input('original', types=[io.Image, io.Video], tooltip='Original image/video before Resize/Crop.', display_name='Original'), io.MultiType.Input('crop', types=[io.Image, io.Video], tooltip='Edited cropped image/video to stitch back.', display_name='Edited Crop'), io.Boolean.Input('bypass', default=False), io.Int.Input('feather', default=0, min=0, max=128, step=1, tooltip='Softens the crop mask edge before compositing.'), io.Int.Input('edge_grow', default=0, min=-64, max=64, step=1, tooltip='Grow (positive) or shrink (negative) the stitched patch edge before feathering. Applied before feather.'), io.Float.Input('edge_color_match', default=0.0, min=0.0, max=1.0, step=0.01, tooltip="Bias the patch's color so its border ring matches the surrounding original, hiding small color mismatches at the seam. 0 = off."), io.Mask.Input('crop_mask', tooltip='Source-space mask from ImageOps Resize/Crop.', display_name='Crop Mask', optional=True), io.Custom('IMAGEOPS_BBOX').Input('crop_bbox', optional=True, display_name='Crop Bbox', tooltip='Optional bbox from ImageOps Crop. When connected, it places the patch precisely; Crop Mask still controls the blend edge. Without it, placement is estimated from Crop Mask alone.')], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
 
     @classmethod
-    def execute(cls, original, crop, bypass=False, feather=0, crop_mask=None, crop_bbox=None, unique_id=None, **kwargs):
-        original = _coerce_media_to_tensor(original, 'original').float().clamp(0.0, 1.0)
-        crop = _coerce_media_to_tensor(crop, 'crop').float().clamp(0.0, 1.0)
+    def execute(cls, original, crop, bypass=False, feather=0, edge_grow=0, edge_color_match=0.0, crop_mask=None, crop_bbox=None, unique_id=None, **kwargs):
+        original = _coerce_media_to_tensor(original, 'original').float()
+        crop = _coerce_media_to_tensor(crop, 'crop').float()
         progress = start_progress(unique_id=unique_id)
         if _scalar(bypass, bool):
             output_mask = _alpha_mask_from_image(original)
@@ -113,12 +146,18 @@ class ImageOpsCropStitch(io.ComfyNode):
                 region_mask = _resize(region_mask.unsqueeze(-1), w, h, mode='bilinear', antialias=True)[0, ..., 0]
             if resized_crop.shape[-1] >= 4:
                 region_mask = (region_mask * resized_crop[..., 3].clamp(0.0, 1.0)).clamp(0.0, 1.0)
+            match_strength = _scalar(edge_color_match, float)
+            if match_strength > 0.0:
+                original_region = original[index, y:y + h, x:x + w, :]
+                matched_rgb = _edge_color_match(original_region, resized_crop[..., :3], match_strength)
+                resized_crop = torch.cat([matched_rgb, resized_crop[..., 3:]], dim=-1) if resized_crop.shape[-1] > 3 else matched_rgb
             resized_crop = _match_channels(resized_crop, int(out.shape[-1]))
             stitch_mask[index, y:y + h, x:x + w] = torch.maximum(stitch_mask[index, y:y + h, x:x + w], region_mask)
             blend = region_mask.unsqueeze(-1)
             out[index, y:y + h, x:x + w, :] = out[index, y:y + h, x:x + w, :] * (1.0 - blend) + resized_crop.to(out.dtype) * blend
+        stitch_mask = _dilate_erode_mask(stitch_mask, _scalar(edge_grow, int))
         stitch_mask = _blur_mask(stitch_mask, _scalar(feather, int))
-        if _scalar(feather, int) > 0:
+        if _scalar(feather, int) > 0 or _scalar(edge_grow, int) != 0:
             blend = stitch_mask.unsqueeze(-1)
             out = original * (1.0 - blend) + out * blend
         progress.finish()

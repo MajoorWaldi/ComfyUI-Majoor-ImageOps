@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from ._helpers import EPSILON, LUMA_WEIGHTS, MEDIA_INPUT_TYPE, _alpha_mask_from_image, _apply_blur, _coerce_media_to_tensor, _extract_channel_mask, _match_image_to_reference, _prepare_effect_mask, _prepare_mask_tensor, _scalar, _select_media_tensor
 from ._progress import start_progress
 from ._preview import build_node_preview_result
-_DISTORT_MAP_SOURCES = ['source_channel', 'displacement_channel', 'mask']
+_DISTORT_MAP_SOURCES = ['source_channel', 'displacement_channel', 'stmap', 'mask']
 _DISTORT_CHANNELS = ['Red', 'Green', 'Blue', 'Alpha', 'Luma']
 _DISTORT_FILTERS = ['nearest', 'bilinear', 'bicubic']
 _DISTORT_EDGE_MODES = ['border', 'reflection', 'zeros']
@@ -51,7 +51,7 @@ def _resolve_distortion_maps(source: torch.Tensor, map_source, x_channel, y_chan
             continue
         mask_source_frames.append(False)
         driver = frame_source
-        if normalized == 'displacement_channel' and frame_displacement is not None:
+        if normalized in ('displacement_channel', 'stmap') and frame_displacement is not None:
             driver = frame_displacement
         x_frames.append(_extract_map_channel(driver, _scalar(x_channel, str, index=frame_index)).to(device=source.device, dtype=source.dtype))
         y_frames.append(_extract_map_channel(driver, _scalar(y_channel, str, index=frame_index)).to(device=source.device, dtype=source.dtype))
@@ -64,7 +64,7 @@ def _resolve_distortion_maps(source: torch.Tensor, map_source, x_channel, y_chan
                 preview_mask[frame_index:frame_index + 1] = frame
     return (torch.cat(x_frames, dim=0), torch.cat(y_frames, dim=0), preview_mask, mask_source_frames)
 
-def _warp_image(source: torch.Tensor, x_map: torch.Tensor, y_map: torch.Tensor, strength_x, strength_y, centered_map, invert_map, filter_mode, edge_mode, progress=None) -> torch.Tensor:
+def _warp_image(source: torch.Tensor, x_map: torch.Tensor, y_map: torch.Tensor, strength_x, strength_y, centered_map, invert_map, filter_mode, edge_mode, map_source='source_channel', progress=None) -> torch.Tensor:
     image = source.float().permute(0, 3, 1, 2).contiguous()
     warped_frames = []
     height = int(source.shape[1])
@@ -78,33 +78,45 @@ def _warp_image(source: torch.Tensor, x_map: torch.Tensor, y_map: torch.Tensor, 
         if _scalar(invert_map, bool, index=frame_index):
             frame_x = 1.0 - frame_x
             frame_y = 1.0 - frame_y
-        if _scalar(centered_map, bool, index=frame_index):
-            frame_x = frame_x * 2.0 - 1.0
-            frame_y = frame_y * 2.0 - 1.0
-        dx = frame_x * float(_scalar(strength_x, index=frame_index))
-        dy = frame_y * float(_scalar(strength_y, index=frame_index))
+        is_stmap = _scalar(map_source, str, index=frame_index).strip().lower() == 'stmap'
         safe_filter = _scalar(filter_mode, str, index=frame_index).strip().lower()
         if safe_filter not in ('nearest', 'bilinear', 'bicubic'):
             safe_filter = 'bilinear'
         safe_edge_mode = _scalar(edge_mode, str, index=frame_index).strip().lower()
         if safe_edge_mode not in ('border', 'reflection', 'zeros'):
             safe_edge_mode = 'border'
-        grid = torch.stack([base_x - dx * width_norm, base_y - dy * height_norm], dim=-1).unsqueeze(0)
+        if is_stmap:
+            # STMap convention: the map encodes absolute normalized source coordinates
+            # (R=source X, G=source Y), not a relative offset. strength/centered_map
+            # don't apply here — the map already is the sampling position.
+            grid = torch.stack([frame_x * 2.0 - 1.0, frame_y * 2.0 - 1.0], dim=-1).unsqueeze(0)
+        else:
+            if _scalar(centered_map, bool, index=frame_index):
+                frame_x = frame_x * 2.0 - 1.0
+                frame_y = frame_y * 2.0 - 1.0
+            dx = frame_x * float(_scalar(strength_x, index=frame_index))
+            dy = frame_y * float(_scalar(strength_y, index=frame_index))
+            grid = torch.stack([base_x - dx * width_norm, base_y - dy * height_norm], dim=-1).unsqueeze(0)
         warped = F.grid_sample(image[frame_index:frame_index + 1], grid, mode=safe_filter, padding_mode=safe_edge_mode, align_corners=True)
         warped_frames.append(warped)
         if progress is not None:
             progress.update()
-    return torch.cat(warped_frames, dim=0).permute(0, 2, 3, 1).contiguous().clamp(0.0, 1.0).to(device=source.device, dtype=source.dtype)
+    out = torch.cat(warped_frames, dim=0).permute(0, 2, 3, 1).contiguous().to(device=source.device, dtype=source.dtype)
+    # RGB is intentionally left unclamped (scene-linear/HDR survives the warp);
+    # alpha, if present, stays canonical [0,1].
+    if out.shape[-1] >= 4:
+        out = torch.cat([out[..., :3], out[..., 3:4].clamp(0.0, 1.0)], dim=-1)
+    return out
 
 class ImageOpsDistort(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsDistort', display_name='〽️ Image Ops Distort', category='image/imageops', search_aliases=['distort', 'displace', 'displacement', 'warp', 'deform', 'noise warp'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('map_source', options=['source_channel', 'displacement_channel', 'mask'], default='source_channel'), io.Combo.Input('x_channel', options=['Red', 'Green', 'Blue', 'Alpha', 'Luma'], default='Red'), io.Combo.Input('y_channel', options=['Red', 'Green', 'Blue', 'Alpha', 'Luma'], default='Green'), io.Float.Input('strength_x', default=40.0, min=-2048.0, max=2048.0, step=0.1, round=0.001), io.Float.Input('strength_y', default=40.0, min=-2048.0, max=2048.0, step=0.1, round=0.001), io.Float.Input('blur_map', default=0.0, min=0.0, max=200.0, step=0.1, round=0.001, tooltip='Gaussian blur radius (in pixels) applied to the distortion map(s) before warping. 0 = no blur.'), io.Boolean.Input('centered_map', default=True), io.Boolean.Input('invert_map', default=False), io.Combo.Input('filter', options=['nearest', 'bilinear', 'bicubic'], default='bilinear'), io.Combo.Input('edge_mode', options=['border', 'reflection', 'zeros'], default='border'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Source image/video to distort.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.MultiType.Input('displacement', types=[io.Image, io.Video], tooltip='Optional displacement image/video when map_source is displacement_channel.', display_name='Displacement', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', tooltip='Used as the distortion map when map_source is mask, otherwise acts as an effect mask.', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsDistort', display_name='〽️ Image Ops Distort', category='image/imageops', search_aliases=['distort', 'displace', 'displacement', 'warp', 'deform', 'noise warp', 'stmap', 'st map', 'uv map'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('map_source', options=['source_channel', 'displacement_channel', 'stmap', 'mask'], default='source_channel', tooltip="stmap: the map's R/G channels are absolute normalized source coordinates (professional STMap convention), not a relative offset — strength_x/strength_y and centered_map are ignored in this mode."), io.Combo.Input('x_channel', options=['Red', 'Green', 'Blue', 'Alpha', 'Luma'], default='Red', tooltip='Channel used as the U / source-X coordinate. Ignored when map_source is mask.'), io.Combo.Input('y_channel', options=['Red', 'Green', 'Blue', 'Alpha', 'Luma'], default='Green', tooltip='Channel used as the V / source-Y coordinate. Ignored when map_source is mask.'), io.Float.Input('strength_x', default=40.0, min=-2048.0, max=2048.0, step=0.1, round=0.001, tooltip='Displacement strength in pixels. Not used when map_source is stmap.'), io.Float.Input('strength_y', default=40.0, min=-2048.0, max=2048.0, step=0.1, round=0.001, tooltip='Displacement strength in pixels. Not used when map_source is stmap.'), io.Float.Input('blur_map', default=0.0, min=0.0, max=200.0, step=0.1, round=0.001, tooltip='Gaussian blur radius (in pixels) applied to the distortion map(s) before warping. 0 = no blur. Blurring an stmap can blend across UV island seams.'), io.Boolean.Input('centered_map', default=True, tooltip='Not used when map_source is stmap.'), io.Boolean.Input('invert_map', default=False), io.Combo.Input('filter', options=['nearest', 'bilinear', 'bicubic'], default='bilinear'), io.Combo.Input('edge_mode', options=['border', 'reflection', 'zeros'], default='border'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Source image/video to distort.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.MultiType.Input('displacement', types=[io.Image, io.Video], tooltip='Optional displacement/STMap image/video used when map_source is displacement_channel or stmap. Falls back to the source image when not connected.', display_name='Displacement', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', tooltip='Used as the distortion map when map_source is mask, otherwise acts as an effect mask.', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
 
     @classmethod
     def execute(cls, image=None, bypass=False, map_source='source_channel', x_channel='Red', y_channel='Green', strength_x=40.0, strength_y=40.0, blur_map=0.0, centered_map=True, invert_map=False, filter='bilinear', edge_mode='border', invert_mask=False, video=None, displacement=None, mask=None, unique_id=None, **kwargs):
-        source = _select_media_tensor(image, video).float().clamp(0.0, 1.0)
+        source = _select_media_tensor(image, video).float()
         displacement_tensor = None
         if displacement is not None:
             displacement_tensor = _coerce_media_to_tensor(displacement, 'displacement').float().clamp(0.0, 1.0)
@@ -145,7 +157,7 @@ class ImageOpsDistort(io.ComfyNode):
             return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_distort')
 
         progress = start_progress(total=max(1, int(source.shape[0])), unique_id=unique_id)
-        result = _warp_image(source, x_map=x_map, y_map=y_map, strength_x=strength_x, strength_y=strength_y, centered_map=centered_map, invert_map=invert_map, filter_mode=filter, edge_mode=edge_mode, progress=progress)
+        result = _warp_image(source, x_map=x_map, y_map=y_map, strength_x=strength_x, strength_y=strength_y, centered_map=centered_map, invert_map=invert_map, filter_mode=filter, edge_mode=edge_mode, map_source=map_source, progress=progress)
         if apply_effect_mask is not None:
             result = source * (1.0 - apply_effect_mask.unsqueeze(-1)) + result * apply_effect_mask.unsqueeze(-1)
         output_mask = _alpha_mask_from_image(result)
