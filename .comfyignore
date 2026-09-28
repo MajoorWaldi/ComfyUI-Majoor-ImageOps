@@ -1,5 +1,5 @@
 # Development-only assets excluded from the published Registry package.
-# Runtime needs only __init__.py, nodes/, js/ (WEB_DIRECTORY), server.py.
+# Runtime needs only __init__.py, routes.py, nodes/, js/ (WEB_DIRECTORY).
 
 tests/
 .github/

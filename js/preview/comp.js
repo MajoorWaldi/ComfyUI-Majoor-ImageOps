@@ -10,7 +10,8 @@ const COMP_BLEND_MODES = [
   "darken",
   "color_dodge",
   "color_burn",
-  "exclusion"
+  "exclusion",
+  "hard_light"
 ];
 function inputName(input) {
   return String(input?.name ?? "");

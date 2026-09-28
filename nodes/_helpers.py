@@ -11,7 +11,10 @@ import torch
 from PIL import Image
 
 from ._ops_constants import EPSILON, GAMMA_MAX, GAMMA_SAFE_MIN, LUMA_WEIGHTS
-from .core.blend import blend_rgb, blend_rgb_extended, normalize_blend_mode, soft_light_curve
+from .core.memory import to_compute_device
+from .core.blend import blend_rgb, normalize_blend_mode, soft_light_curve
+from .core.media import ImageOpsMedia
+from .core.batch import match_batch
 
 # Type alias for parameters that can be a scalar or a per-frame list/tuple.
 ScalarOrList = Union[float, int, bool, list, tuple]
@@ -88,6 +91,7 @@ ASPECT_RATIO_PRESETS = {
     "9:16": (9, 16),
 }
 CHANNEL_OPTIONS = ["Red", "Green", "Blue", "Alpha"]
+# Comp previews layers with canvas composite operations, so it only offers modes the canvas can render.
 COMP_BLEND_MODES = [
     "over",
     "add",
@@ -101,7 +105,25 @@ COMP_BLEND_MODES = [
     "color_dodge",
     "color_burn",
     "exclusion",
+    "hard_light",
 ]
+# Merge previews per pixel with blendChannel01, which implements every mode of core/blend.py.
+MERGE_BLEND_MODES = COMP_BLEND_MODES + [
+    "subtract",
+    "divide",
+    "linear_burn",
+    "linear_light",
+    "vivid_light",
+    "pin_light",
+    "hard_mix",
+    "grain_extract",
+    "grain_merge",
+]
+
+
+def to_display_range(image: torch.Tensor) -> torch.Tensor:
+    """Clamp to [0, 1] for 8-bit previews only; processing keeps HDR values."""
+    return image.clamp(0.0, 1.0)
 
 
 def _pil_to_tensor(img: Image.Image) -> torch.Tensor:
@@ -761,7 +783,6 @@ def _coerce_media_to_tensor(media, input_name="media"):
     if media is None:
         return None
 
-    from .core.media import ImageOpsMedia
     if isinstance(media, ImageOpsMedia):
         return media.frames
 
@@ -800,7 +821,15 @@ def _coerce_media_to_tensor(media, input_name="media"):
     )
 
 
-def _select_media_tensor(image, video):
+def _select_media_tensor(image, video, working_set=None):
+    """Pick the IMAGE/VIDEO frames; `working_set` (copies of the input needed) opts in to GPU processing."""
+    tensor = _pick_media_tensor(image, video)
+    if working_set is not None:
+        tensor = to_compute_device(tensor, working_set)
+    return tensor
+
+
+def _pick_media_tensor(image, video):
     errors = []
     for input_name, media in (("video", video), ("image", image)):
         if media is None:
@@ -1277,7 +1306,7 @@ def _normalize_merge_mode(mode: str) -> str:
 
 
 def _blend_merge_rgb(base_rgb: torch.Tensor, top_rgb: torch.Tensor, mode: str) -> torch.Tensor:
-    return blend_rgb_extended(base_rgb, top_rgb, mode)
+    return blend_rgb(base_rgb, top_rgb, mode)
 
 
 def _apply_merge(a: torch.Tensor, b: torch.Tensor, mode: str, mix, foreground_fit="stretch", blend_space="linear"):
@@ -1830,7 +1859,6 @@ def _composite_comp_layer(canvas: torch.Tensor, image: torch.Tensor, mask: torch
 
     if _has_list_param(opacity, center_x, center_y, scale, rotate_deg, tl_x, tl_y, tr_x, tr_y, bl_x, bl_y, br_x, br_y):
         batch = canvas.shape[0]
-        from .core.batch import match_batch
         source, _ = match_batch(image.float(), torch.empty(batch, 1, 1, 1), policy="loop")
         source = _ensure_rgba(source)
         source = _apply_external_mask_to_rgba(source, mask)
@@ -1851,7 +1879,6 @@ def _composite_comp_layer(canvas: torch.Tensor, image: torch.Tensor, mask: torch
         return canvas
 
     batch, out_h, out_w, _ = canvas.shape
-    from .core.batch import match_batch
     source, _ = match_batch(image.float(), torch.empty(batch, 1, 1, 1), policy="loop")
     source = _ensure_rgba(source)
     source = _apply_external_mask_to_rgba(source, mask)

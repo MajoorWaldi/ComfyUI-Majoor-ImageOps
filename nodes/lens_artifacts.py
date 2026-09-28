@@ -14,6 +14,7 @@ from ._helpers import (
 from comfy_api.latest import io
 from ._preview import build_node_preview_result
 from ._progress import start_progress
+from ._helpers import apply_per_frame_bypass
 
 
 def _fit_dirt_texture(dirt: torch.Tensor, height: int, width: int) -> torch.Tensor:
@@ -81,7 +82,7 @@ class ImageOpsLensArtifacts(io.ComfyNode):
         return io.Schema(
             node_id="ImageOpsLensArtifacts",
             display_name="〽️ Image Ops Lens Artifacts",
-            category="image/imageops",
+            category="image/imageops", essentials_category="Image Tools",
             search_aliases=["lens dirt", "dust", "smudge", "grime", "lens artifacts"],
             inputs=[
                 io.Boolean.Input("bypass", default=False),
@@ -98,7 +99,6 @@ class ImageOpsLensArtifacts(io.ComfyNode):
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
             ],
-            hidden=[io.Hidden.unique_id],
         )
 
     @classmethod
@@ -114,13 +114,12 @@ class ImageOpsLensArtifacts(io.ComfyNode):
         video=None,
         dirt=None,
         mask=None,
-        unique_id=None,
         **kwargs,
     ):
         source = _select_media_tensor(image, video)
         effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-        progress = start_progress(unique_id=unique_id)
+        progress = start_progress()
         if isinstance(bypass, bool) and bypass:
             progress.finish()
             return build_node_preview_result(source, (source, output_mask), prefix="imageops_lens_artifacts")
@@ -144,7 +143,6 @@ class ImageOpsLensArtifacts(io.ComfyNode):
             _scalar(seed, int),
         )
         result = _apply_mask_to_image(source, result, effect_mask) if effect_mask is not None else result
-        from ._helpers import apply_per_frame_bypass
         result = apply_per_frame_bypass(source, result, bypass)
         progress.finish()
         return build_node_preview_result(result, (result, output_mask), prefix="imageops_lens_artifacts")

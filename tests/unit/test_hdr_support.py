@@ -47,3 +47,15 @@ class TestHDRSupport:
         assert torch.allclose(adjusted, expected, atol=1e-4)
 
 
+
+
+def test_tensor_to_pil_clamps_hdr_for_display_only():
+    from nodes._helpers import _tensor_to_pil
+
+    image = torch.tensor([[[[2.0, -1.0, 0.5], [0.0, 1.0, 0.25]]]])
+
+    pil = _tensor_to_pil(image)
+
+    assert pil.mode == "RGB"
+    assert list(pil.getdata()) == [(255, 0, 128), (0, 255, 64)]
+    assert float(image.max()) == 2.0

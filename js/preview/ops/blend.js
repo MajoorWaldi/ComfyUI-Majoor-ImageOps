@@ -66,6 +66,7 @@ function compModeToCanvasOp(mode) {
   if (normalized === "screen") return "screen";
   if (normalized === "overlay") return "overlay";
   if (normalized === "soft_light") return "soft-light";
+  if (normalized === "hard_light") return "hard-light";
   if (normalized === "difference") return "difference";
   if (normalized === "lighten") return "lighten";
   if (normalized === "darken") return "darken";

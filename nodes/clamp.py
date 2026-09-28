@@ -7,13 +7,13 @@ class ImageOpsClamp(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsClamp', display_name='〽️ Image Ops Clamp', category='image/imageops', search_aliases=['clamp', 'clip', 'limit', 'range'], inputs=[io.Boolean.Input('bypass', default=False), io.Float.Input('min_v', default=0.0, min=-10.0, max=10.0, step=0.01, round=0.001, tooltip='Minimum output value. Values below this are clamped up.'), io.Float.Input('max_v', default=1.0, min=-10.0, max=10.0, step=0.01, round=0.001, tooltip='Maximum output value. Values above this are clamped down.'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsClamp', display_name='〽️ Image Ops Clamp', category='image/imageops', essentials_category='Image Tools', search_aliases=['clamp', 'clip', 'limit', 'range'], inputs=[io.Boolean.Input('bypass', default=False), io.Float.Input('min_v', default=0.0, min=-10.0, max=10.0, step=0.01, round=0.001, tooltip='Minimum output value. Values below this are clamped up.'), io.Float.Input('max_v', default=1.0, min=-10.0, max=10.0, step=0.01, round=0.001, tooltip='Maximum output value. Values above this are clamped down.'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')])
 
     @classmethod
-    def execute(cls, image=None, bypass=False, min_v=0.0, max_v=1.0, invert_mask=False, video=None, mask=None, unique_id=None, **kwargs):
-        src = _select_media_tensor(image, video)
+    def execute(cls, image=None, bypass=False, min_v=0.0, max_v=1.0, invert_mask=False, video=None, mask=None, **kwargs):
+        src = _select_media_tensor(image, video, working_set=3)
         output_mask_source = _resolve_mask_output_source(mask, src, invert_mask=invert_mask)
-        progress = start_progress(unique_id=unique_id)
+        progress = start_progress()
         if _scalar(bypass, bool):
             progress.finish()
             return build_node_preview_result(src, (src, output_mask_source), prefix='imageops_clamp')

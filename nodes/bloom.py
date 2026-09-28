@@ -14,6 +14,8 @@ from ._helpers import (
 from comfy_api.latest import io
 from ._preview import build_node_preview_result
 from ._progress import start_progress
+from .core.memory import check_budget
+from ._helpers import apply_per_frame_bypass
 
 
 def _apply_bloom(source: torch.Tensor, threshold, intensity, radius: int) -> torch.Tensor:
@@ -42,7 +44,7 @@ class ImageOpsBloom(io.ComfyNode):
         return io.Schema(
             node_id="ImageOpsBloom",
             display_name="〽️ Image Ops Bloom",
-            category="image/imageops",
+            category="image/imageops", essentials_category="Image Tools",
             search_aliases=["bloom", "glow", "highlight glow", "lens"],
             inputs=[
                 io.Boolean.Input("bypass", default=False),
@@ -57,7 +59,6 @@ class ImageOpsBloom(io.ComfyNode):
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
             ],
-            hidden=[io.Hidden.unique_id],
         )
 
     @classmethod
@@ -71,13 +72,12 @@ class ImageOpsBloom(io.ComfyNode):
         invert_mask=False,
         video=None,
         mask=None,
-        unique_id=None,
         **kwargs,
     ):
-        source = _select_media_tensor(image, video)
+        source = _select_media_tensor(image, video, working_set=6)
         effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-        progress = start_progress(unique_id=unique_id)
+        progress = start_progress()
         if isinstance(bypass, bool) and bypass:
             progress.finish()
             return build_node_preview_result(source, (source, output_mask), prefix="imageops_bloom")
@@ -88,13 +88,11 @@ class ImageOpsBloom(io.ComfyNode):
             progress.finish()
             return build_node_preview_result(source, (source, output_mask), prefix="imageops_bloom")
 
-        from .core.memory import check_budget
         if source is not None:
             check_budget(int(source.shape[0]), int(source.shape[1]), int(source.shape[2]), int(source.shape[3]), multiplier=2.0, label="ImageOps Bloom")
 
         result = _apply_bloom(source, threshold, intensity, _scalar(radius, int))
         result = _apply_mask_to_image(source, result, effect_mask) if effect_mask is not None else result
-        from ._helpers import apply_per_frame_bypass
         result = apply_per_frame_bypass(source, result, bypass)
         progress.finish()
         return build_node_preview_result(result, (result, output_mask), prefix="imageops_bloom")

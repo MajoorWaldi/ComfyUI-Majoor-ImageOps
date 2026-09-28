@@ -13,6 +13,8 @@ from ._helpers import _hex_to_rgb01, _scalar, _select_media_tensor
 from comfy_api.latest import io
 from ._progress import start_progress
 from ._preview import build_node_preview_result
+from .core.batch import match_batch
+from .core.memory import check_budget
 
 # Reject an oversized paint overlay payload before base64-decoding it, rather than
 # decoding first and risking a large allocation or a PIL decompression bomb.
@@ -141,7 +143,7 @@ def _iter_overlay_layers(overlay_data: str | None, overlay_layers: str | None):
                         enabled = bool(entry.get("enabled", True))
                         try:
                             opacity = float(entry.get("opacity", 1.0))
-                        except Exception:
+                        except (TypeError, ValueError):
                             opacity = 1.0
                         data = entry.get("data") or entry.get("overlay_data") or entry.get("payload") or ""
                     if not enabled:
@@ -151,7 +153,7 @@ def _iter_overlay_layers(overlay_data: str | None, overlay_layers: str | None):
                         continue
                     emitted = True
                     yield raw, max(0.0, min(1.0, opacity))
-        except Exception:
+        except ValueError:
             emitted = False
 
     raw = str(overlay_data or "").strip()
@@ -195,7 +197,6 @@ def _composite_overlay(base: torch.Tensor, overlay_rgba: torch.Tensor) -> tuple[
     overlay_rgba = overlay_rgba.float().clamp(0.0, 1.0)
 
     if base.shape[0] != overlay_rgba.shape[0]:
-        from .core.batch import match_batch
         overlay_rgba, _ = match_batch(overlay_rgba, base, policy="loop")
 
     overlay_rgb = overlay_rgba[..., :3]
@@ -219,7 +220,7 @@ class ImageOpsDraw(io.ComfyNode):
         return io.Schema(
             node_id="ImageOpsDraw",
             display_name="〽️ ImageOps Paint",
-            category="image/imageops",
+            category="image/imageops", essentials_category="Image Tools",
             search_aliases=['paint', 'draw', 'brush', 'eraser', 'sketch', 'mask paint'], inputs=[
                 io.Boolean.Input("bypass", default=False),
                 io.Int.Input("width", default=1024, min=64, max=4096, step=64),
@@ -246,7 +247,6 @@ class ImageOpsDraw(io.ComfyNode):
                 io.Image.Output("source_image", display_name="source_image"),
                 io.Mask.Output("mask", display_name="mask"),
             ],
-            hidden=[io.Hidden.unique_id],
         )
 
     @classmethod
@@ -272,12 +272,11 @@ class ImageOpsDraw(io.ComfyNode):
         invert_mask: bool = False,
         image=None,
         video=None,
-        unique_id=None,
     ):
         # These widget values are owned by the frontend paint UI and serialized into
         # overlay_data / overlay_layers. Keep them in the signature for workflow
         # compatibility, but the backend compositor only needs the resolved overlay payload.
-        progress = start_progress(unique_id=unique_id)
+        progress = start_progress()
 
         source = None
         if image is not None or video is not None:
@@ -296,7 +295,6 @@ class ImageOpsDraw(io.ComfyNode):
             progress.finish()
             return build_node_preview_result(source, (source, source, mask), prefix="imageops_draw")
 
-        from .core.memory import check_budget
         # multiplier=2.0 covers source + overlay RGBA workspace
         check_budget(batch, target_h, target_w, 4, multiplier=2.0, label="ImageOps Draw")
 

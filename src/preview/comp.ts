@@ -13,6 +13,7 @@ export const COMP_BLEND_MODES = [
   "color_dodge",
   "color_burn",
   "exclusion",
+  "hard_light",
 ] as const;
 
 export interface CompLayerModel {

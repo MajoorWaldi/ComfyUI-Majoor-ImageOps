@@ -8,6 +8,7 @@ Auto-discovers all registered node classes and validates:
 """
 from __future__ import annotations
 
+import math
 import sys
 import importlib
 from pathlib import Path
@@ -158,3 +159,44 @@ class TestBypassContract:
         assert torch.allclose(out_image, src, atol=1e-6), (
             f"{node_name} bypass modified pixel values"
         )
+
+
+def test_color_correct_master_curve(imageops_extension):
+    import torch
+
+    node = next(n for n in imageops_extension.NODES if n.define_schema().node_id == "ImageOpsColorAjust")
+    image = torch.rand(1, 16, 16, 4)
+
+    inverted = node.execute(image=image, curve={"points": [[0.0, 1.0], [1.0, 0.0]], "interpolation": "linear"})
+    identity = node.execute(image=image, curve=[(0.0, 0.0), (1.0, 1.0)])
+    untouched = node.execute(image=image)
+
+    assert torch.allclose(inverted.args[0][..., :3], 1.0 - image[..., :3], atol=1e-4)
+    assert torch.equal(inverted.args[0][..., 3], image[..., 3])
+    assert torch.equal(identity.args[0], untouched.args[0])
+    assert "curve" in {i.id for i in node.define_schema().inputs}
+
+
+def test_comp_exports_core_layers_document(imageops_extension):
+    from comfy_api.latest import io
+
+    if not hasattr(io, "Layers"):
+        pytest.skip("io.Layers needs ComfyUI 0.31+")
+
+    node = next(n for n in imageops_extension.NODES if n.define_schema().node_id == "ImageOpsComp")
+    base = torch.rand(1, 40, 60, 3)
+    top = torch.rand(1, 20, 20, 4)
+    layers_json = '{"version":1,"layers":[{"slot":"image_2","center_x":0.25,"center_y":0.5,"scale":2.0,"rotate_deg":30,"opacity":0.5,"mode":"add"}]}'
+
+    out = node.execute(image_1=base, image_2=top, mask_2=torch.ones(1, 20, 20), layers_json=layers_json)
+    document = out.args[2]
+
+    assert [o.id for o in node.define_schema().outputs] == ["image", "mask", "layers"]
+    assert document["version"] == 1 and document["canvas"] == (60, 40)
+    first, second = document["layers"]
+    assert (first["z_index"], second["z_index"]) == (0, 1)
+    assert first["blend_mode"] == "normal" and (first["x"], first["y"], first["w"], first["h"]) == (0, 0, 60, 40) or first["w"] == 60
+    assert second["blend_mode"] == "linear-dodge" and second["opacity"] == 0.5 and second["rotation"] == pytest.approx(math.radians(30.0))
+    assert (second["w"], second["h"]) == (40, 40)
+    assert (second["x"], second["y"]) == (round(0.25 * 60 - 20), round(0.5 * 40 - 20))
+    assert second["mask"].shape == (1, 20, 20) and second["image"].shape == (1, 20, 20, 4)

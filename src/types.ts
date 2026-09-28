@@ -5,12 +5,15 @@
 export interface ComfyApp {
   registerExtension(ext: ComfyExtension): void;
   graph: LGraph;
+  extensionManager?: { setting?: { get(id: string): unknown } };
 }
 
 export interface ComfyExtension {
   name: string;
   beforeRegisterNodeDef?(nodeType: ComfyNodeConstructor, nodeData: any): Promise<void> | void;
   nodeCreated?(node: ComfyNode): void;
+  settings?: unknown[];
+  commands?: Array<{ id: string; label: string; function: () => void }>;
 }
 
 export interface ComfyNodeConstructor {

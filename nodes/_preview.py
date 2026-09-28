@@ -1,10 +1,15 @@
+import torch
+
 from comfy_api.latest import io
+
+from .core.memory import to_intermediate_device
+from .core.media import ImageOpsMedia
 
 def build_node_preview_result(_images, result, prefix=None, fps=None, metadata=None):  # noqa: ARG001
     if not isinstance(result, tuple):
         result = (result,)
+    result = tuple(to_intermediate_device(r) if torch.is_tensor(r) else r for r in result)
 
-    from .core.media import ImageOpsMedia
     if len(result) > 0 and isinstance(result[0], ImageOpsMedia):
         media = result[0]
         if media.audio is not None:

@@ -77,3 +77,44 @@ class TestCheckBudget:
 
         result = check_budget(1, 64, 64, 3, budget_mb=100.0, label="test")
         assert result > 0
+
+
+class TestComputeDevice:
+    @pytest.fixture
+    def fake_mm(self, monkeypatch):
+        mm = types.ModuleType("comfy.model_management")
+        mm.free = 10 ** 12
+        mm.get_torch_device = lambda: torch.device("meta")
+        mm.get_free_memory = lambda _device: mm.free
+        mm.intermediate_device = lambda: torch.device("cpu")
+        comfy = types.ModuleType("comfy")
+        comfy.model_management = mm
+        monkeypatch.setitem(sys.modules, "comfy", comfy)
+        monkeypatch.setitem(sys.modules, "comfy.model_management", mm)
+        return mm
+
+    def test_moves_when_working_set_fits(self, fake_mm):
+        from nodes.core.memory import to_compute_device
+
+        assert to_compute_device(torch.zeros(2, 8, 8, 3), 4.0).device.type == "meta"
+
+    def test_stays_when_working_set_does_not_fit(self, fake_mm):
+        from nodes.core.memory import to_compute_device
+
+        fake_mm.free = 2 * 8 * 8 * 3 * 4 * 3
+        assert to_compute_device(torch.zeros(2, 8, 8, 3), 4.0).device.type == "cpu"
+
+    def test_env_override_keeps_input_device(self, fake_mm, monkeypatch):
+        from nodes.core import memory
+
+        monkeypatch.setattr(memory, "COMPUTE_DEVICE", "cpu")
+        assert memory.to_compute_device(torch.zeros(1, 4, 4, 3), 4.0).device.type == "cpu"
+
+    def test_no_comfy_keeps_input_device(self, monkeypatch):
+        from nodes.core.memory import to_compute_device, to_intermediate_device
+
+        monkeypatch.setitem(sys.modules, "comfy", None)
+        monkeypatch.setitem(sys.modules, "comfy.model_management", None)
+        tensor = torch.zeros(1, 4, 4, 3)
+        assert to_compute_device(tensor, 4.0) is tensor
+        assert to_intermediate_device(tensor) is tensor

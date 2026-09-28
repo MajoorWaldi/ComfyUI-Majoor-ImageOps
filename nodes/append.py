@@ -9,6 +9,9 @@ from ._preview import build_node_preview_result
 from ._progress import start_progress
 from .core.timeline import trim_indices
 from .core.video_io import extract_video_media, media_to_video
+from .core.memory import check_budget
+from .core.media import ImageOpsMedia
+from .frame_range import _slice_audio_for_indices
 _JOIN_FIT_MODES = ['strict', 'resize_to_first', 'pad_to_max']
 _FPS_RELATIVE_TOLERANCE = 0.001
 
@@ -78,7 +81,6 @@ def _coerce_channels(tensor: torch.Tensor, target_channels: int) -> torch.Tensor
     if target_channels == 3 and channels == 4:
         return tensor[..., :3]
     if channels < target_channels:
-        from .core.memory import check_budget
         check_budget(batch, h, w, target_channels - channels, label='ImageOps Append (Coerce Channels)')
         padding = torch.zeros((batch, h, w, target_channels - channels), device=tensor.device, dtype=tensor.dtype)
         if target_channels >= 4 and channels <= 3:
@@ -90,7 +92,6 @@ def _pad_to_size(source: torch.Tensor, target_w: int, target_h: int, pad_alpha: 
     batch, source_h, source_w, channels = source.shape
     if source_w == target_w and source_h == target_h:
         return source
-    from .core.memory import check_budget
     check_budget(batch, target_h, target_w, channels, label='ImageOps Append (Pad to Size)')
     out = torch.zeros((batch, target_h, target_w, channels), device=source.device, dtype=source.dtype)
     if channels >= 4 and str(pad_alpha or 'opaque').strip().lower() != 'transparent':
@@ -118,12 +119,11 @@ class ImageOpsAppend(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsAppend', display_name='〽️ Image Ops Append', category='image/imageops', search_aliases=['append', 'join', 'concat', 'concatenate', 'clips', 'sequence'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('fit_mode', options=['strict', 'resize_to_first', 'pad_to_max'], default='strict', tooltip='How to align two clips before concatenating their frame batches.'), io.String.Input('trims_json', default='{"version":1,"clips":[]}', multiline=False, tooltip='Managed by the Append preview controls.'), io.MultiType.Input('image_1', types=[io.Image, io.Video], display_name='Images/Video 1', optional=True, extra_dict={'forceInput': True}), io.MultiType.Input('image_2', types=[io.Image, io.Video], display_name='Images/Video 2', optional=True, extra_dict={'forceInput': True}), io.Float.Input('image_fps', default=24.0, min=1.0, max=1000.0, step=0.001, optional=True, tooltip='Frame rate assumed for plain IMAGE clips (no VIDEO fps of their own) when checking that all clips share a frame rate.'), io.Combo.Input('pad_alpha', options=['opaque', 'transparent'], default='opaque', optional=True, tooltip='Alpha of the padding added by fit_mode=pad_to_max. opaque matches this node\'s historical behavior; transparent leaves the added margins see-through for compositing.')], outputs=[io.Image.Output('image', display_name='image'), io.Int.Output('frame_count', display_name='frame_count'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Video.Output('video', display_name='video', tooltip='Native VIDEO output. Carries the real audio/fps from the first connected VIDEO clip (not a plain IMAGE batch), if any.')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsAppend', display_name='〽️ Image Ops Append', category='image/imageops', essentials_category='Video Tools', has_intermediate_output=True, search_aliases=['append', 'join', 'concat', 'concatenate', 'clips', 'sequence'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('fit_mode', options=['strict', 'resize_to_first', 'pad_to_max'], default='strict', tooltip='How to align two clips before concatenating their frame batches.'), io.String.Input('trims_json', default='{"version":1,"clips":[]}', multiline=False, tooltip='Managed by the Append preview controls.'), io.MultiType.Input('image_1', types=[io.Image, io.Video], display_name='Images/Video 1', optional=True, extra_dict={'forceInput': True}), io.MultiType.Input('image_2', types=[io.Image, io.Video], display_name='Images/Video 2', optional=True, extra_dict={'forceInput': True}), io.Float.Input('image_fps', default=24.0, min=1.0, max=1000.0, step=0.001, optional=True, tooltip='Frame rate assumed for plain IMAGE clips (no VIDEO fps of their own) when checking that all clips share a frame rate.'), io.Combo.Input('pad_alpha', options=['opaque', 'transparent'], default='opaque', optional=True, tooltip='Alpha of the padding added by fit_mode=pad_to_max. opaque matches this node\'s historical behavior; transparent leaves the added margins see-through for compositing.')], outputs=[io.Image.Output('image', display_name='image'), io.Int.Output('frame_count', display_name='frame_count'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Video.Output('video', display_name='video', tooltip='Native VIDEO output. Carries the real audio/fps from the first connected VIDEO clip (not a plain IMAGE batch), if any.')])
 
     @classmethod
-    def execute(cls, bypass=False, fit_mode='strict', trims_json='{"version":1,"clips":[]}', image_fps=24.0, pad_alpha='opaque', unique_id=None, **inputs):
-        from .core.media import ImageOpsMedia
-        progress = start_progress(unique_id=unique_id)
+    def execute(cls, bypass=False, fit_mode='strict', trims_json='{"version":1,"clips":[]}', image_fps=24.0, pad_alpha='opaque', **inputs):
+        progress = start_progress()
         clips = _sorted_clip_inputs(inputs)
         if not clips:
             raise ValueError('ImageOps Append needs at least one connected image/video input.')
@@ -138,7 +138,6 @@ class ImageOpsAppend(io.ComfyNode):
         audio_list = []
         effective_fps: list[tuple[int, float]] = []
 
-        from .frame_range import _slice_audio_for_indices
 
         for clip_index, value in clips:
             video_media = extract_video_media(value)

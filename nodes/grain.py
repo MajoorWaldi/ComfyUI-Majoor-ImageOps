@@ -12,6 +12,8 @@ from ._helpers import (
 from comfy_api.latest import io
 from ._preview import build_node_preview_result
 from ._progress import start_progress
+from .core.memory import check_budget
+from ._helpers import apply_per_frame_bypass
 
 _BLEND_MODES = ["add", "overlay", "soft_light"]
 
@@ -110,7 +112,7 @@ class ImageOpsGrain(io.ComfyNode):
         return io.Schema(
             node_id="ImageOpsGrain",
             display_name="〽️ ImageOps Grain",
-            category="image/imageops",
+            category="image/imageops", essentials_category="Image Tools",
             search_aliases=['grain', 'film grain', 'noise grain', 'texture'], inputs=[
                 io.Boolean.Input("bypass", default=False),
                 io.Float.Input("amount", default=0.08, min=0.0, max=1.0, step=0.001),
@@ -130,7 +132,6 @@ class ImageOpsGrain(io.ComfyNode):
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
             ],
-            hidden=[io.Hidden.unique_id],
         )
 
     @classmethod
@@ -150,11 +151,10 @@ class ImageOpsGrain(io.ComfyNode):
         image=None,
         video=None,
         mask=None,
-        unique_id=None,
     ):
-        source = _select_media_tensor(image, video)
+        source = _select_media_tensor(image, video, working_set=4)
         preview_fps = max(1.0, _scalar(fps, float))
-        progress = start_progress(unique_id=unique_id)
+        progress = start_progress()
 
         if isinstance(bypass, bool) and bypass:
             progress.finish()
@@ -174,7 +174,6 @@ class ImageOpsGrain(io.ComfyNode):
             repeats = (frame_count + int(source.shape[0]) - 1) // max(1, int(source.shape[0]))
             source = source.repeat((repeats, 1, 1, 1))[:frame_count]
             
-        from .core.memory import check_budget
         if source is not None:
             check_budget(int(source.shape[0]), int(source.shape[1]), int(source.shape[2]), int(source.shape[3]), multiplier=2.0, label='ImageOps Grain')
             
@@ -191,7 +190,6 @@ class ImageOpsGrain(io.ComfyNode):
             luma_response=_scalar(luma_response, float),
         )
         result = _apply_mask_to_image(source, processed, effect_mask) if effect_mask is not None else processed
-        from ._helpers import apply_per_frame_bypass
         result = apply_per_frame_bypass(source, result, bypass)
         progress.finish()
         return build_node_preview_result(result, (result, output_mask), prefix="imageops_grain", fps=preview_fps)

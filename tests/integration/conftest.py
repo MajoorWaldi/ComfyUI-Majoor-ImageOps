@@ -14,10 +14,11 @@ COMFYUI_ROOT = Path(
     os.environ.get("COMFYUI_ROOT", "/tmp/ComfyUI")
 ).resolve()
 
-EXTENSION_ROOT = (
-    COMFYUI_ROOT
-    / "custom_nodes"
-    / "ComfyUI-Majoor-ImageOps"
+EXTENSION_ROOT = Path(
+    os.environ.get(
+        "IMAGEOPS_EXTENSION_ROOT",
+        COMFYUI_ROOT / "custom_nodes" / "ComfyUI-Majoor-ImageOps",
+    )
 ).resolve()
 
 
@@ -27,6 +28,11 @@ EXTENSION_ROOT = (
 # repository root on sys.path.
 if str(COMFYUI_ROOT) not in sys.path:
     sys.path.insert(0, str(COMFYUI_ROOT))
+
+# Importing ComfyUI's server initializes the torch device; tests run on CPU.
+from comfy.cli_args import args as comfy_args  # noqa: E402
+
+comfy_args.cpu = True
 
 
 @pytest.fixture(scope="session")

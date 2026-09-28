@@ -19,6 +19,7 @@ export function blendChannel01(base: number, top: number, mode: string): number 
   if (mode === "add") return base + top;
   if (mode === "subtract") return base - top;
   if (mode === "multiply") return base * top;
+  if (mode === "divide") return base / Math.max(1e-6, top);
   if (mode === "screen") return 1 - (1 - base) * (1 - top);
   if (mode === "overlay") return base <= 0.5 ? 2 * base * top : 1 - 2 * (1 - base) * (1 - top);
   if (mode === "soft_light" || mode === "soft-light") {
@@ -26,14 +27,19 @@ export function blendChannel01(base: number, top: number, mode: string): number 
       ? base - (1 - 2 * top) * base * (1 - base)
       : base + (2 * top - 1) * (softLightD(base) - base);
   }
+  if (mode === "hard_light") return top <= 0.5 ? 2 * base * top : 1 - 2 * (1 - base) * (1 - top);
   if (mode === "difference") return Math.abs(base - top);
   if (mode === "lighten" || mode === "max") return Math.max(base, top);
   if (mode === "darken" || mode === "min") return Math.min(base, top);
   if (mode === "color_dodge") return colorDodge01(base, top);
   if (mode === "color_burn") return colorBurn01(base, top);
   if (mode === "exclusion") return base + top - 2 * base * top;
+  if (mode === "linear_burn") return base + top - 1;
+  if (mode === "linear_light") return base + 2 * top - 1;
   if (mode === "vivid_light") return top <= 0.5 ? colorBurn01(base, top * 2) : colorDodge01(base, top * 2 - 1);
   if (mode === "pin_light") return top <= 0.5 ? Math.min(base, top * 2) : Math.max(base, top * 2 - 1);
   if (mode === "hard_mix") return blendChannel01(base, top, "vivid_light") < 0.5 ? 0 : 1;
+  if (mode === "grain_extract") return base - top + 0.5;
+  if (mode === "grain_merge") return base + top - 0.5;
   return top;
 }

@@ -4,6 +4,7 @@ import torch
 from ._helpers import _hex_to_rgb01, _resolve_aspect_ratio, _scalar, ASPECT_RATIO_PRESETS
 from ._preview import build_node_preview_result
 from ._progress import start_progress
+from .core.memory import check_budget
 _MODES = ['constant', 'checkerboard', 'grid']
 
 def _constant_image(batch: int, height: int, width: int, color: str, alpha: float) -> torch.Tensor:
@@ -42,11 +43,11 @@ class ImageOpsConstant(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsConstant', display_name='〽️ Image Ops Constant', category='image/imageops', search_aliases=['constant', 'color', 'source', 'checker'], inputs=[io.Combo.Input('mode', options=_MODES, default='constant', tooltip='grid: alignment/graph-paper lines using tile_size as spacing.'), io.Int.Input('width', default=1024, min=1, max=8192, step=1), io.Int.Input('height', default=1024, min=1, max=8192, step=1), io.Combo.Input('aspect_ratio', options=['custom', '1:1', '3:4', '4:3', '16:9', '9:16'], default='custom'), io.Int.Input('frame_count', default=1, min=1, max=4096, step=1), io.Color.Input('color', default='#ffffff'), io.Color.Input('color_b', default='#000000'), io.Float.Input('alpha', default=1.0, min=0.0, max=1.0, step=0.01), io.Int.Input('tile_size', default=64, min=1, max=2048, step=1), io.Int.Input('offset_x', default=0, min=-8192, max=8192, step=1), io.Int.Input('offset_y', default=0, min=-8192, max=8192, step=1)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Int.Output('frame_count', display_name='frame_count')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsConstant', display_name='〽️ Image Ops Constant', category='image/imageops', essentials_category='Image Tools', search_aliases=['constant', 'color', 'source', 'checker'], inputs=[io.Combo.Input('mode', options=_MODES, default='constant', tooltip='grid: alignment/graph-paper lines using tile_size as spacing.'), io.Int.Input('width', default=1024, min=1, max=8192, step=1), io.Int.Input('height', default=1024, min=1, max=8192, step=1), io.Combo.Input('aspect_ratio', options=['custom', '1:1', '3:4', '4:3', '16:9', '9:16'], default='custom'), io.Int.Input('frame_count', default=1, min=1, max=4096, step=1), io.Color.Input('color', default='#ffffff'), io.Color.Input('color_b', default='#000000'), io.Float.Input('alpha', default=1.0, min=0.0, max=1.0, step=0.01), io.Int.Input('tile_size', default=64, min=1, max=2048, step=1), io.Int.Input('offset_x', default=0, min=-8192, max=8192, step=1), io.Int.Input('offset_y', default=0, min=-8192, max=8192, step=1)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Int.Output('frame_count', display_name='frame_count')])
 
     @classmethod
-    def execute(cls, mode='constant', width=1024, height=1024, aspect_ratio='custom', frame_count=None, frame_length=None, batch_size=None, color='#ffffff', color_b='#000000', alpha=1.0, tile_size=64, offset_x=0, offset_y=0, unique_id=None, **kwargs):
-        progress = start_progress(unique_id=unique_id)
+    def execute(cls, mode='constant', width=1024, height=1024, aspect_ratio='custom', frame_count=None, frame_length=None, batch_size=None, color='#ffffff', color_b='#000000', alpha=1.0, tile_size=64, offset_x=0, offset_y=0, **kwargs):
+        progress = start_progress()
         out_w = max(1, _scalar(width, int))
         out_h = max(1, _scalar(height, int))
         ratio_str = _scalar(aspect_ratio, str) if isinstance(aspect_ratio, str) else 'custom'
@@ -62,7 +63,6 @@ class ImageOpsConstant(io.ComfyNode):
         batch = max(1, _scalar(frame_count_source, int))
         opacity = max(0.0, min(1.0, _scalar(alpha)))
         normalized_mode = str(mode or 'constant').strip().lower().replace('-', '_').replace(' ', '_')
-        from .core.memory import check_budget
         check_budget(batch, out_h, out_w, 4, multiplier=1.5, label='ImageOps Constant')
         if normalized_mode == 'checkerboard':
             image = _checkerboard_image(batch, out_h, out_w, color, color_b, opacity, _scalar(tile_size, int), _scalar(offset_x, int), _scalar(offset_y, int))

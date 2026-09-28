@@ -6,6 +6,14 @@ export const PREVIEW_STORAGE_KEYS = {
   maxGraphNodes: "imageops.preview.maxGraphNodes",
 } as const;
 
+export const PREVIEW_SETTING_IDS = {
+  canvasSize: "Majoor.ImageOps.Preview.CanvasSize",
+  playbackCanvasSize: "Majoor.ImageOps.Preview.PlaybackCanvasSize",
+  interactionCanvasSize: "Majoor.ImageOps.Preview.InteractionCanvasSize",
+  debounceMs: "Majoor.ImageOps.Preview.DebounceMs",
+  maxGraphNodes: "Majoor.ImageOps.Preview.MaxGraphNodes",
+} as const;
+
 export const PREVIEW_DEFAULTS = {
   minCanvasSize: 128,
   maxCanvasSize: 2048,

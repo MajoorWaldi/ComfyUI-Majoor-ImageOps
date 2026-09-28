@@ -4,6 +4,7 @@ import torch
 from ._helpers import _hex_to_rgb01, _scalar
 from ._progress import start_progress
 from ._preview import build_node_preview_result
+from .core.memory import check_budget
 _NOISE_BASIS = ['perlin', 'value', 'white']
 _NOISE_FRACTAL_MODES = ['none', 'fbm', 'turbulence', 'ridged']
 _NOISE_COMPUTE_DEVICES = ['auto', 'cpu', 'cuda']
@@ -220,18 +221,17 @@ class ImageOpsNoise(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsNoise', display_name='〽️ Image Ops Noise', category='image/imageops', search_aliases=['noise', 'perlin', 'value noise', 'procedural', 'texture'], inputs=[io.Int.Input('width', default=1024, min=64, max=8192, step=64), io.Int.Input('height', default=1024, min=64, max=8192, step=64), io.Int.Input('frame_length', default=1, min=1, max=256, step=1, tooltip='Number of frames to generate.'), io.Float.Input('fps', default=12.0, min=1.0, max=120.0, step=0.1, round=0.001), io.Int.Input('seed', default=0, min=0, max=2147483647, step=1), io.Combo.Input('basis', options=['perlin', 'value', 'white'], default='perlin'), io.Combo.Input('fractal_mode', options=['none', 'fbm', 'turbulence', 'ridged'], default='fbm'), io.Float.Input('scale', default=160.0, min=1.0, max=4096.0, step=1.0, round=0.01), io.Int.Input('octaves', default=5, min=1, max=12, step=1), io.Float.Input('gain', default=0.5, min=0.0, max=1.0, step=0.01, round=0.001), io.Float.Input('offset_z', default=0.0, min=-65536.0, max=65536.0, step=1.0, round=0.01, tooltip='Static Z offset into the noise field.'), io.Float.Input('animation_speed', default=1.0, min=0.0, max=512.0, step=0.1, round=0.01, tooltip='Z offset added per frame. Higher = faster animation. 0 = still image.'), io.Boolean.Input('seamless', default=False, tooltip='Wrap X/Y lattice so the texture tiles seamlessly.'), io.Float.Input('contrast', default=1.0, min=0.0, max=4.0, step=0.01, round=0.001), io.Boolean.Input('invert', default=False), io.Color.Input('low_color', default='#FFFFFF'), io.Color.Input('high_color', default='#FFFFFF')], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsNoise', display_name='〽️ Image Ops Noise', category='image/imageops', essentials_category='Image Tools', search_aliases=['noise', 'perlin', 'value noise', 'procedural', 'texture'], inputs=[io.Int.Input('width', default=1024, min=64, max=8192, step=64), io.Int.Input('height', default=1024, min=64, max=8192, step=64), io.Int.Input('frame_length', default=1, min=1, max=256, step=1, tooltip='Number of frames to generate.'), io.Float.Input('fps', default=12.0, min=1.0, max=120.0, step=0.1, round=0.001), io.Int.Input('seed', default=0, min=0, max=2147483647, step=1), io.Combo.Input('basis', options=['perlin', 'value', 'white'], default='perlin'), io.Combo.Input('fractal_mode', options=['none', 'fbm', 'turbulence', 'ridged'], default='fbm'), io.Float.Input('scale', default=160.0, min=1.0, max=4096.0, step=1.0, round=0.01), io.Int.Input('octaves', default=5, min=1, max=12, step=1), io.Float.Input('gain', default=0.5, min=0.0, max=1.0, step=0.01, round=0.001), io.Float.Input('offset_z', default=0.0, min=-65536.0, max=65536.0, step=1.0, round=0.01, tooltip='Static Z offset into the noise field.'), io.Float.Input('animation_speed', default=1.0, min=0.0, max=512.0, step=0.1, round=0.01, tooltip='Z offset added per frame. Higher = faster animation. 0 = still image.'), io.Boolean.Input('seamless', default=False, tooltip='Wrap X/Y lattice so the texture tiles seamlessly.'), io.Float.Input('contrast', default=1.0, min=0.0, max=4.0, step=0.01, round=0.001), io.Boolean.Input('invert', default=False), io.Color.Input('low_color', default='#FFFFFF'), io.Color.Input('high_color', default='#FFFFFF')], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')])
 
     @classmethod
-    def execute(cls, width=1024, height=1024, frame_length=1, fps=12.0, seed=0, basis='perlin', fractal_mode='fbm', scale=160.0, octaves=5, gain=0.5, offset_z=0.0, animation_speed=1.0, seamless=False, contrast=1.0, invert=False, low_color='#FFFFFF', high_color='#FFFFFF', batch_size=None, seed_step=None, lacunarity=None, offset_x=None, offset_y=None, frame_offset_x=None, frame_offset_y=None, frame_offset_z=None, compute_device=None, unique_id=None, **kwargs):
+    def execute(cls, width=1024, height=1024, frame_length=1, fps=12.0, seed=0, basis='perlin', fractal_mode='fbm', scale=160.0, octaves=5, gain=0.5, offset_z=0.0, animation_speed=1.0, seamless=False, contrast=1.0, invert=False, low_color='#FFFFFF', high_color='#FFFFFF', batch_size=None, seed_step=None, lacunarity=None, offset_x=None, offset_y=None, frame_offset_x=None, frame_offset_y=None, frame_offset_z=None, compute_device=None, **kwargs):
         target_w = max(1, _scalar(width, int))
         target_h = max(1, _scalar(height, int))
         frame_count = max(1, _scalar(frame_length, int))
         preview_fps = max(1.0, _scalar(fps, float))
         device = _resolve_noise_device(_scalar(compute_device, str) if compute_device is not None else 'auto')
-        from .core.memory import check_budget
         check_budget(frame_count, target_h, target_w, 3, multiplier=2.0, label='ImageOps Noise')
-        progress = start_progress(total=frame_count, unique_id=unique_id)
+        progress = start_progress(total=frame_count)
         anim_speed = _scalar(animation_speed, float) if frame_offset_z is None else _scalar(frame_offset_z, float)
         masks = []
         images = []

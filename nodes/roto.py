@@ -16,7 +16,7 @@ class ImageOpsRoto(io.ComfyNode):
         return io.Schema(
             node_id="ImageOpsRoto",
             display_name="〽️ ImageOps Roto",
-            category="image/imageops",
+            category="image/imageops", essentials_category="Image Tools",
             search_aliases=["roto", "rotoscope", "bezier", "spline", "shape", "mask", "matte", "nuke"],
             inputs=[
                 io.Boolean.Input("bypass", default=False),
@@ -35,7 +35,6 @@ class ImageOpsRoto(io.ComfyNode):
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
             ],
-            hidden=[io.Hidden.unique_id],
         )
 
     @classmethod
@@ -53,10 +52,9 @@ class ImageOpsRoto(io.ComfyNode):
         shapes="",
         image=None,
         video=None,
-        unique_id=None,
         **kwargs,
     ):
-        progress = start_progress(unique_id=unique_id)
+        progress = start_progress()
         if image is not None or video is not None:
             source = _select_media_tensor(image, video)
         else:

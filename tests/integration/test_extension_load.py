@@ -61,15 +61,55 @@ def test_extension_get_node_list(imageops_extension):
     assert len(nodes) == EXPECTED_NODE_COUNT
 
 
-def test_legacy_mapping_matches_v3_registry(
+def test_entrypoint_returns_extension_and_registers_routes(
     imageops_extension,
+    monkeypatch,
 ):
-    """Legacy compatibility mapping must not drift from V3 registry."""
+    """Comfy skips comfy_entrypoint when NODE_CLASS_MAPPINGS exists, so it must not exist."""
 
-    mappings = imageops_extension.NODE_CLASS_MAPPINGS
+    assert not hasattr(imageops_extension, "NODE_CLASS_MAPPINGS")
 
-    assert len(mappings) == EXPECTED_NODE_COUNT
-
-    assert set(mappings.values()) == set(
-        imageops_extension.NODES
+    registered = []
+    monkeypatch.setattr(
+        imageops_extension,
+        "register_imageops_routes",
+        lambda: registered.append(True),
     )
+
+    extension = asyncio.run(imageops_extension.comfy_entrypoint())
+    asyncio.run(extension.on_load())
+
+    assert isinstance(extension, imageops_extension.ComfyExtension)
+    assert registered == [True]
+
+
+def test_node_ids_are_unique(imageops_extension):
+    ids = [node.define_schema().node_id for node in imageops_extension.NODES]
+
+    assert len(set(ids)) == EXPECTED_NODE_COUNT
+
+
+def test_nodes_with_backend_ui_replay_cached_output(imageops_extension):
+    """Frontend widgets read backend-computed values from `ui`; cached runs must resend it."""
+
+    flagged = {
+        node.define_schema().node_id
+        for node in imageops_extension.NODES
+        if node.define_schema().has_intermediate_output
+    }
+
+    assert flagged == {
+        "ImageOpsPadOut",
+        "ImageOpsFrameRange",
+        "ImageOpsAppend",
+    }
+
+
+def test_nodes_are_listed_in_the_essentials_tab(imageops_extension):
+    categories = {
+        node.define_schema().node_id: node.define_schema().essentials_category
+        for node in imageops_extension.NODES
+    }
+
+    assert set(categories.values()) == {"Image Tools", "Video Tools"}
+    assert {k for k, v in categories.items() if v == "Video Tools"} == {"ImageOpsAppend", "ImageOpsFrameRange"}

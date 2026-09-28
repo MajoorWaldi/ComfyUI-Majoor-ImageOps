@@ -4,6 +4,7 @@ import torch
 from ._helpers import _hex_to_rgb01, _scalar
 from ._preview import build_node_preview_result
 from ._progress import start_progress
+from .core.memory import check_budget
 _RAMP_MODES = ['linear', 'ease_in', 'ease_out', 'smoothstep']
 _RAMP_SHAPES = ['linear', 'radial']
 
@@ -46,17 +47,16 @@ class ImageOpsRamp(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsRamp', display_name='〽️ Image Ops Ramp', category='image/imageops', search_aliases=['ramp', 'gradient', 'linear gradient', 'radial gradient'], inputs=[io.Int.Input('width', default=1024, min=1, max=8192, step=1), io.Int.Input('height', default=1024, min=1, max=8192, step=1), io.Int.Input('frame_count', default=1, min=1, max=4096, step=1), io.Color.Input('color_a', default='#ffffff'), io.Color.Input('color_b', default='#000000'), io.Float.Input('alpha', default=1.0, min=0.0, max=1.0, step=0.01), io.Float.Input('start_x', default=0.0, min=-2.0, max=3.0, step=0.001), io.Float.Input('start_y', default=0.5, min=-2.0, max=3.0, step=0.001), io.Float.Input('end_x', default=1.0, min=-2.0, max=3.0, step=0.001), io.Float.Input('end_y', default=0.5, min=-2.0, max=3.0, step=0.001), io.Combo.Input('ramp_shape', options=['linear', 'radial'], default='linear'), io.Combo.Input('ramp_mode', options=['linear', 'ease_in', 'ease_out', 'smoothstep'], default='linear'), io.Boolean.Input('invert', default=False)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Int.Output('frame_count', display_name='frame_count')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsRamp', display_name='〽️ Image Ops Ramp', category='image/imageops', essentials_category='Image Tools', search_aliases=['ramp', 'gradient', 'linear gradient', 'radial gradient'], inputs=[io.Int.Input('width', default=1024, min=1, max=8192, step=1), io.Int.Input('height', default=1024, min=1, max=8192, step=1), io.Int.Input('frame_count', default=1, min=1, max=4096, step=1), io.Color.Input('color_a', default='#ffffff'), io.Color.Input('color_b', default='#000000'), io.Float.Input('alpha', default=1.0, min=0.0, max=1.0, step=0.01), io.Float.Input('start_x', default=0.0, min=-2.0, max=3.0, step=0.001), io.Float.Input('start_y', default=0.5, min=-2.0, max=3.0, step=0.001), io.Float.Input('end_x', default=1.0, min=-2.0, max=3.0, step=0.001), io.Float.Input('end_y', default=0.5, min=-2.0, max=3.0, step=0.001), io.Combo.Input('ramp_shape', options=['linear', 'radial'], default='linear'), io.Combo.Input('ramp_mode', options=['linear', 'ease_in', 'ease_out', 'smoothstep'], default='linear'), io.Boolean.Input('invert', default=False)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Int.Output('frame_count', display_name='frame_count')])
 
     @classmethod
-    def execute(cls, width=1024, height=1024, frame_count=None, frame_length=None, batch_size=None, color_a='#ffffff', color_b='#000000', alpha=1.0, start_x=0.0, start_y=0.5, end_x=1.0, end_y=0.5, ramp_shape='linear', ramp_mode='linear', invert=False, unique_id=None, **kwargs):
-        progress = start_progress(unique_id=unique_id)
+    def execute(cls, width=1024, height=1024, frame_count=None, frame_length=None, batch_size=None, color_a='#ffffff', color_b='#000000', alpha=1.0, start_x=0.0, start_y=0.5, end_x=1.0, end_y=0.5, ramp_shape='linear', ramp_mode='linear', invert=False, **kwargs):
+        progress = start_progress()
         out_w = max(1, _scalar(width, int))
         out_h = max(1, _scalar(height, int))
         frame_count_source = frame_count if frame_count is not None else frame_length if frame_length is not None else batch_size if batch_size is not None else 1
         batch = max(1, _scalar(frame_count_source, int))
         opacity = max(0.0, min(1.0, _scalar(alpha)))
-        from .core.memory import check_budget
         check_budget(batch, out_h, out_w, 4, multiplier=1.5, label='ImageOps Ramp')
         image = _ramp_image(batch, out_h, out_w, color_a, color_b, opacity, _scalar(start_x), _scalar(start_y), _scalar(end_x), _scalar(end_y), ramp_shape, ramp_mode, _scalar(invert, bool))
         mask = image[..., 3].clamp(0.0, 1.0)

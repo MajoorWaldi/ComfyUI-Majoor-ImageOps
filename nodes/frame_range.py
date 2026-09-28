@@ -6,6 +6,8 @@ from ._preview import build_node_preview_result
 from ._progress import start_progress
 from .core.timeline import trim_indices as _timeline_indices
 from .core.video_io import extract_video_media, media_to_video
+from .core.media import ImageOpsMedia
+from .core.memory import check_budget
 
 def _clamp_int(value, low: int, high: int) -> int:
     return max(low, min(high, int(value)))
@@ -77,11 +79,10 @@ class ImageOpsFrameRange(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsFrameRange', display_name='〽️ Image Ops Frame Range', category='image/imageops', search_aliases=['frame range', 'frames', 'trim', 'hold', 'freeze', 'loop', 'repeat', 'timeline'], inputs=[io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Image batch or video frames.', display_name='Image/Video'), io.Boolean.Input('bypass', default=False), io.Int.Input('trim_start', default=0, min=0, max=10000000, step=1), io.Int.Input('trim_end', default=-1, min=-1, max=10000000, step=1, tooltip='-1 means last input frame.'), io.Boolean.Input('frame_hold', default=False), io.Int.Input('hold_frame', default=0, min=0, max=10000000, step=1), io.Boolean.Input('repeat', default=False), io.Combo.Input('repeat_mode', options=['loop', 'bounce', 'reverse', 'input_duration', 'custom_count', 'freeze'], default='loop'), io.Int.Input('custom_frame_count', default=24, min=1, max=10000000, step=1)], outputs=[io.Image.Output('image', display_name='image'), io.Int.Output('frame_count', display_name='frame_count'), io.Video.Output('video', display_name='video', tooltip='Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected.')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsFrameRange', display_name='〽️ Image Ops Frame Range', category='image/imageops', essentials_category='Video Tools', has_intermediate_output=True, search_aliases=['frame range', 'frames', 'trim', 'hold', 'freeze', 'loop', 'repeat', 'timeline'], inputs=[io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Image batch or video frames.', display_name='Image/Video'), io.Boolean.Input('bypass', default=False), io.Int.Input('trim_start', default=0, min=0, max=10000000, step=1), io.Int.Input('trim_end', default=-1, min=-1, max=10000000, step=1, tooltip='-1 means last input frame.'), io.Boolean.Input('frame_hold', default=False), io.Int.Input('hold_frame', default=0, min=0, max=10000000, step=1), io.Boolean.Input('repeat', default=False), io.Combo.Input('repeat_mode', options=['loop', 'bounce', 'reverse', 'input_duration', 'custom_count', 'freeze'], default='loop'), io.Int.Input('custom_frame_count', default=24, min=1, max=10000000, step=1)], outputs=[io.Image.Output('image', display_name='image'), io.Int.Output('frame_count', display_name='frame_count'), io.Video.Output('video', display_name='video', tooltip='Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected.')])
 
     @classmethod
-    def execute(cls, image, bypass=False, trim_start=0, trim_end=-1, frame_hold=False, hold_frame=0, repeat=False, repeat_mode='loop', custom_frame_count=24, unique_id=None, **kwargs):
-        from .core.media import ImageOpsMedia
+    def execute(cls, image, bypass=False, trim_start=0, trim_end=-1, frame_hold=False, hold_frame=0, repeat=False, repeat_mode='loop', custom_frame_count=24, **kwargs):
         video_media = extract_video_media(image)
         if isinstance(image, ImageOpsMedia):
             media_obj = image
@@ -92,7 +93,7 @@ class ImageOpsFrameRange(io.ComfyNode):
             media_obj = None
         is_media = media_obj is not None
         tensor = media_obj.frames if is_media else _coerce_media_to_tensor(image, 'image')
-        progress = start_progress(unique_id=unique_id)
+        progress = start_progress()
         source_count = int(tensor.shape[0])
         if _scalar(bypass, bool):
             progress.finish()
@@ -111,7 +112,6 @@ class ImageOpsFrameRange(io.ComfyNode):
         if repeat_enabled:
             output_count = _repeat_count(True, str(repeat_mode or 'loop'), _scalar(custom_frame_count, int), source_count)
             indices = _repeat_indices(indices, output_count, str(repeat_mode or 'loop'))
-        from .core.memory import check_budget
         check_budget(len(indices), int(tensor.shape[1]), int(tensor.shape[2]), int(tensor.shape[3]), multiplier=2.0, label='ImageOps Frame Range')
         idx_tensor = torch.tensor(indices, device=tensor.device, dtype=torch.long)
         out_tensor = tensor[idx_tensor]

@@ -19,7 +19,7 @@
 
 ## 📋 Requirements
 
-- **ComfyUI**: Version 0.2.0 or newer (v3 registry node format)
+- **ComfyUI**: Version 0.19.0 or newer (V3 node schema)
 - **Python**: 3.10+ (3.11/3.12 recommended)
 - **Frontend**: Modern browser with ES2022 support
 
@@ -30,6 +30,14 @@
 1. **Clone/Place** this folder in `ComfyUI/custom_nodes/ComfyUI-Majoor-ImageOps`
 2. **Restart** ComfyUI
 3. **Hard refresh** the browser: `Ctrl+F5` (or `Cmd+Shift+R` on macOS)
+
+### Example workflow
+`example/All Nodes MIO.json` uses all 32 nodes, each wired to an input: `Load Image` (`example.png`, shipped with ComfyUI) plus the Constant, Ramp and Noise generators feed the rest, and Crop feeds Crop Stitch. Drag the file onto the canvas to open it.
+
+The file is generated from the node schemas. After changing a node, run this in a ComfyUI Python environment (a test fails while the file is stale):
+```bash
+python scripts/generate_example_workflow.py
+```
 
 ---
 
@@ -90,6 +98,7 @@ Professional color grading with reference-based correction.
 **Inputs:**
 - `image` (IMAGE/VIDEO): Source media
 - `mask` (MASK, optional): Effect mask
+- `curve` (CURVE, optional): Master curve applied to the RGB channels after the adjustments, with the same interpolation as the core curve editor. HDR values outside 0-1 keep their overshoot.
 
 **Parameters:**
 - `temperature` (-100 to 100): Color temperature adjustment
@@ -189,7 +198,7 @@ Interactive crop and resize with aspect ratio control.
 - `invert_mask`: Invert mask effect
 - `bypass`: Skip processing
 
-**Outputs:** `IMAGE`, `MASK`
+**Outputs:** `IMAGE`, `MASK`, `bbox` (for Crop Stitch), `bounding_box` (core `BOUNDING_BOX` with the first-frame `x`, `y`, `width`, `height` in source pixels). Crop Stitch also accepts a core `BOUNDING_BOX` on its optional `bounding_box` input.
 
 ---
 
@@ -373,7 +382,7 @@ Blend two images with linear-light or sRGB blend modes.
 - `mask` (MASK, optional): Effect mask
 
 **Parameters:**
-- `mode`: over, add, multiply, screen, overlay, soft_light, difference, lighten, darken, color_dodge, color_burn, exclusion
+- `mode`: over, add, multiply, screen, overlay, soft_light, difference, lighten, darken, color_dodge, color_burn, exclusion, hard_light, subtract, divide, linear_burn, linear_light, vivid_light, pin_light, hard_mix, grain_extract, grain_merge
 - `mix` (0.0 to 1.0): Blend opacity
 - `foreground_fit`: stretch, contain, cover, or none for adapting foreground B to background A
 - `blend_space`: linear or srgb; linear performs RGB blend math in gamma 1.0 then converts back to sRGB
@@ -601,6 +610,8 @@ Multi-layer compositor with professional controls.
 - `layers_json`: Layer configuration (auto-managed by UI)
 - `invert_mask`: Invert output mask
 
+**Outputs:** `IMAGE`, `MASK`, and on ComfyUI 0.31+ `layers`, the comp as a core `LAYERS` document for the core layered image editor (first frame of each layer; corner-pin distortion and background color are not included).
+
 **Interactive UI Features:**
 - ➕ Add layer button
 - 🔄 Reset layer button
@@ -679,16 +690,25 @@ All processing nodes expose a **`bypass`** parameter (boolean). When enabled:
 
 ## ⚙️ Configuration
 
-### Preview Canvas Size
-```javascript
-localStorage["imageops.preview.canvasSize"] = 512; // Default: 512px
-```
+### Live Preview Settings
+Open ComfyUI settings and search for "ImageOps": idle, playback and editing preview sizes, refresh delay and the graph size limit. The command palette also offers "ImageOps: Refresh all live previews".
+
+Values saved earlier in `localStorage` (for example `localStorage["imageops.preview.canvasSize"] = 512`) still apply until the matching setting is changed.
 
 ### Large Image Warning Threshold
 ```bash
 # Environment variable (in MB)
 IMAGEOPS_LARGE_IMAGE_WARN_MB=2048  # Default: 2048 MB
 ```
+
+### Compute Device
+Color Correct, Vignette, Clamp, Invert, Chromatic Aberration, Bloom, Grain, Camera Shake, Transform, Spherize and Corner Pin process on ComfyUI's torch device when the frames fit in free memory, then return them to the intermediate device. Otherwise they keep running on the device the frames are on.
+```bash
+IMAGEOPS_COMPUTE_DEVICE=cpu  # Default: auto. "cpu" keeps every node on the input tensor's device
+```
+
+### Animated Preview Transcoding
+GIF, animated WebP and video previews are transcoded to VP9 WebM with PyAV (already required by ComfyUI) and cached in ComfyUI's temp folder. No external ffmpeg is needed.
 
 ---
 
@@ -721,6 +741,18 @@ Some packs expose video via custom types. Best results when upstream provides fr
 | `color_dodge` | Brightens base to reflect the blend color |
 | `color_burn` | Darkens base to reflect the blend color |
 | `exclusion` | Lower-contrast difference |
+| `hard_light` | Overlay driven by the blend color |
+| `subtract` | Base minus blend color |
+| `divide` | Base divided by blend color |
+| `linear_burn` | Base plus blend color minus one |
+| `linear_light` | Base plus twice the blend color minus one |
+| `vivid_light` | Color burn/dodge split at the blend color midpoint |
+| `pin_light` | Lighten/darken split at the blend color midpoint |
+| `hard_mix` | Binary result from vivid light |
+| `grain_extract` | Base minus blend color, centered on 0.5 |
+| `grain_merge` | Base plus blend color, centered on 0.5 |
+
+Merge offers every mode. Comp only offers the modes its canvas preview can render (up to `hard_light`).
 
 ### 🎛️ Compositor Blend Modes
 
@@ -738,6 +770,7 @@ Some packs expose video via custom types. Best results when upstream provides fr
 | `color_dodge` | color-dodge |
 | `color_burn` | color-burn |
 | `exclusion` | exclusion |
+| `hard_light` | hard-light |
 
 ---
 

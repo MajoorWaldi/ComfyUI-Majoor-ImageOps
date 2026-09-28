@@ -1,3 +1,4 @@
+import json
 import torch
 
 from ._helpers import (
@@ -33,10 +34,9 @@ def _parse_key_colors(value) -> list[tuple[float, float, float]]:
     if not raw:
         return []
     try:
-        import json
 
         parsed = json.loads(raw)
-    except Exception:
+    except ValueError:
         parsed = None
     if not isinstance(parsed, list):
         return []
@@ -148,7 +148,7 @@ class ImageOpsKeyer(io.ComfyNode):
         return io.Schema(
             node_id="ImageOpsKeyer",
             display_name="〽️ ImageOps Keyer",
-            category="image/imageops",
+            category="image/imageops", essentials_category="Image Tools",
             search_aliases=['keyer', 'key', 'chroma', 'green screen', 'luma key', 'matte'], inputs=[
                 io.Boolean.Input("bypass", default=False),
                 io.Combo.Input("mode", options=["color", "luma"], default="color"),
@@ -168,7 +168,6 @@ class ImageOpsKeyer(io.ComfyNode):
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
             ],
-            hidden=[io.Hidden.unique_id],
         )
 
     @classmethod
@@ -188,11 +187,10 @@ class ImageOpsKeyer(io.ComfyNode):
         image=None,
         video=None,
         mask=None,
-        unique_id=None,
         **_legacy
     ):
         source = _select_media_tensor(image, video)
-        progress = start_progress(unique_id=unique_id)
+        progress = start_progress()
         effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         if _scalar(bypass, bool):
             alpha = source[..., 3] if source.shape[-1] >= 4 else torch.ones(source.shape[:3], device=source.device, dtype=source.dtype)

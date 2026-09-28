@@ -46,7 +46,7 @@ def _load_font_cached(path: str | None, size: int):
     for candidate in ([path] if path else []) + ["arial.ttf", "DejaVuSans.ttf"]:
         try:
             return ImageFont.truetype(candidate, target_size)
-        except Exception:
+        except OSError:
             continue
     return ImageFont.load_default()
 
@@ -155,7 +155,7 @@ class ImageOpsText(io.ComfyNode):
         return io.Schema(
             node_id="ImageOpsText",
             display_name="〽️ ImageOps Text",
-            category="image/imageops",
+            category="image/imageops", essentials_category="Image Tools",
             search_aliases=['text', 'title', 'caption', 'label', 'type', 'font'], inputs=[
                 io.Boolean.Input("bypass", default=False),
                 io.String.Input("text", default="ImageOps Text", multiline=True),
@@ -178,7 +178,6 @@ class ImageOpsText(io.ComfyNode):
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
             ],
-            hidden=[io.Hidden.unique_id],
         )
 
     @classmethod
@@ -201,12 +200,11 @@ class ImageOpsText(io.ComfyNode):
         video=None,
         mask=None,
         font_path: str = "",
-        unique_id=None,
     ):
         source = _select_media_tensor(image, video).float()
         effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-        progress = start_progress(unique_id=unique_id)
+        progress = start_progress()
         if _scalar(bypass, bool) or not str(text or "") or float(_scalar(opacity)) <= 0.0:
             progress.finish()
             return build_node_preview_result(source, (source, output_mask), prefix="imageops_text")

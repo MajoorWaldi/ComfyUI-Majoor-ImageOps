@@ -12,7 +12,7 @@ import pathlib
 import pytest
 import torch
 
-from nodes.core.blend import blend_rgb, blend_rgb_extended, normalize_blend_mode
+from nodes.core.blend import blend_rgb, normalize_blend_mode
 
 GOLDEN_PATH = pathlib.Path(__file__).resolve().parent.parent / "golden" / "blend_modes.json"
 
@@ -46,29 +46,20 @@ def test_normalize_blend_mode_aliases():
     assert normalize_blend_mode("Normal") == "over"
     assert normalize_blend_mode("Color-Dodge") == "color_dodge"
     assert normalize_blend_mode(None) == "over"
+    assert normalize_blend_mode("Linear-Dodge") == "add"
 
 
 def test_extended_subtract():
     base = torch.tensor([0.75])
     top = torch.tensor([0.5])
 
-    assert torch.allclose(blend_rgb_extended(base, top, "subtract"), torch.tensor([0.25]))
+    assert torch.allclose(blend_rgb(base, top, "subtract"), torch.tensor([0.25]))
 
 
 def test_extended_hard_mix_is_binary():
     base = torch.tensor([0.9, 0.1])
     top = torch.tensor([0.9, 0.1])
 
-    result = blend_rgb_extended(base, top, "hard_mix")
+    result = blend_rgb(base, top, "hard_mix")
 
     assert set(result.tolist()) <= {0.0, 1.0}
-
-
-def test_extended_falls_back_to_base_modes():
-    base = torch.tensor([0.5])
-    top = torch.tensor([0.5])
-
-    assert torch.allclose(
-        blend_rgb_extended(base, top, "multiply"),
-        blend_rgb(base, top, "multiply"),
-    )

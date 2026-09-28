@@ -3,6 +3,7 @@ import { getOpsConstants } from "../constants.js";
 import { boolAny, numAny, strAny } from "../graph.js";
 import { getImageData, makeCanvas, putImageData } from "../renderer.js";
 import { acquireCanvas, releaseCanvas } from "../shared/canvas-pool.js";
+import { applyCurve } from "../shared/curve.js";
 import { ColorCorrectParams, applyColorCorrectGL } from "../shared/webgl-color.js";
 import { blurMaskCanvas, markPreparedMaskCanvas, resolvePreviewMaskCanvas } from "./masks.js";
 import { renderMaskedEffectPreview, buildMaskAlphaCanvas } from "./masks.js";
@@ -580,6 +581,7 @@ export function colorAjust(ctx: CanvasRenderingContext2D, W: number, node: Comfy
             highlightsBrightness: numAny(node, ["highlights_brightness"], 0, frameIndex),
           },
         );
+        applyCurve(effectCtx, width, height, wAny(node, ["curve"])?.value);
       }),
       { frameIndex },
     );

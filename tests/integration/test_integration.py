@@ -17,20 +17,12 @@ def test_integration_load_nodes(
     require GPU initialization.
     """
 
-    assert hasattr(
-        imageops_extension,
-        "NODE_CLASS_MAPPINGS",
-    )
-
-    mappings = (
-        imageops_extension.NODE_CLASS_MAPPINGS
-    )
-
-    assert mappings
+    assert imageops_extension.NODES
 
     failures = []
 
-    for name, cls in mappings.items():
+    for cls in imageops_extension.NODES:
+        name = cls.define_schema().node_id
 
         try:
             instance = cls()

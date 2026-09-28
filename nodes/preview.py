@@ -33,7 +33,7 @@ def save_temp_images(images, prefix='imageops', ext='png', quality=95, max_frame
                 img.save(out_path, quality=_scalar(quality, int), method=6)
             else:
                 img.save(out_path)
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.error(f"Failed to save temp image '{out_path}': {e}")
             continue
         ui_items.append({'filename': name, 'subfolder': subfolder, 'type': 'temp'})
@@ -56,7 +56,7 @@ def save_temp_animated(images, prefix='imageops_anim', ext='webp', fps=12, quali
             pil_list[0].save(out_path, save_all=True, append_images=pil_list[1:], duration=duration_ms, loop=0, optimize=True)
         else:
             pil_list[0].save(out_path, save_all=True, append_images=pil_list[1:], duration=duration_ms, loop=0, format='WEBP', quality=_scalar(quality, int), method=6)
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.error(f"Failed to save animated preview '{out_path}': {e}")
         return None
     return {'filename': name, 'subfolder': '', 'type': 'temp'}
@@ -94,7 +94,7 @@ def save_temp_strip(images, prefix='imageops_strip', ext='png', max_frames=16, t
             strip.save(out_path, quality=_scalar(quality, int), optimize=True)
         else:
             strip.save(out_path)
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.error(f"Failed to save strip preview '{out_path}': {e}")
         return None
     return {'filename': name, 'subfolder': '', 'type': 'temp'}
@@ -131,12 +131,12 @@ class ImageOpsPreview(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsPreview', display_name='〽️ Image Ops Preview', category='image/imageops', is_output_node=True, search_aliases=['preview', 'viewer', 'view', 'monitor', 'scope', 'histogram', 'waveform', 'compare', 'a/b'], inputs=[io.Combo.Input('preview_target', options=['auto', 'image', 'mask'], default='auto'), io.Combo.Input('mode', options=['images', 'strip', 'animated_webp', 'animated_gif'], default='images'), io.Combo.Input('compare_mode', options=_COMPARE_MODES, default='off', tooltip='Compare against Image B in the saved preview thumbnail. off previews Image only.'), io.Float.Input('wipe_position', default=0.5, min=0.0, max=1.0, step=0.01, tooltip='Split position for compare_mode=wipe.'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.MultiType.Input('image_b', types=[io.Image, io.Video], tooltip='Optional second Images/Video input to compare against, via compare_mode.', display_name='Images/Video B', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo, io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsPreview', display_name='〽️ Image Ops Preview', category='image/imageops', essentials_category='Image Tools', is_output_node=True, search_aliases=['preview', 'viewer', 'view', 'monitor', 'scope', 'histogram', 'waveform', 'compare', 'a/b'], inputs=[io.Combo.Input('preview_target', options=['auto', 'image', 'mask'], default='auto'), io.Combo.Input('mode', options=['images', 'strip', 'animated_webp', 'animated_gif'], default='images'), io.Combo.Input('compare_mode', options=_COMPARE_MODES, default='off', tooltip='Compare against Image B in the saved preview thumbnail. off previews Image only.'), io.Float.Input('wipe_position', default=0.5, min=0.0, max=1.0, step=0.01, tooltip='Split position for compare_mode=wipe.'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.MultiType.Input('image_b', types=[io.Image, io.Video], tooltip='Optional second Images/Video input to compare against, via compare_mode.', display_name='Images/Video B', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo])
 
     @classmethod
-    def execute(cls, image=None, preview_target='auto', mode='images', compare_mode='off', wipe_position=0.5, image_b=None, mask=None, prompt=None, extra_pnginfo=None, unique_id=None, **kwargs):
+    def execute(cls, image=None, preview_target='auto', mode='images', compare_mode='off', wipe_position=0.5, image_b=None, mask=None, prompt=None, extra_pnginfo=None, **kwargs):
         del prompt, extra_pnginfo
-        progress = start_progress(unique_id=unique_id)
+        progress = start_progress()
         image_tensor = None
         if image is not None:
             image_tensor = _select_media_tensor(image, None)

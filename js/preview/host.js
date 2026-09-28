@@ -1,7 +1,7 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { getCompSlots } from "./comp.js";
-import { getPreviewConfig } from "./config.js";
+import { getPreviewConfig, invalidatePreviewConfig, setPreviewSettingReader } from "./config.js";
 import { initOpsConstants } from "./constants.js";
 import { detectSourceUpstream, findDependents, getInputOriginSlot, getUpstreamNode, getUpstreamNodes, isGraphTooLarge } from "./core/graph.js";
 import { getInputIndexByName, getNativePreviewImage, getNativePreviewImageForTick, getUpstreamVideoFps } from "./core/media.js";
@@ -69,6 +69,7 @@ import { resolveNodeStreamPreview } from "./nodestream.js";
 import { renderCompPreview } from "./ops.js";
 import { attachProgressBus } from "./progress.js";
 import { buildAdapterRegistry } from "./registry.js";
+import { buildPreviewSettings } from "./settings.js";
 import { getProceduralFrameCount, getProceduralPlaybackFps, hasProceduralAnimation } from "./shared/animation.js";
 import { blit, blitCompare, tryRenderNativePreview } from "./shared/bounds.js";
 import { markCanvasDirty } from "./shared/canvas.js";
@@ -1404,8 +1405,27 @@ function registerImageOpsLivePreview() {
       return r;
     };
   }
+  function refreshAllPreviews() {
+    for (const node of app.graph?._nodes ?? []) {
+      if (isImageOpsClass(node.comfyClass)) nodeCtx.refreshNode(node);
+    }
+  }
+  setPreviewSettingReader((id) => {
+    try {
+      return app.extensionManager?.setting?.get(id);
+    } catch {
+      return void 0;
+    }
+  });
   app.registerExtension({
     name: EXT_NAME,
+    settings: buildPreviewSettings(() => {
+      invalidatePreviewConfig();
+      refreshAllPreviews();
+    }),
+    commands: [
+      { id: "Majoor.ImageOps.RefreshPreviews", label: "ImageOps: Refresh all live previews", function: refreshAllPreviews }
+    ],
     async beforeRegisterNodeDef(nodeType, nodeData) {
       if (nodeData?.display_name && typeof nodeData.display_name === "string" && nodeData.display_name.includes("Color Color Correct")) {
         nodeData.display_name = nodeData.display_name.replace("Color Color Correct", "Color Correct");

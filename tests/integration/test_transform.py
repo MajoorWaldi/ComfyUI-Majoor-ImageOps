@@ -44,3 +44,22 @@ def test_transform_expand():
     )
     
     assert result2.shape == (1, 200, 100, 3)
+
+
+@pytest.mark.parametrize("fill_mode", ["mirror", "expand"])
+def test_masked_transform_keeps_color_bounded_at_edges(fill_mode):
+    """Color and matte must use the same padding, or edge alpha divides non-zero color."""
+    torch.manual_seed(0)
+    image = torch.rand((1, 96, 128, 4))
+    mask = torch.rand((1, 96, 128))
+
+    result, _ = ImageOpsTransform().execute(
+        image=image,
+        mask=mask,
+        translate_x=7.0,
+        rotate_deg=3.0,
+        scale=1.05,
+        fill_mode=fill_mode,
+    )
+
+    assert float(result[..., :3].max()) <= 1.0 + 1e-3

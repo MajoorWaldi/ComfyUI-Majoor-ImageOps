@@ -2,9 +2,10 @@ from __future__ import annotations
 from comfy_api.latest import io
 import math
 import torch
-from ._helpers import EPSILON, _hex_to_rgb01, _prepare_effect_mask, _resolve_mask_output_source, _select_media_tensor, _unpremultiply_rgb_by_mask, _param_tensor, _scalar
+from ._helpers import EPSILON, _hex_to_rgb01, _prepare_effect_mask, _resolve_mask_output_source, _select_media_tensor, _unpremultiply_rgb_by_mask, _param_tensor, _scalar, apply_per_frame_bypass
 from ._progress import start_progress
 from ._preview import build_node_preview_result
+from .core.memory import check_budget
 
 def _filter_to_grid_sample_mode(filter_mode: str | list, index: int=0) -> str:
     """Map an ImageOps filter name to a torch.nn.functional.grid_sample mode."""
@@ -172,7 +173,7 @@ def _transform_masked_source(source: torch.Tensor, input_mask: torch.Tensor, fil
     if progress is not None:
         progress.update_absolute(0, total=max(1, total))
     transformed = _transform_batch_affine(combined, filter_mode, translate_x, translate_y, rotate_deg, scale, padding_mode=padding_mode)
-    output_mask = _transform_mask_affine(input_mask, filter_mode, translate_x, translate_y, rotate_deg, scale, source.device, source.dtype)
+    output_mask = _transform_mask_affine(input_mask, filter_mode, translate_x, translate_y, rotate_deg, scale, source.device, source.dtype, padding_mode=padding_mode)
     if progress is not None:
         progress.update_absolute(source.shape[0] * 2)
     rgb = _unpremultiply_rgb_by_mask(transformed[..., :3], output_mask)
@@ -187,19 +188,18 @@ class ImageOpsTransform(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsTransform', display_name='〽️ Image Ops Transform', category='image/imageops', search_aliases=['transform', 'move', 'translate', 'rotate', 'scale', 'position'], inputs=[io.Boolean.Input('bypass', default=False), io.Int.Input('translate_x', default=0, min=-4096, max=4096, step=1), io.Int.Input('translate_y', default=0, min=-4096, max=4096, step=1), io.Float.Input('rotate_deg', default=0.0, min=-180.0, max=180.0, step=0.1, round=0.001), io.Float.Input('scale', default=1.0, min=0.01, max=8.0, step=0.01, round=0.001), io.Combo.Input('flip', options=['none', 'horizontal', 'vertical', 'both'], default='none'), io.Combo.Input('filter', options=['nearest', 'bilinear', 'bicubic']), io.Boolean.Input('expand', default=False, tooltip='Reserved. Currently inactive — the GPU affine path uses a fixed-size canvas. Kept for workflow compatibility.'), io.Combo.Input('fill_mode', options=['transparent', 'mirror', 'stretch', 'expand', 'color'], default='transparent', tooltip='How to fill uncovered areas when scale, rotate, or translate leaves holes.'), io.Color.Input('fill_color', default='#000000'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsTransform', display_name='〽️ Image Ops Transform', category='image/imageops', essentials_category='Image Tools', search_aliases=['transform', 'move', 'translate', 'rotate', 'scale', 'position'], inputs=[io.Boolean.Input('bypass', default=False), io.Int.Input('translate_x', default=0, min=-4096, max=4096, step=1), io.Int.Input('translate_y', default=0, min=-4096, max=4096, step=1), io.Float.Input('rotate_deg', default=0.0, min=-180.0, max=180.0, step=0.1, round=0.001), io.Float.Input('scale', default=1.0, min=0.01, max=8.0, step=0.01, round=0.001), io.Combo.Input('flip', options=['none', 'horizontal', 'vertical', 'both'], default='none'), io.Combo.Input('filter', options=['nearest', 'bilinear', 'bicubic']), io.Boolean.Input('expand', default=False, tooltip='Reserved. Currently inactive — the GPU affine path uses a fixed-size canvas. Kept for workflow compatibility.'), io.Combo.Input('fill_mode', options=['transparent', 'mirror', 'stretch', 'expand', 'color'], default='transparent', tooltip='How to fill uncovered areas when scale, rotate, or translate leaves holes.'), io.Color.Input('fill_color', default='#000000'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')])
 
     @classmethod
-    def execute(cls, image=None, bypass=False, translate_x=0, translate_y=0, rotate_deg=0.0, scale=1.0, flip='none', filter='bilinear', expand=False, fill_mode='transparent', fill_color='#000000', invert_mask=False, video=None, mask=None, unique_id=None, **kwargs):
+    def execute(cls, image=None, bypass=False, translate_x=0, translate_y=0, rotate_deg=0.0, scale=1.0, flip='none', filter='bilinear', expand=False, fill_mode='transparent', fill_color='#000000', invert_mask=False, video=None, mask=None, **kwargs):
         del expand
-        source = _select_media_tensor(image, video)
+        source = _select_media_tensor(image, video, working_set=5)
         input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         safe_fill_mode = _normalize_fill_mode(fill_mode)
         safe_flip_mode = _normalize_flip_mode(flip)
         sample_padding = _padding_mode_from_fill(safe_fill_mode)
-        progress = start_progress(unique_id=unique_id)
-        from .core.memory import check_budget
+        progress = start_progress()
         if source is not None:
             check_budget(int(source.shape[0]), int(source.shape[1]), int(source.shape[2]), int(source.shape[3]), multiplier=2.0, label='ImageOps Transform')
         if isinstance(bypass, bool) and bypass:
@@ -251,7 +251,6 @@ class ImageOpsTransform(io.ComfyNode):
         result = _composite_fill(result, output_mask, _make_fill_background(source, safe_fill_mode, fill_color))
         if safe_fill_mode != 'transparent':
             output_mask = result[..., 3].clamp(0.0, 1.0) if result.shape[-1] >= 4 else torch.ones_like(output_mask)
-        from ._helpers import apply_per_frame_bypass
         result = apply_per_frame_bypass(source, result, bypass)
         progress.finish()
         return build_node_preview_result(result, (result, output_mask), prefix='imageops_transform')

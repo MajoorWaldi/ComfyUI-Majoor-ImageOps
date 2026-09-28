@@ -57,16 +57,14 @@ def _load_entrypoint(monkeypatch):
 
 def test_all_32_nodes_publish_object_info(monkeypatch):
     module = _load_entrypoint(monkeypatch)
-    assert len(module.NODE_CLASS_MAPPINGS) == 32
+    assert len(module.NODES) == 32
 
-    for node_id, node_class in module.NODE_CLASS_MAPPINGS.items():
-        if hasattr(node_class, "GET_NODE_INFO_V1"):
-            info = node_class.GET_NODE_INFO_V1()
-            if isinstance(info, dict):
-                assert info["name"] == node_id
-                assert info["input"] is not None
-            else:
-                assert info.name == node_id
-                assert info.input is not None
+    for node_class in module.NODES:
+        node_id = node_class.GET_SCHEMA().node_id
+        info = node_class.GET_NODE_INFO_V1()
+        if isinstance(info, dict):
+            assert info["name"] == node_id
+            assert info["input"] is not None
         else:
-            assert isinstance(node_class.INPUT_TYPES(), dict)
+            assert info.name == node_id
+            assert info.input is not None

@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from ._helpers import _apply_blur, _hex_to_rgb01, _resize, _scalar, _select_media_tensor
 from ._preview import build_node_preview_result
 from ._progress import start_progress
+from .core.memory import check_budget
 _PADOUT_FILL_MODES = ['constant', 'edge_extend', 'reflect', 'blurry']
 _PADOUT_TARGET_FORMATS = ['custom', '1:1', '16:9', '9:16', '4:3', '3:4']
 _TARGET_RATIOS = {'1:1': (1, 1), 'square': (1, 1), 'nearest_square': (1, 1), '16:9': (16, 9), '9:16': (9, 16), '4:3': (4, 3), '3:4': (3, 4)}
@@ -80,12 +81,12 @@ class ImageOpsPadOut(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsPadOut', display_name='〽️ Image Ops Pad Out', category='image/imageops', search_aliases=['pad', 'pad out', 'padding', 'border', 'expand canvas', 'outpaint'], inputs=[io.Boolean.Input('bypass', default=False), io.Int.Input('pad_left', default=128, min=0, max=4096, step=1), io.Int.Input('pad_top', default=128, min=0, max=4096, step=1), io.Int.Input('pad_right', default=128, min=0, max=4096, step=1), io.Int.Input('pad_bottom', default=128, min=0, max=4096, step=1), io.Combo.Input('target_format', options=['custom', '1:1', '3:4', '4:3', '16:9', '9:16'], default='custom', tooltip='Add extra padding to hit a target aspect ratio without scaling the image.'), io.Combo.Input('fill_mode', options=['constant', 'edge_extend', 'reflect', 'blurry'], default='constant'), io.Color.Input('fill_color', default='#000000'), io.Int.Input('blur_radius', default=32, min=0, max=512, step=1, tooltip='Used by blurry padding.'), io.Boolean.Input('invert_mask', default=False, tooltip='By default the output mask marks the *padded* area as 1 and the original source as 0. Toggle to invert (source=1, padding=0).'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True})], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height')], hidden=[io.Hidden.unique_id])
+        return io.Schema(node_id='ImageOpsPadOut', display_name='〽️ Image Ops Pad Out', category='image/imageops', essentials_category='Image Tools', has_intermediate_output=True, search_aliases=['pad', 'pad out', 'padding', 'border', 'expand canvas', 'outpaint'], inputs=[io.Boolean.Input('bypass', default=False), io.Int.Input('pad_left', default=128, min=0, max=4096, step=1), io.Int.Input('pad_top', default=128, min=0, max=4096, step=1), io.Int.Input('pad_right', default=128, min=0, max=4096, step=1), io.Int.Input('pad_bottom', default=128, min=0, max=4096, step=1), io.Combo.Input('target_format', options=['custom', '1:1', '3:4', '4:3', '16:9', '9:16'], default='custom', tooltip='Add extra padding to hit a target aspect ratio without scaling the image.'), io.Combo.Input('fill_mode', options=['constant', 'edge_extend', 'reflect', 'blurry'], default='constant'), io.Color.Input('fill_color', default='#000000'), io.Int.Input('blur_radius', default=32, min=0, max=512, step=1, tooltip='Used by blurry padding.'), io.Boolean.Input('invert_mask', default=False, tooltip='By default the output mask marks the *padded* area as 1 and the original source as 0. Toggle to invert (source=1, padding=0).'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True})], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height')])
 
     @classmethod
-    def execute(cls, image=None, bypass=False, pad_left=128, pad_top=128, pad_right=128, pad_bottom=128, target_format='custom', fill_mode='constant', fill_color='#000000', blur_radius=32, invert_mask=False, video=None, unique_id=None, **kwargs):
+    def execute(cls, image=None, bypass=False, pad_left=128, pad_top=128, pad_right=128, pad_bottom=128, target_format='custom', fill_mode='constant', fill_color='#000000', blur_radius=32, invert_mask=False, video=None, **kwargs):
         source = _select_media_tensor(image, video).float()
-        progress = start_progress(unique_id=unique_id)
+        progress = start_progress()
         batch = int(source.shape[0])
         source_h = int(source.shape[1])
         source_w = int(source.shape[2])
@@ -103,7 +104,6 @@ class ImageOpsPadOut(io.ComfyNode):
         left, top, right, bottom = _resolve_target_padding(source_w, source_h, left, top, right, bottom, _scalar(target_format, str))
         out_w = source_w + left + right
         out_h = source_h + top + bottom
-        from .core.memory import check_budget
         check_budget(batch, out_h, out_w, int(source.shape[-1]), multiplier=2.0, label='ImageOps PadOut')
         mode = _normalize_fill_mode(_scalar(fill_mode, str))
         if mode in ('edge_extend', 'reflect'):

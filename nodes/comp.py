@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 import torch
@@ -11,11 +12,15 @@ from ._helpers import (
     _alpha_mask_from_image,
     _coerce_media_to_tensor,
     _composite_comp_layer,
+    _compute_comp_rect,
     _make_comp_canvas,
     _scalar,
 )
 from ._progress import start_progress
 from ._preview import build_node_preview_result
+from .core.memory import check_budget
+from .core.batch import match_batch
+from ._helpers import _prepare_mask_tensor
 
 
 def _sorted_layer_numbers(inputs: dict[str, Any]) -> list[int]:
@@ -119,13 +124,51 @@ def _largest_connected_layer_size(tensors: list[tuple[dict[str, Any], torch.Tens
     return out_h, out_w
 
 
+# io.Layers needs ComfyUI 0.31+; older versions simply do not get the extra output.
+HAS_LAYERS_OUTPUT = hasattr(io, "Layers")
+LAYER_BLEND_NAMES = {"over": "normal", "add": "linear-dodge"}
+
+
+def _layers_document(tensors, out_w: int, out_h: int) -> dict[str, Any]:
+    """The comp as a core LAYERS document: first frame of each layer, unpinned placement."""
+    items = []
+    for z_index, (layer, image_tensor, mask_value) in enumerate(tensors):
+        frame = image_tensor[:1]
+        source_h, source_w = int(frame.shape[1]), int(frame.shape[2])
+        left, top, draw_w, draw_h = _compute_comp_rect(out_w, out_h, source_w, source_h, layer["center_x"], layer["center_y"], layer["scale"])
+        item = {
+            "type": "raster",
+            "image": frame,
+            "x": left,
+            "y": top,
+            "w": draw_w,
+            "h": draw_h,
+            "rotation": math.radians(float(layer["rotate_deg"])),
+            "z_index": z_index,
+            "name": layer["slot"],
+            "opacity": float(layer["opacity"]),
+            "blend_mode": LAYER_BLEND_NAMES.get(layer["mode"], layer["mode"].replace("_", "-")),
+            "visible": bool(layer["enabled"]),
+        }
+        mask = _prepare_mask_tensor(mask_value, batch=1, height=source_h, width=source_w, device=frame.device, dtype=frame.dtype) if mask_value is not None else None
+        if mask is not None:
+            item["mask"] = mask
+        items.append(item)
+    return {"version": 1, "canvas": (out_w, out_h), "layers": items}
+
+
+def _comp_result(canvas: torch.Tensor, output_mask: torch.Tensor, layers_document: dict[str, Any]):
+    outputs = (canvas, output_mask, layers_document) if HAS_LAYERS_OUTPUT else (canvas, output_mask)
+    return build_node_preview_result(canvas, outputs, prefix="imageops_comp")
+
+
 class ImageOpsComp(io.ComfyNode):
     @classmethod
     def define_schema(cls) -> io.Schema:
         return io.Schema(
             node_id="ImageOpsComp",
             display_name="〽️ ImageOps Comp",
-            category="image/imageops",
+            category="image/imageops", essentials_category="Image Tools",
             search_aliases=["comp", "composite", "compositor", "image comp", "image composite"],
             accept_all_inputs=True,
             inputs=[
@@ -153,8 +196,8 @@ class ImageOpsComp(io.ComfyNode):
             outputs=[
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
+                *([io.Layers.Output("layers", display_name="layers", tooltip="Layers as a core LAYERS document (first frame of each layer, corner-pin distortion and background color not included), for the core layered image editor.")] if HAS_LAYERS_OUTPUT else []),
             ],
-            hidden=[io.Hidden.unique_id],
         )
 
     @classmethod
@@ -170,7 +213,6 @@ class ImageOpsComp(io.ComfyNode):
         invert_mask: bool = False,
         **inputs,
     ):
-        progress_unique_id = getattr(getattr(cls, "hidden", None), "unique_id", None)
         layer_numbers = _sorted_layer_numbers(inputs)
         layers = _parse_layers_state(layers_json, layer_numbers)
         connected_layers: list[tuple[dict[str, Any], Any, Any]] = []
@@ -184,20 +226,19 @@ class ImageOpsComp(io.ComfyNode):
             connected_layers.append((layer, image_value, mask_value))
 
         if not connected_layers:
-            progress = start_progress(unique_id=progress_unique_id)
+            progress = start_progress()
             out_w = max(1, _scalar(width, int))
             out_h = max(1, _scalar(height, int))
-            from .core.memory import check_budget
             check_budget(1, out_h, out_w, 4, multiplier=1.5, label="ImageOps Comp (empty)")
             blank = _make_comp_canvas(1, out_h, out_w, device="cpu", dtype=torch.float32, background_color=background_color)
             output_mask = blank[..., 3]
             if _scalar(invert_mask, bool):
                 output_mask = 1.0 - output_mask
             progress.finish()
-            return build_node_preview_result(blank, (blank, output_mask), prefix="imageops_comp")
+            return _comp_result(blank, output_mask, _layers_document([], out_w, out_h))
 
         enabled_count = sum(1 for layer, _, _ in connected_layers if bool(layer.get("enabled", True)))
-        progress = start_progress(total=max(1, len(connected_layers) + enabled_count), unique_id=progress_unique_id)
+        progress = start_progress(total=max(1, len(connected_layers) + enabled_count))
         tensors: list[tuple[dict[str, Any], Any, Any]] = []
         for layer, image_value, mask_value in connected_layers:
             image_tensor = _coerce_media_to_tensor(image_value, layer["slot"]).float()
@@ -217,19 +258,16 @@ class ImageOpsComp(io.ComfyNode):
         batch = max(int(image.shape[0]) for _, image, _ in tensors)
         device = tensors[0][1].device
         dtype = tensors[0][1].dtype
-        from .core.memory import check_budget
         # multiplier=2.0 covers canvas + per-layer accumulation during compositing
         check_budget(batch, out_h, out_w, 4, multiplier=2.0, label="ImageOps Comp")
         enabled_layers = [(layer, image_tensor, mask_value) for layer, image_tensor, mask_value in tensors if bool(layer.get("enabled", True))]
 
         if _scalar(bypass, bool):
             _, first_image, first_mask = tensors[0]
-            from .core.batch import match_batch
             first_image_expanded, _ = match_batch(first_image, torch.empty(batch, 1, 1, 1), policy="loop")
             result = first_image_expanded.to(device=device, dtype=dtype)
             output_mask = _alpha_mask_from_image(result)
             if first_mask is not None:
-                from ._helpers import _prepare_mask_tensor
 
                 prepared = _prepare_mask_tensor(
                     first_mask,
@@ -244,7 +282,7 @@ class ImageOpsComp(io.ComfyNode):
             if _scalar(invert_mask, bool):
                 output_mask = (1.0 - output_mask).clamp(0.0, 1.0)
             progress.finish()
-            return build_node_preview_result(result, (result, output_mask), prefix="imageops_comp")
+            return _comp_result(result, output_mask, _layers_document(tensors, out_w, out_h))
 
         canvas = _make_comp_canvas(batch, out_h, out_w, device=device, dtype=dtype, background_color=background_color)
         for layer, image_tensor, mask_value in enabled_layers:
@@ -273,4 +311,4 @@ class ImageOpsComp(io.ComfyNode):
         if _scalar(invert_mask, bool):
             output_mask = (1.0 - output_mask).clamp(0.0, 1.0)
         progress.finish()
-        return build_node_preview_result(canvas, (canvas, output_mask), prefix="imageops_comp")
+        return _comp_result(canvas, output_mask, _layers_document(tensors, out_w, out_h))

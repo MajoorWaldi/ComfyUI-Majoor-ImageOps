@@ -19,6 +19,8 @@ from ._helpers import (
 from comfy_api.latest import io
 from ._preview import build_node_preview_result
 from ._progress import start_progress
+from .core.memory import check_budget
+from ._helpers import apply_per_frame_bypass
 
 _BOKEH_SHAPES = ["circle", "hexagon", "octagon", "custom"]
 _SHAPE_SIDES = {"circle": 0, "hexagon": 6, "octagon": 8}
@@ -106,7 +108,7 @@ class ImageOpsDefocus(io.ComfyNode):
         return io.Schema(
             node_id="ImageOpsDefocus",
             display_name="〽️ Image Ops Defocus",
-            category="image/imageops",
+            category="image/imageops", essentials_category="Image Tools",
             search_aliases=["defocus", "bokeh", "depth of field", "dof", "depth blur", "lens blur"],
             inputs=[
                 io.Boolean.Input("bypass", default=False),
@@ -128,7 +130,6 @@ class ImageOpsDefocus(io.ComfyNode):
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
             ],
-            hidden=[io.Hidden.unique_id],
         )
 
     @classmethod
@@ -149,13 +150,12 @@ class ImageOpsDefocus(io.ComfyNode):
         depth=None,
         shape_texture=None,
         mask=None,
-        unique_id=None,
         **kwargs,
     ):
         source = _select_media_tensor(image, video)
         effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-        progress = start_progress(unique_id=unique_id)
+        progress = start_progress()
         if isinstance(bypass, bool) and bypass:
             progress.finish()
             return build_node_preview_result(source, (source, output_mask), prefix="imageops_defocus")
@@ -177,7 +177,6 @@ class ImageOpsDefocus(io.ComfyNode):
             shape_mask = _coerce_mask_tensor(shape_tensor, device=source.device, dtype=source.dtype)
             custom_luma = shape_mask[0] if shape_mask is not None else None
 
-        from .core.memory import check_budget
         check_budget(int(source.shape[0]), int(source.shape[1]), int(source.shape[2]), int(source.shape[3]), multiplier=float(_scalar(num_layers, int)), label="ImageOps Defocus")
 
         result = _apply_defocus(
@@ -193,7 +192,6 @@ class ImageOpsDefocus(io.ComfyNode):
             custom_luma,
         )
         result = _apply_mask_to_image(source, result, effect_mask) if effect_mask is not None else result
-        from ._helpers import apply_per_frame_bypass
         result = apply_per_frame_bypass(source, result, bypass)
         progress.finish()
         return build_node_preview_result(result, (result, output_mask), prefix="imageops_defocus")

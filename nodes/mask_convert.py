@@ -101,7 +101,7 @@ class ImageOpsMaskConvert(io.ComfyNode):
         return io.Schema(
             node_id="ImageOpsMaskConvert",
             display_name="〽️ ImageOps Mask Convert",
-            category="image/imageops",
+            category="image/imageops", essentials_category="Image Tools",
             search_aliases=['mask convert', 'mask', 'matte', 'alpha', 'luma matte', 'image to mask', 'mask to image'], inputs=[
                 io.Boolean.Input("reverse", default=False, label_on="image -> mask", label_off="mask -> image"),
                 io.Combo.Input("mask_source", options=["auto", "luma", "max_rgb", "saturation", "red", "green", "blue", "alpha"], default="auto"),
@@ -115,7 +115,6 @@ class ImageOpsMaskConvert(io.ComfyNode):
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
             ],
-            hidden=[io.Hidden.unique_id],
         )
 
     @classmethod
@@ -129,9 +128,8 @@ class ImageOpsMaskConvert(io.ComfyNode):
         image=None,
         video=None,
         mask=None,
-        unique_id=None,
     ):
-        progress = start_progress(unique_id=unique_id)
+        progress = start_progress()
 
         if _scalar(reverse, bool):
             source = _select_media_tensor(image, video)
