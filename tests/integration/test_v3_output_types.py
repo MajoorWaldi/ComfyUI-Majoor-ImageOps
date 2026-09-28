@@ -134,7 +134,7 @@ class TestPadOutOutputTypes:
 
 
 # ---------------------------------------------------------------------------
-# ImageOpsFrameRange — RETURN_TYPES = ("IMAGE", "INT")
+# ImageOpsFrameRange — RETURN_TYPES = ("IMAGE", "INT", "VIDEO")
 # ---------------------------------------------------------------------------
 
 class TestFrameRangeOutputTypes:
@@ -154,7 +154,7 @@ class TestFrameRangeOutputTypes:
             custom_frame_count=24,
         )
         outputs = result["result"] if isinstance(result, dict) else result
-        _, frame_count = outputs
+        frame_count = outputs[1]
         assert isinstance(frame_count, int), f"frame_count should be int, got {type(frame_count)}"
         assert frame_count == 3  # frames 1,2,3 inclusive
 
