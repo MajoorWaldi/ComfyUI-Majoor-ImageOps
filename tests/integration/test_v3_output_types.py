@@ -177,7 +177,7 @@ class TestAppendOutputTypes:
             image_2=clip_b,
         )
         outputs = result["result"] if isinstance(result, dict) else result
-        _, frame_count, width, height = outputs
+        _, frame_count, width, height, _video = outputs
         assert isinstance(frame_count, int), f"frame_count should be int, got {type(frame_count)}"
         assert isinstance(width, int), f"width should be int, got {type(width)}"
         assert isinstance(height, int), f"height should be int, got {type(height)}"
