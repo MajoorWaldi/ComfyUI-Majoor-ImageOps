@@ -30,7 +30,8 @@
     {"className":"ImageOpsChromaticAberration","module":"chromatic_aberration","classExport":"ImageOpsChromaticAberration","displayName":"ImageOps Chromatic Aberration","ui":"native","aliases":["chromatic aberration","fringe","fringing","lens","color fringe","ca"]},
     {"className":"ImageOpsBloom","module":"bloom","classExport":"ImageOpsBloom","displayName":"ImageOps Bloom","ui":"native","aliases":["bloom","glow","highlight glow","lens"]},
     {"className":"ImageOpsLensArtifacts","module":"lens_artifacts","classExport":"ImageOpsLensArtifacts","displayName":"ImageOps Lens Artifacts","ui":"native","aliases":["lens dirt","dust","smudge","grime","lens artifacts"]},
-    {"className":"ImageOpsDefocus","module":"defocus","classExport":"ImageOpsDefocus","displayName":"ImageOps Defocus","ui":"native","aliases":["defocus","bokeh","depth of field","dof","depth blur","lens blur"]}
+    {"className":"ImageOpsDefocus","module":"defocus","classExport":"ImageOpsDefocus","displayName":"ImageOps Defocus","ui":"native","aliases":["defocus","bokeh","depth of field","dof","depth blur","lens blur"]},
+    {"className":"ImageOpsRoto","module":"roto","classExport":"ImageOpsRoto","displayName":"ImageOps Roto","ui":"custom","minPreviewHeight":560,"aliases":["roto","rotoscope","bezier","spline","shape","matte","mask","nuke"]}
   ],
   "aliases": {
     "checker": "ImageOpsConstant",

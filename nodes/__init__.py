@@ -30,6 +30,7 @@ from .chromatic_aberration import ImageOpsChromaticAberration
 from .bloom import ImageOpsBloom
 from .lens_artifacts import ImageOpsLensArtifacts
 from .defocus import ImageOpsDefocus
+from .roto import ImageOpsRoto
 
 __all__ = [
     "ImageOpsBlur",
@@ -63,4 +64,5 @@ __all__ = [
     "ImageOpsBloom",
     "ImageOpsLensArtifacts",
     "ImageOpsDefocus",
+    "ImageOpsRoto",
 ]

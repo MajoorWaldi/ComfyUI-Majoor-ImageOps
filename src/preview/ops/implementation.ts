@@ -11,6 +11,7 @@ import { applyBlur, applyClamp, applyColorCorrectReference, applyDesaturate, app
 import { cameraShake, cornerPin, crop, cropGeneric, cropReformat, cropStitch, distort, flipRotate, pad, padOut, resize, spherize, transform } from "./geometry.js";
 import { buildMaskAlphaCanvas, channelApply, imageOpsMask, renderMaskedEffectPreview, resolvePreviewMaskCanvas } from "./masks.js";
 import { constant, draw, drawMask, grain, keyer, noise, ramp, stitch, text } from "./procedural.js";
+import { roto } from "./roto.js";
 import { applyChannel, channelMerge, channelSplit, extractSplitChannelCanvas } from "./video.js";
 import { colorAjust, colorCorrect, blur, channel, levels, hueSat, invert, clamp, sharpen, edgeDetect, glow, lumaKey, desaturate } from "./color.js";
 
@@ -66,5 +67,6 @@ export const ops = {
     edgeDetect: edgeDetect,
     glow: glow,
     lumaKey: lumaKey,
-    desaturate: desaturate
+    desaturate: desaturate,
+    roto: roto
 };

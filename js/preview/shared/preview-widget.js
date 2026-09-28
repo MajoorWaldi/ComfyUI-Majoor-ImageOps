@@ -10,6 +10,7 @@ import { createKeyerControlsUi, isNode as isKeyerNode } from "../nodes/keyer.js"
 import { createPadOutControlsUi, isNode as isPadOutNode } from "../nodes/pad-out.js";
 import { createPreviewControlsUi, isNode as isPreviewNode } from "../nodes/preview.js";
 import { createRampControlsUi, isNode as isRampNode } from "../nodes/ramp.js";
+import { createRotoControlsUi, isNode as isRotoNode } from "../nodes/roto.js";
 import { createTextControlsUi, isNode as isTextNode } from "../nodes/text.js";
 import { isImageOpsClass } from "./classes.js";
 import { styleInlineAction } from "./dom-styles.js";
@@ -373,6 +374,7 @@ function ensurePreviewWidget(node, progress, canvasSize, onNativeWidgetChange) {
     drawPressureOpacityInput = drawUi.pressureOpacityInput;
     drawTiltSizeInput = drawUi.tiltSizeInput;
   }
+  const rotoUi = isRotoNode(node) ? createRotoControlsUi() : null;
   const compactNativeControls = buildCompactNativeWidgetControls(node, onNativeWidgetChange);
   const progressWrap = document.createElement("div");
   progressWrap.style.marginTop = "6px";
@@ -400,12 +402,13 @@ function ensurePreviewWidget(node, progress, canvasSize, onNativeWidgetChange) {
   if (joinControls) root.appendChild(joinControls);
   if (frameSelectorControls) root.appendChild(frameSelectorControls);
   if (keyerControls) root.appendChild(keyerControls);
+  if (rotoUi) root.appendChild(rotoUi.controls);
   if (compactNativeControls) {
     root.appendChild(compactNativeControls);
     ensureState(node).compactNativePanel = compactNativeControls;
   }
   root.appendChild(progressWrap);
-  const activeControls = previewControls ?? colorControls ?? drawControls ?? compControls ?? joinControls ?? frameSelectorControls ?? keyerControls ?? compactNativeControls;
+  const activeControls = previewControls ?? colorControls ?? drawControls ?? compControls ?? joinControls ?? frameSelectorControls ?? keyerControls ?? rotoUi?.controls ?? compactNativeControls;
   root.style.pointerEvents = "auto";
   if (typeof node.addDOMWidget === "function") {
     node.addDOMWidget("preview", "ImageOpsPreview", root, {
@@ -559,6 +562,7 @@ function ensurePreviewWidget(node, progress, canvasSize, onNativeWidgetChange) {
   st.frameSelectorRepeatModeSelect = frameSelectorRepeatModeSelect;
   st.frameSelectorRepeatCountInput = frameSelectorRepeatCountInput;
   st.keyerControls = keyerControls;
+  st.rotoUi = rotoUi;
   st.keyerModeButtons = keyerModeButtons;
   st.keyerInvertButton = keyerInvertButton;
   st.keyerInvertMaskButton = keyerInvertMaskButton;

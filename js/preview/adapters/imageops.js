@@ -126,7 +126,8 @@ const HANDLED_CLASSES = /* @__PURE__ */ new Set([
   "ImageOpsChromaticAberration",
   "ImageOpsBloom",
   "ImageOpsLensArtifacts",
-  "ImageOpsDefocus"
+  "ImageOpsDefocus",
+  "ImageOpsRoto"
 ]);
 function imageOpsAdapter() {
   return {
@@ -170,6 +171,7 @@ function imageOpsAdapter() {
       if (cls === "ImageOpsAppend") return getJoinSlots(node).filter((slot) => (node.inputs ?? []).some((input) => input?.name === `image_${slot}` && (input.link ?? null) != null)).length;
       if (cls === "ImageOpsComp") return getConnectedCompInputIndexes(node).length;
       if (cls === "ImageOpsDraw") return (node.inputs?.[0]?.link ?? null) != null ? 1 : 0;
+      if (cls === "ImageOpsRoto") return Number(connectedInput(node, "image"));
       if (cls === "ImageOpsPreview") {
         const imageConnected = connectedInput(node, "image");
         const imageBConnected = connectedInput(node, "image_b");
@@ -208,6 +210,7 @@ function imageOpsAdapter() {
       if (cls === "ImageOpsAppend") {
         return getJoinSlots(node).map((slot) => (node.inputs ?? []).findIndex((input) => input?.name === `image_${slot}` && (input.link ?? null) != null)).filter((index) => index >= 0);
       }
+      if (cls === "ImageOpsRoto") return namedInputIndexes(node, ["image"]);
       return namedInputIndexes(node, ["image", "mask"]);
     },
     async apply({ node, ctx, canvasSize, inputs, inputInfos, outputSlot, tick, renderInputAt }) {
@@ -228,6 +231,10 @@ function imageOpsAdapter() {
         const height = clampDrawDimension(Number((node?.widgets ?? []).find((widget) => widget?.name === "height")?.value ?? 1024), 1024);
         const bgColor = String((node?.widgets ?? []).find((widget) => widget?.name === "bg_color")?.value ?? "#000000");
         return inputs[0] ?? makeSolidBackgroundCanvas(width, height, bgColor);
+      }
+      if (cls === "ImageOpsRoto") {
+        if (bypass) return;
+        return ops.roto(ctx, canvasSize, node, inputs, tick ?? 0, outputSlot);
       }
       if (outputSlot === 1 && cls !== "ImageOpsPreview" && cls !== "ImageOpsDraw" && cls !== "ImageOpsFrameRange") {
         return ops.imageOpsMask(ctx, canvasSize, node, cls, inputs, tick ?? 0) ?? inputs[0];

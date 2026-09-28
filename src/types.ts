@@ -304,6 +304,10 @@ export interface NodeState {
   cornerPinGeometry: CornerPinPreviewGeometry | null;
   cornerPinDrag: CornerPinDragState | null;
   cornerPinInteractiveHooked: boolean;
+  rotoGeometry: RotoPreviewGeometry | null;
+  rotoHooked: boolean;
+  rotoUi: RotoControlsUi | null;
+  roto?: RotoEditState;
   padOutGeometry: PadOutPreviewGeometry | null;
   padOutDrag: PadOutDragState | null;
   padOutInteractiveHooked: boolean;
@@ -475,6 +479,63 @@ export interface CornerPinPreviewGeometry {
   fitDrawHeight: number;
 }
 
+export interface RotoPreviewGeometry extends CornerPinPreviewGeometry {}
+
+export interface RotoDraft {
+  kind: "bezier" | "free" | "ellipse" | "rect";
+  pts: number[][] | null;
+  cursor?: number[] | null;
+  stroke?: number[][];
+  a?: number[];
+}
+
+export interface RotoDrag {
+  pointerId: number;
+  kind: "point" | "in" | "out" | "shape" | "draw-handle" | "free" | "shape-draw";
+  index?: number;
+  start?: number[];
+  pts?: number[][];
+  undone?: boolean;
+}
+
+export interface RotoEditState {
+  tool: string;
+  shapeId: string | null;
+  pointIndex: number | null;
+  drag: RotoDrag | null;
+  draft: RotoDraft | null;
+  hold: number | null;
+  undo: string[];
+  redo: string[];
+}
+
+export interface RotoControlsUi {
+  controls: HTMLDivElement;
+  toolButtons: Record<string, HTMLButtonElement>;
+  shapeSelect: HTMLSelectElement;
+  opSelect: HTMLSelectElement;
+  visibleButton: HTMLButtonElement;
+  upButton: HTMLButtonElement;
+  downButton: HTMLButtonElement;
+  deleteShapeButton: HTMLButtonElement;
+  featherRange: HTMLInputElement;
+  featherNumber: HTMLInputElement;
+  opacityRange: HTMLInputElement;
+  opacityNumber: HTMLInputElement;
+  frameRange: HTMLInputElement;
+  frameNumber: HTMLInputElement;
+  holdButton: HTMLButtonElement;
+  prevKeyButton: HTMLButtonElement;
+  setKeyButton: HTMLButtonElement;
+  delKeyButton: HTMLButtonElement;
+  nextKeyButton: HTMLButtonElement;
+  keyInfo: HTMLSpanElement;
+  smoothButton: HTMLButtonElement;
+  cornerButton: HTMLButtonElement;
+  undoButton: HTMLButtonElement;
+  redoButton: HTMLButtonElement;
+}
+
 export type CornerPinHandle = "tl" | "tr" | "bl" | "br";
 
 export interface CornerPinDragState {
@@ -522,6 +583,7 @@ export interface MediaState {
   videoCanvas?: HTMLCanvasElement;
   nativeCanvas?: HTMLCanvasElement;
   staticRenderCache?: Map<string, HTMLCanvasElement>;
+  holdTime?: number;
 }
 
 // ── Media / source ──

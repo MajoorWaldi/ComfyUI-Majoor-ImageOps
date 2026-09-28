@@ -142,6 +142,11 @@ export const IMAGEOPS_NODE_METADATA: readonly ImageOpsNodeMeta[] = [
   {
     "className": "ImageOpsDefocus",
     "ui": "native"
+  },
+  {
+    "className": "ImageOpsRoto",
+    "ui": "custom",
+    "minPreviewHeight": 560
   }
 ] as const;
 

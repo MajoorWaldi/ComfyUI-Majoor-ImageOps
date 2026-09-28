@@ -110,6 +110,19 @@ async function waitForVideoReady(videoEl: HTMLVideoElement, timeoutMs: number = 
   });
 }
 
+async function seekVideo(videoEl: HTMLVideoElement, time: number, timeoutMs = 1500): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const finish = () => {
+      window.clearTimeout(timeoutId);
+      videoEl.removeEventListener("seeked", finish);
+      resolve();
+    };
+    const timeoutId = window.setTimeout(finish, timeoutMs);
+    videoEl.addEventListener("seeked", finish, { once: true });
+    videoEl.currentTime = time;
+  });
+}
+
 export function renderImageSourceToCanvas(
   node: ComfyNode,
   source: CanvasImageSource,
@@ -123,6 +136,8 @@ export function renderImageSourceToCanvas(
   const ctx = canvas.getContext("2d");
   if (!ctx) return canvas;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
   st[slot] = canvas;
   return canvas;
@@ -299,7 +314,10 @@ export async function ensureVideoFrameCanvas(node: ComfyNode, url: string, size:
   // Avoid spamming v.play() on every tick when the browser repeatedly pauses on
   // buffer underrun — a single in-flight play() is enough; the next tick will
   // pick up automatically when the video resumes.
-  if (v.paused && !(st as any).videoPlayInFlight) {
+  if (st.holdTime != null) {
+    if (!v.paused) v.pause();
+    if (Math.abs(v.currentTime - st.holdTime) > 1e-3) await seekVideo(v, st.holdTime);
+  } else if (v.paused && !(st as any).videoPlayInFlight) {
     (st as any).videoPlayInFlight = true;
     v.play().catch(() => { /* ignore — browser autoplay / buffering */ })
       .finally(() => { (st as any).videoPlayInFlight = false; });
@@ -312,6 +330,8 @@ export async function ensureVideoFrameCanvas(node: ComfyNode, url: string, size:
   if ((st as any).lastVideoFrameKey === frameKey) return c;
   (st as any).lastVideoFrameKey = frameKey;
 
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.drawImage(v, 0, 0, width, height);
   return c;
 }

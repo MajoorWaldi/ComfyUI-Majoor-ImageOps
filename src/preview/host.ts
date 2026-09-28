@@ -23,6 +23,7 @@ import { attachInteractions as attachColorCorrectInteractionsExt } from "./inter
 import { attachInteractions as attachCompInteractionsExt } from "./interactions/comp.js";
 import { attachInteractions as attachConstantInteractionsExt } from "./interactions/constant.js";
 import { attachInteractions as attachCornerPinInteractionsExt } from "./interactions/corner-pin.js";
+import { attachInteractions as attachRotoInteractionsExt } from "./interactions/roto.js";
 import { attachInteractions as attachCropInteractionsExt } from "./interactions/crop.js";
 import { attachInteractions as attachDrawInteractionsExt } from "./interactions/draw.js";
 import { attachInteractions as attachGrainInteractionsExt } from "./interactions/grain.js";
@@ -48,6 +49,7 @@ import {
 } from "./nodes/comp.js";
 import { getConstantInfoText, hideConstantWidgets, isNode as isConstantNode, syncConstantWidgets } from "./nodes/constant.js";
 import { getCornerPinInfoText, isNode as isCornerPinNode } from "./nodes/corner-pin.js";
+import { getRotoInfoText, getRotoState, hideRotoWidgets, isNode as isRotoNode, syncRotoControls } from "./nodes/roto.js";
 import { getCropInfoText, hideCropGeometryWidgets, isNode as isCropNode, setCropOutputDimensions, syncCropWidgets } from "./nodes/crop.js";
 import {
     cloneCanvas,
@@ -938,7 +940,7 @@ export function registerImageOpsLivePreview(): void {
       let sourceWidth = result.canvas.width || 1;
       let sourceHeight = result.canvas.height || 1;
       const primaryUpstream = getUpstreamNode(node, 0);
-      if (primaryUpstream && (isCornerPinNode(node) || isPadOutNode(node))) {
+      if (primaryUpstream && (isCornerPinNode(node) || isPadOutNode(node) || isRotoNode(node))) {
         const upstreamSize = resolveNodeIntrinsicMediaSize(primaryUpstream, result.canvas);
         if (isPadOutNode(node)) {
           const padLeft = Math.max(0, Math.round(widgetNumber(node, "pad_left", 0)));
@@ -957,6 +959,9 @@ export function registerImageOpsLivePreview(): void {
         setInfo(st, "No live preview for this node - showing its input; run the queue to see the real result");
       } else if (isCornerPinNode(node)) {
         setInfo(st, getCornerPinInfoText(node, sourceWidth, sourceHeight));
+      } else if (isRotoNode(node)) {
+        setInfo(st, getRotoInfoText(node, sourceWidth, sourceHeight));
+        syncRotoControls(node);
       } else if (isTextNode(node)) {
         setInfo(st, getTextInfoText(node));
       } else if (isRampNode(node)) {
@@ -1009,6 +1014,13 @@ export function registerImageOpsLivePreview(): void {
     if (frozenFrameSelector) {
       stopRAF(st);
       schedule(node, () => renderNode(node, 0), 10);
+      return;
+    }
+
+    if (isRotoNode(node) && getRotoState(node).hold != null) {
+      stopRAF(st);
+      const holdFrame = getRotoState(node).hold!;
+      schedule(node, () => renderNode(node, holdFrame), 10);
       return;
     }
 
@@ -1223,6 +1235,9 @@ export function registerImageOpsLivePreview(): void {
     if (isPadOutNode(node)) {
       hidePadOutWidgets(node);
     }
+    if (isRotoNode(node)) {
+      hideRotoWidgets(node);
+    }
 
     const syncLateWidgetMirrors = (): void => {
       try {
@@ -1287,6 +1302,9 @@ export function registerImageOpsLivePreview(): void {
       }
       if (isCornerPinNode(node)) {
         attachCornerPinInteractionsExt(node, nodeCtx);
+      }
+      if (isRotoNode(node)) {
+        attachRotoInteractionsExt(node, nodeCtx);
       }
       startLoopIfVideo(node);
     }
@@ -1433,6 +1451,10 @@ export function registerImageOpsLivePreview(): void {
         if (isCornerPinNode(node) && prop === "onConfigure") {
           st.cornerPinInteractiveHooked = false;
           attachCornerPinInteractionsExt(node, nodeCtx);
+        }
+        if (isRotoNode(node) && prop === "onConfigure") {
+          hideRotoWidgets(node);
+          syncRotoControls(node);
         }
         if (isPadOutNode(node) && prop === "onConfigure") {
           hidePadOutWidgets(node);

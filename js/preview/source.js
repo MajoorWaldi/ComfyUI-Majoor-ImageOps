@@ -90,6 +90,18 @@ async function waitForVideoReady(videoEl, timeoutMs = 4e3) {
     videoEl.addEventListener("error", finish, { once: true });
   });
 }
+async function seekVideo(videoEl, time, timeoutMs = 1500) {
+  await new Promise((resolve) => {
+    const finish = () => {
+      window.clearTimeout(timeoutId);
+      videoEl.removeEventListener("seeked", finish);
+      resolve();
+    };
+    const timeoutId = window.setTimeout(finish, timeoutMs);
+    videoEl.addEventListener("seeked", finish, { once: true });
+    videoEl.currentTime = time;
+  });
+}
 function renderImageSourceToCanvas(node, source, width, height, slot) {
   node.__imageops_media ?? (node.__imageops_media = {});
   const st = node.__imageops_media;
@@ -97,6 +109,8 @@ function renderImageSourceToCanvas(node, source, width, height, slot) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return canvas;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
   st[slot] = canvas;
   return canvas;
@@ -257,7 +271,10 @@ async function ensureVideoFrameCanvas(node, url, size, tick = 0) {
   st.videoCanvas = c;
   const ctx = c.getContext("2d");
   if (!ctx) return c;
-  if (v.paused && !st.videoPlayInFlight) {
+  if (st.holdTime != null) {
+    if (!v.paused) v.pause();
+    if (Math.abs(v.currentTime - st.holdTime) > 1e-3) await seekVideo(v, st.holdTime);
+  } else if (v.paused && !st.videoPlayInFlight) {
     st.videoPlayInFlight = true;
     v.play().catch(() => {
     }).finally(() => {
@@ -267,6 +284,8 @@ async function ensureVideoFrameCanvas(node, url, size, tick = 0) {
   const frameKey = `${v.currentTime.toFixed(4)}|${width}x${height}`;
   if (st.lastVideoFrameKey === frameKey) return c;
   st.lastVideoFrameKey = frameKey;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.drawImage(v, 0, 0, width, height);
   return c;
 }

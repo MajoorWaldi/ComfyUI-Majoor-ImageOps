@@ -69,6 +69,7 @@
 | **ImageOps Bloom** | `ImageOpsBloom` | Threshold + blur + additive glow on highlights, HDR-safe |
 | **ImageOps Lens Artifacts** | `ImageOpsLensArtifacts` | Dirt/smudge texture compositing plus procedural static dust specks |
 | **ImageOps Defocus** | `ImageOpsDefocus` | Depth-driven defocus/bokeh with shaped aperture kernels (circle/hexagon/octagon/custom) and highlight bloom |
+| **ImageOps Roto** | `ImageOpsRoto` | Nuke-style vector roto: editable bezier, ellipse, rectangle and freehand shapes with feather, add/subtract/intersect, keyframe animation and live preview |
 
 ### 📤 Output Nodes
 
@@ -543,6 +544,33 @@ Depth-driven defocus/bokeh with shaped aperture kernels.
 - `highlight_threshold` (0.0 to 2.0): Brightness above which pixels bloom into visible bokeh discs when blurred
 - `highlight_boost` (0.0 to 8.0): Strength of the bokeh highlight bloom
 - `invert_depth`: Flip the depth map convention (near/far)
+
+---
+
+### 🔵 ImageOps Roto
+
+Vector rotoscoping with an interactive editor in the live preview. Shapes are stored as bezier splines, so they stay editable and resolution independent; the backend rasterises them with supersampled edges at the full image size.
+
+**Inputs:**
+- `image` (IMAGE/VIDEO, optional): Source media. Without it the node outputs a matte of `width` x `height`
+
+**Parameters:**
+- `feather` (0 to 512): Gaussian feather on the final matte, in pixels
+- `expand` (-512 to 512): Grow or shrink every shape, in pixels
+- `opacity`, `invert`: Applied to the final matte
+- `frame_offset`: Keyframes are looked up at batch index + `frame_offset`
+- `view`: Live preview only. `overlay` (source with matte tint), `matte`, or `result` (source cut by the matte)
+
+**Editor (preview canvas):**
+- Tools: **Select** (V), **Bezier** (B, click to add points and drag to pull handles, click the first point or Enter to close), **Ellipse** (E, Shift for a circle), **Rect** (R, Shift for a square), **Free** (F, the stroke becomes a smooth closed bezier)
+- Select tool: drag points and handles (Alt breaks the tangent), drag a shape to move it, double-click a segment to add a point, Delete removes the point or shape, **Smooth** (S) / **Corner** (C) convert the selected point
+- Per shape: `add` / `subtract` / `intersect`, feather, opacity, visibility and draw order
+- Keyframes: pick a frame with the **Frame** slider (or **Hold**), then edit. **Set key** (K) makes a shape animated; edits on an animated shape auto-key at the current frame and points are interpolated linearly between keys. Adding or deleting a point applies to every key
+- Ctrl+Z / Ctrl+Shift+Z undo and redo; Ctrl+drag pans and Ctrl+wheel zooms the preview
+
+Hold seeks upstream video files by time using the video's frame rate (24 fps when unknown); for exact frame matching connect a source whose frame rate is known.
+
+**Outputs:** `IMAGE` (source with the matte as alpha), `MASK`
 - `invert_mask`: Invert mask effect
 - `bypass`: Skip processing
 

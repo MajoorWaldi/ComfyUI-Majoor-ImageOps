@@ -75,6 +75,7 @@ ImageOpsChromaticAberration = _load_module(f"{_PKG}.nodes.chromatic_aberration",
 ImageOpsBloom = _load_module(f"{_PKG}.nodes.bloom", _nodes_dir / "bloom.py").ImageOpsBloom
 ImageOpsLensArtifacts = _load_module(f"{_PKG}.nodes.lens_artifacts", _nodes_dir / "lens_artifacts.py").ImageOpsLensArtifacts
 ImageOpsDefocus = _load_module(f"{_PKG}.nodes.defocus", _nodes_dir / "defocus.py").ImageOpsDefocus
+ImageOpsRoto = _load_module(f"{_PKG}.nodes.roto", _nodes_dir / "roto.py").ImageOpsRoto
 
 NODES = [
     ImageOpsBlur,
@@ -108,6 +109,7 @@ NODES = [
     ImageOpsBloom,
     ImageOpsLensArtifacts,
     ImageOpsDefocus,
+    ImageOpsRoto,
 ]
 
 if ComfyExtension is not object:

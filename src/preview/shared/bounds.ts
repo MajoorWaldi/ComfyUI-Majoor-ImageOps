@@ -6,6 +6,7 @@ import { getCropCanvasMetrics, getCropControlState, isNode as isCropNode } from 
 import { isNode as isDrawNode } from "../nodes/draw.js";
 import { isNode as isPadOutNode } from "../nodes/pad-out.js";
 import { isNode as isRampNode, rampControlPoints } from "../nodes/ramp.js";
+import { drawRotoBounds, isNode as isRotoNode } from "../nodes/roto.js";
 import { drawOutputBounds, getFitPlacement } from "./geometry.js";
 import { getNativePreviewImage, hideNativeMediaPreview, showNativeMediaPreview } from "./media.js";
 import { ensureState, setInfo } from "./state.js";
@@ -672,6 +673,7 @@ export function blit(
   st.cropGeometry = drawCropBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
   st.rampGeometry = drawRampBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
   st.cornerPinGeometry = drawCornerPinBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight);
+  st.rotoGeometry = drawRotoBounds(node, ctx, canvasSize, canvasSize, resolvedWidth, resolvedHeight, fit);
   const effOW = padOutSw > 0 ? padOutSw + padOutPl + padOutPr : resolvedWidth;
   const effOH = padOutSh > 0 ? padOutSh + padOutPt + padOutPb : resolvedHeight;
   st.padOutGeometry = drawPadOutBounds(node, ctx, canvasSize, canvasSize, effOW, effOH, padOutSw, padOutSh);
@@ -782,7 +784,7 @@ export function blitCompare(
 }
 
 export function tryRenderNativePreview(node: ComfyNode, st: NodeState, canvasSize: number): boolean {
-  if (isCropNode(node) || isCompNode(node) || isDrawNode(node) || isPadOutNode(node) || isCornerPinNode(node) || isRampNode(node)) return false;
+  if (isCropNode(node) || isCompNode(node) || isDrawNode(node) || isPadOutNode(node) || isCornerPinNode(node) || isRampNode(node) || isRotoNode(node)) return false;
   if (st.nativeDirty) return false;
   if (showNativeMediaPreview(node, st, canvasSize)) {
     setInfo(st, "Node preview (media)");

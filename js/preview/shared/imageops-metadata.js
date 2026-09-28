@@ -134,6 +134,11 @@ const IMAGEOPS_NODE_METADATA = [
   {
     "className": "ImageOpsDefocus",
     "ui": "native"
+  },
+  {
+    "className": "ImageOpsRoto",
+    "ui": "custom",
+    "minPreviewHeight": 560
   }
 ];
 const IMAGEOPS_DEFAULT_PREVIEW_MIN_HEIGHT = 320;

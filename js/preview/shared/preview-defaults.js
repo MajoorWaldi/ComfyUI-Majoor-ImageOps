@@ -8,9 +8,9 @@ const PREVIEW_STORAGE_KEYS = {
 const PREVIEW_DEFAULTS = {
   minCanvasSize: 128,
   maxCanvasSize: 2048,
-  canvasSize: 512,
-  playbackCanvasSize: 384,
-  interactionCanvasSize: 320,
+  canvasSize: 1024,
+  playbackCanvasSize: 640,
+  interactionCanvasSize: 448,
   debounceMs: 120,
   maxGraphNodes: 140
 };

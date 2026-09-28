@@ -55,9 +55,9 @@ def _load_entrypoint(monkeypatch):
     return module
 
 
-def test_all_31_nodes_publish_object_info(monkeypatch):
+def test_all_32_nodes_publish_object_info(monkeypatch):
     module = _load_entrypoint(monkeypatch)
-    assert len(module.NODE_CLASS_MAPPINGS) == 31
+    assert len(module.NODE_CLASS_MAPPINGS) == 32
 
     for node_id, node_class in module.NODE_CLASS_MAPPINGS.items():
         if hasattr(node_class, "GET_NODE_INFO_V1"):

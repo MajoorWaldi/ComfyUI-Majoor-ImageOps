@@ -3,6 +3,7 @@ import { comp, composite, merge } from "./blend.js";
 import { cameraShake, cornerPin, crop, cropGeneric, cropReformat, cropStitch, distort, flipRotate, pad, padOut, resize, spherize, transform } from "./geometry.js";
 import { channelApply, imageOpsMask } from "./masks.js";
 import { constant, draw, drawMask, grain, keyer, noise, ramp, stitch, text } from "./procedural.js";
+import { roto } from "./roto.js";
 import { channelMerge, channelSplit } from "./video.js";
 import { colorAjust, colorCorrect, blur, channel, levels, hueSat, invert, clamp, sharpen, edgeDetect, glow, lumaKey, desaturate } from "./color.js";
 initOpsConstants();
@@ -48,7 +49,8 @@ const ops = {
   edgeDetect,
   glow,
   lumaKey,
-  desaturate
+  desaturate,
+  roto
 };
 export {
   ops

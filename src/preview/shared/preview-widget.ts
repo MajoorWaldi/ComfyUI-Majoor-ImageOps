@@ -11,6 +11,7 @@ import { createKeyerControlsUi, isNode as isKeyerNode } from "../nodes/keyer.js"
 import { createPadOutControlsUi, isNode as isPadOutNode } from "../nodes/pad-out.js";
 import { createPreviewControlsUi, isNode as isPreviewNode } from "../nodes/preview.js";
 import { createRampControlsUi, isNode as isRampNode } from "../nodes/ramp.js";
+import { createRotoControlsUi, isNode as isRotoNode } from "../nodes/roto.js";
 import { createTextControlsUi, isNode as isTextNode } from "../nodes/text.js";
 import { isImageOpsClass } from "./classes.js";
 import { styleInlineAction } from "./dom-styles.js";
@@ -424,6 +425,7 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
     drawTiltSizeInput = drawUi.tiltSizeInput;
   }
 
+  const rotoUi = isRotoNode(node) ? createRotoControlsUi() : null;
   const compactNativeControls = buildCompactNativeWidgetControls(node, onNativeWidgetChange);
 
   const progressWrap = document.createElement("div") as HTMLDivElement;
@@ -454,13 +456,14 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
   if (joinControls) root.appendChild(joinControls);
   if (frameSelectorControls) root.appendChild(frameSelectorControls);
   if (keyerControls) root.appendChild(keyerControls);
+  if (rotoUi) root.appendChild(rotoUi.controls);
   if (compactNativeControls) {
     root.appendChild(compactNativeControls);
     (ensureState(node) as any).compactNativePanel = compactNativeControls;
   }
   root.appendChild(progressWrap);
 
-  const activeControls = previewControls ?? colorControls ?? drawControls ?? compControls ?? joinControls ?? frameSelectorControls ?? keyerControls ?? compactNativeControls;
+  const activeControls = previewControls ?? colorControls ?? drawControls ?? compControls ?? joinControls ?? frameSelectorControls ?? keyerControls ?? rotoUi?.controls ?? compactNativeControls;
 
   // Ensure pointer events reach our canvas even if Node 2.0 applies pointer-events:none on parent containers.
   root.style.pointerEvents = "auto";
@@ -624,6 +627,7 @@ export function ensurePreviewWidget(node: ComfyNode, progress: ProgressBus, canv
   (st as any).frameSelectorRepeatModeSelect = frameSelectorRepeatModeSelect;
   (st as any).frameSelectorRepeatCountInput = frameSelectorRepeatCountInput;
   (st as any).keyerControls = keyerControls;
+  st.rotoUi = rotoUi;
   (st as any).keyerModeButtons = keyerModeButtons;
   (st as any).keyerInvertButton = keyerInvertButton;
   (st as any).keyerInvertMaskButton = keyerInvertMaskButton;

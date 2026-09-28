@@ -1,5 +1,6 @@
 import type { ComfyNode } from "../../types.js";
 import { isNode as isDrawNode } from "../nodes/draw.js";
+import { isNode as isRotoNode } from "../nodes/roto.js";
 import { isNode as isTextNode } from "../nodes/text.js";
 import { blit } from "./bounds.js";
 import { clampPreviewZoom } from "./geometry.js";
@@ -113,7 +114,7 @@ export function attachPreviewNavigation(node: ComfyNode, canvasSize: number): vo
 
   // ── Double-click: reset zoom/pan ──
   canvas.addEventListener("dblclick", () => {
-    if (isInteractiveNode(node)) return;
+    if (isInteractiveNode(node) || isRotoNode(node)) return;
     if (st.previewZoom === 1 && st.previewPanX === 0 && st.previewPanY === 0) return;
     st.previewZoom = 1;
     st.previewPanX = 0;
