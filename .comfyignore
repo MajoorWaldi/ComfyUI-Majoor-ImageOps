@@ -4,6 +4,11 @@
 tests/
 .github/
 
+# Local environments and caches.
+.venv/
+node_modules/
+.pytest_cache/
+
 # TypeScript source and build tooling; compiled output lives in js/.
 src/
 scripts/
@@ -16,3 +21,5 @@ imageops_nodes.json
 
 # Internal planning notes, not user-facing docs. docs/*.gif stays (used by README).
 docs/*.md
+REFACTO.md
+comfyui_agent.md

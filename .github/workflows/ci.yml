@@ -98,7 +98,7 @@ jobs:
         # comfyui-ref pins the compatibility floor declared as requires-comfyui
         # in pyproject.toml, plus the current stable release. Bump the floor
         # entry only after confirming this job passes against it.
-        comfyui-ref: ["v0.11.0", "v0.37.4"]
+        comfyui-ref: ["v0.12.0", "v0.37.4"]
 
     steps:
       - uses: actions/checkout@v7
