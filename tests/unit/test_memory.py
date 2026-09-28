@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import pytest
 import torch
+import types
+import sys
 
 from nodes.core.memory import MemoryBudgetError, check_budget, estimate_bytes
 
@@ -58,3 +60,20 @@ class TestCheckBudget:
         check_budget(100, 1024, 1024, 4, multiplier=1.0, budget_mb=2048.0, label="test")
         with pytest.raises(MemoryBudgetError):
             check_budget(100, 1024, 1024, 4, multiplier=100.0, budget_mb=2048.0, label="test")
+
+    def test_cuda_probe_failure_falls_back_to_static_budget(self, monkeypatch):
+        mm = types.ModuleType("comfy.model_management")
+
+        def _raise_assertion():
+            raise AssertionError("Torch not compiled with CUDA enabled")
+
+        mm.get_torch_device = _raise_assertion
+        mm.get_free_memory = lambda _device: 0
+
+        comfy = types.ModuleType("comfy")
+        comfy.model_management = mm
+        monkeypatch.setitem(sys.modules, "comfy", comfy)
+        monkeypatch.setitem(sys.modules, "comfy.model_management", mm)
+
+        result = check_budget(1, 64, 64, 3, budget_mb=100.0, label="test")
+        assert result > 0

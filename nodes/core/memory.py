@@ -85,7 +85,7 @@ def check_budget(
                 free_mb = free_bytes / (1024 * 1024)
                 # Cap the limit to 90% of free memory to leave a safety margin
                 limit_mb = min(limit_mb, free_mb * 0.9)
-    except (ImportError, AttributeError):
+    except (ImportError, AttributeError, RuntimeError, AssertionError):
         pass
 
     est_mb = est / (1024 * 1024)
