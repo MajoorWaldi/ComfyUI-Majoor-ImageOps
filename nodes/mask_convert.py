@@ -14,6 +14,7 @@ from ._helpers import (
 from comfy_api.latest import io
 from ._preview import build_node_preview_result
 from ._progress import start_progress
+from .core.video_io import extract_video_fps_audio, media_to_video
 
 
 def _mask_source_channel(image: torch.Tensor, source: str) -> torch.Tensor:
@@ -114,6 +115,7 @@ class ImageOpsMaskConvert(io.ComfyNode):
             outputs=[
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
+                io.Video.Output("video", display_name="video", tooltip="Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected in image -> mask mode."),
             ],
         )
 
@@ -133,13 +135,15 @@ class ImageOpsMaskConvert(io.ComfyNode):
 
         if _scalar(reverse, bool):
             source = _select_media_tensor(image, video)
+            fps, audio, sample_rate = extract_video_fps_audio(image)
             output_mask = _image_to_mask(source, mask_source, black_point, white_point, antialias_radius)
             output_image = _mask_to_preview_image(output_mask, device=source.device, dtype=source.dtype)
         else:
+            fps, audio, sample_rate = 24.0, None, 44100
             output_mask = _coerce_mask_tensor(mask)
             if output_mask is None:
                 raise ValueError("ImageOps Mask Convert requires a mask input when reverse is disabled.")
             output_image = _mask_to_preview_image(output_mask)
 
         progress.finish()
-        return build_node_preview_result(output_image, (output_image, output_mask), prefix="imageops_mask_convert")
+        return build_node_preview_result(output_image, (output_image, output_mask, media_to_video(output_image, fps, audio, sample_rate)), prefix="imageops_mask_convert")

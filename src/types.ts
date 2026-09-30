@@ -91,6 +91,7 @@ export interface ComfyNode {
   onNodeCreated?(...args: any[]): any;
   computeSize?(size?: [number, number] | number): [number, number];
   setSize?(size: [number, number]): void;
+  addWidget?(type: string, name: string, value: unknown, callback?: (...args: any[]) => any, options?: Record<string, unknown>): ComfyWidget;
   addDOMWidget?(name: string, type: string, el: HTMLElement, opts: any): void;
   addInput?(name: string, type?: string, extra_info?: any): void;
   removeInput?(slot: number): void;
@@ -287,6 +288,7 @@ export interface NodeState {
   // existing widget names; the others map to e.g. shadows_<param>.
   colorActiveZone: "global" | "shadows" | "midtones" | "highlights";
   colorInteractiveHooked: boolean;
+  colorCurveToggleAdded: boolean;
   compLayers: CompLayerPreviewGeometry[];
   compOutputWidth: number;
   compOutputHeight: number;

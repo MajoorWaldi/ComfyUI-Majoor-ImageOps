@@ -1,10 +1,43 @@
 import { drawColorWheel, getColorWheelSwatchCss } from "../color.js";
 import { clampDrawOpacity } from "../draw.js";
 import { styleSoftButton, styleSoftRange } from "../shared/dom-styles.js";
+import { markCanvasDirty } from "../shared/canvas.js";
+import { getUiState, setUiState } from "../shared/ui-persist.js";
 import { findWidget, hideWidgetForGood, widgetNumber } from "../shared/widgets.js";
 const NODE_CLASS = "ImageOpsColorAjust";
 function isNode(node) {
   return String(node?.comfyClass ?? "") === NODE_CLASS;
+}
+const CURVE_COLLAPSED_KEY = "curveCollapsed";
+function applyCurveCollapsed(curveWidget, collapsed) {
+  curveWidget.origComputeSize ?? (curveWidget.origComputeSize = curveWidget.computeSize);
+  curveWidget.computeSize = collapsed ? (() => [0, -4]) : curveWidget.origComputeSize;
+  if (curveWidget.element) curveWidget.element.style.display = collapsed ? "none" : "";
+  markCanvasDirty();
+}
+function attachCurveCollapseToggle(node) {
+  if (!isNode(node)) return;
+  const st = node.__imageops_state;
+  if (!st || st.colorCurveToggleAdded) return;
+  const curveWidget = findWidget(node, "curve");
+  if (!curveWidget) return;
+  st.colorCurveToggleAdded = true;
+  let collapsed = getUiState(NODE_CLASS, CURVE_COLLAPSED_KEY, true);
+  applyCurveCollapsed(curveWidget, collapsed);
+  const label = (value) => value ? "\u25B8 Curve (click to show)" : "\u25BE Curve (click to hide)";
+  const toggleWidget = node.addWidget?.("button", label(collapsed), null, () => {
+    collapsed = !collapsed;
+    setUiState(NODE_CLASS, CURVE_COLLAPSED_KEY, collapsed);
+    toggleWidget.name = label(collapsed);
+    applyCurveCollapsed(curveWidget, collapsed);
+  });
+  if (!toggleWidget || !node.widgets) return;
+  const curveIndex = node.widgets.indexOf(curveWidget);
+  const toggleIndex = node.widgets.indexOf(toggleWidget);
+  if (curveIndex >= 0 && toggleIndex >= 0 && toggleIndex !== curveIndex) {
+    node.widgets.splice(toggleIndex, 1);
+    node.widgets.splice(curveIndex, 0, toggleWidget);
+  }
 }
 function createColorCorrectControlsUi() {
   const controls = document.createElement("div");
@@ -292,6 +325,7 @@ function syncColorCorrectWidgets(node) {
 }
 export {
   NODE_CLASS,
+  attachCurveCollapseToggle,
   colorWidgetDefaultFor,
   colorWidgetNameForZone,
   createColorCorrectControlsUi,

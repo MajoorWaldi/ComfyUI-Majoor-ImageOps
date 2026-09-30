@@ -1,11 +1,13 @@
 from comfy_api.latest import io
 import os
 import uuid
+from pathlib import Path
 import torch
 from PIL import Image
 import folder_paths
 from ._helpers import _alpha_mask_from_image, _coerce_mask_tensor, _mask_to_preview_image, _resize, _scalar, _select_media_tensor, _tensor_batch_to_pil_list, logger
 from ._progress import start_progress
+from .core.video_io import extract_video_fps_audio, media_to_video
 
 def _ensure_dir(p: str):
     os.makedirs(p, exist_ok=True)
@@ -15,6 +17,17 @@ def _ensure_dir(p: str):
 # a long IMAGE batch (e.g. a video's frames) writes one temp PNG per frame and
 # never cleans them up, accumulating unbounded temp-dir files across re-runs.
 _MAX_PREVIEW_FRAMES = 16
+
+# Across-run cache eviction, mirroring routes.py's viewmedia cache: every execution
+# writes new uuid4()-named files that nothing else deletes, so without this the temp
+# dir grows unbounded over a long session. Scoped to this node's own prefix so it
+# never touches other nodes' files sharing the same ComfyUI temp directory.
+_MAX_PREVIEW_CACHE_FILES = 64
+
+def _prune_prefix(temp_dir: str, prefix: str) -> None:
+    entries = sorted(Path(temp_dir).glob(f"{prefix}_*"), key=lambda p: p.stat().st_mtime)
+    for stale in entries[:-_MAX_PREVIEW_CACHE_FILES]:
+        stale.unlink(missing_ok=True)
 
 def save_temp_images(images, prefix='imageops', ext='png', quality=95, max_frames=_MAX_PREVIEW_FRAMES):
     temp_dir = _ensure_dir(folder_paths.get_temp_directory())
@@ -37,6 +50,7 @@ def save_temp_images(images, prefix='imageops', ext='png', quality=95, max_frame
             logger.error(f"Failed to save temp image '{out_path}': {e}")
             continue
         ui_items.append({'filename': name, 'subfolder': subfolder, 'type': 'temp'})
+    _prune_prefix(temp_dir, prefix)
     return ui_items
 
 _MAX_PREVIEW_ANIMATED_FRAMES = 240
@@ -59,6 +73,7 @@ def save_temp_animated(images, prefix='imageops_anim', ext='webp', fps=12, quali
     except (OSError, ValueError) as e:
         logger.error(f"Failed to save animated preview '{out_path}': {e}")
         return None
+    _prune_prefix(temp_dir, prefix)
     return {'filename': name, 'subfolder': '', 'type': 'temp'}
 
 def save_temp_strip(images, prefix='imageops_strip', ext='png', max_frames=16, tile_height=256, quality=95):
@@ -97,6 +112,7 @@ def save_temp_strip(images, prefix='imageops_strip', ext='png', max_frames=16, t
     except (OSError, ValueError) as e:
         logger.error(f"Failed to save strip preview '{out_path}': {e}")
         return None
+    _prune_prefix(temp_dir, prefix)
     return {'filename': name, 'subfolder': '', 'type': 'temp'}
 
 _COMPARE_MODES = ['off', 'side_by_side', 'wipe', 'diff']
@@ -131,7 +147,7 @@ class ImageOpsPreview(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsPreview', display_name='〽️ Image Ops Preview', category='image/imageops', essentials_category='Image Tools', is_output_node=True, search_aliases=['preview', 'viewer', 'view', 'monitor', 'scope', 'histogram', 'waveform', 'compare', 'a/b'], inputs=[io.Combo.Input('preview_target', options=['auto', 'image', 'mask'], default='auto'), io.Combo.Input('mode', options=['images', 'strip', 'animated_webp', 'animated_gif'], default='images'), io.Combo.Input('compare_mode', options=_COMPARE_MODES, default='off', tooltip='Compare against Image B in the saved preview thumbnail. off previews Image only.'), io.Float.Input('wipe_position', default=0.5, min=0.0, max=1.0, step=0.01, tooltip='Split position for compare_mode=wipe.'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.MultiType.Input('image_b', types=[io.Image, io.Video], tooltip='Optional second Images/Video input to compare against, via compare_mode.', display_name='Images/Video B', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')], hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo])
+        return io.Schema(node_id='ImageOpsPreview', display_name='〽️ Image Ops Preview', category='image/imageops', essentials_category='Image Tools', is_output_node=True, search_aliases=['preview', 'viewer', 'view', 'monitor', 'scope', 'histogram', 'waveform', 'compare', 'a/b'], inputs=[io.Combo.Input('preview_target', options=['auto', 'image', 'mask'], default='auto'), io.Combo.Input('mode', options=['images', 'strip', 'animated_webp', 'animated_gif'], default='images'), io.Combo.Input('compare_mode', options=_COMPARE_MODES, default='off', tooltip='Compare against Image B in the saved preview thumbnail. off previews Image only.'), io.Float.Input('wipe_position', default=0.5, min=0.0, max=1.0, step=0.01, tooltip='Split position for compare_mode=wipe.'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.MultiType.Input('image_b', types=[io.Image, io.Video], tooltip='Optional second Images/Video input to compare against, via compare_mode.', display_name='Images/Video B', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Video.Output('video', display_name='video', tooltip='Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected.')], hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo])
 
     @classmethod
     def execute(cls, image=None, preview_target='auto', mode='images', compare_mode='off', wipe_position=0.5, image_b=None, mask=None, prompt=None, extra_pnginfo=None, **kwargs):
@@ -140,12 +156,13 @@ class ImageOpsPreview(io.ComfyNode):
         image_tensor = None
         if image is not None:
             image_tensor = _select_media_tensor(image, None)
+        fps, audio, sample_rate = extract_video_fps_audio(image)
         mask_tensor = _coerce_mask_tensor(mask, device=image_tensor.device if image_tensor is not None else None, dtype=image_tensor.dtype if image_tensor is not None else torch.float32)
         if image_tensor is None and mask_tensor is None:
             progress.finish()
             blank_image = torch.zeros(1, 1, 1, 3)
             blank_mask = torch.zeros(1, 1, 1)
-            return io.NodeOutput(blank_image, blank_mask, ui={'images': []})
+            return io.NodeOutput(blank_image, blank_mask, media_to_video(blank_image, 24.0, None, 44100), ui={'images': []})
         output_image = image_tensor if image_tensor is not None else _mask_to_preview_image(mask_tensor)
         output_mask = mask_tensor if mask_tensor is not None else _alpha_mask_from_image(output_image)
         target = str(preview_target or 'auto').strip().lower()
@@ -171,4 +188,4 @@ class ImageOpsPreview(io.ComfyNode):
         else:
             ui = {'images': save_temp_images(preview_image, prefix='imageops_preview')}
         progress.finish()
-        return io.NodeOutput(output_image, output_mask, ui=ui)
+        return io.NodeOutput(output_image, output_mask, media_to_video(output_image, fps, audio, sample_rate), ui=ui)

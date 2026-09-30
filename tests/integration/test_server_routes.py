@@ -11,8 +11,10 @@ from PIL import Image
 class MockRoutes:
     def __init__(self):
         self.routes = {}
+        self.get_calls = 0
 
     def get(self, path):
+        self.get_calls += 1
         def decorator(func):
             self.routes[path] = func
             return func
@@ -50,6 +52,16 @@ def _write_animated(path, fmt, frames=6):
 def test_route_registration(local_routes):
     local_routes.register_imageops_routes()
     assert "/imageops/viewmedia" in MockPromptServer.instance.routes.routes
+
+
+def test_route_registration_is_idempotent(local_routes):
+    before = MockPromptServer.instance.routes.get_calls
+    local_routes.register_imageops_routes()
+    local_routes.register_imageops_routes()
+    local_routes.register_imageops_routes()
+    # A hot-reload calling register_imageops_routes() again must not re-register
+    # the route with aiohttp, which would raise on a duplicate route.
+    assert MockPromptServer.instance.routes.get_calls == before + 1
 
 
 def test_target_size(local_routes):

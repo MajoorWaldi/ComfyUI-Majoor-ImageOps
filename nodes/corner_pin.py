@@ -6,6 +6,7 @@ from ._helpers import EPSILON, _hex_to_rgb01, _invert_homography_batch, _param_t
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 from .core.memory import check_budget
+from .core.video_io import extract_video_fps_audio, media_to_video
 _CORNER_PIN_FILTERS = ['nearest', 'bilinear', 'bicubic']
 _CORNER_PIN_FILL_MODES = ['transparent', 'mirror', 'stretch', 'expand', 'color']
 _CORNER_PIN_SUPERSAMPLE_MAX = 4
@@ -148,11 +149,12 @@ class ImageOpsCornerPin(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsCornerPin', display_name='〽️ Image Ops Corner Pin', category='image/imageops', essentials_category='Image Tools', search_aliases=['corner pin', 'cornerpin', 'pin', 'perspective', 'quad', 'screen replacement'], inputs=[io.Boolean.Input('bypass', default=False), io.Float.Input('tl_x', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('tl_y', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('tr_x', default=1.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('tr_y', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('bl_x', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('bl_y', default=1.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('br_x', default=1.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('br_y', default=1.0, min=-2.0, max=2.0, step=0.001), io.Combo.Input('filter', options=['nearest', 'bilinear', 'bicubic'], default='bilinear'), io.Int.Input('supersample', default=1, min=1, step=1, tooltip='Render at 2x-4x and downsample to reduce perspective aliasing.'), io.Combo.Input('fill_mode', options=['transparent', 'mirror', 'stretch', 'expand', 'color'], default='transparent', tooltip='How to fill uncovered areas outside the pinned quad.'), io.Color.Input('fill_color', default='#000000'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True})], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')])
+        return io.Schema(node_id='ImageOpsCornerPin', display_name='〽️ Image Ops Corner Pin', category='image/imageops', essentials_category='Image Tools', search_aliases=['corner pin', 'cornerpin', 'pin', 'perspective', 'quad', 'screen replacement'], inputs=[io.Boolean.Input('bypass', default=False), io.Float.Input('tl_x', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('tl_y', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('tr_x', default=1.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('tr_y', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('bl_x', default=0.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('bl_y', default=1.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('br_x', default=1.0, min=-2.0, max=2.0, step=0.001), io.Float.Input('br_y', default=1.0, min=-2.0, max=2.0, step=0.001), io.Combo.Input('filter', options=['nearest', 'bilinear', 'bicubic'], default='bilinear'), io.Int.Input('supersample', default=1, min=1, step=1, tooltip='Render at 2x-4x and downsample to reduce perspective aliasing.'), io.Combo.Input('fill_mode', options=['transparent', 'mirror', 'stretch', 'expand', 'color'], default='transparent', tooltip='How to fill uncovered areas outside the pinned quad.'), io.Color.Input('fill_color', default='#000000'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True})], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Video.Output('video', display_name='video', tooltip='Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected.')])
 
     @classmethod
     def execute(cls, image=None, bypass=False, tl_x=0.0, tl_y=0.0, tr_x=1.0, tr_y=0.0, bl_x=0.0, bl_y=1.0, br_x=1.0, br_y=1.0, filter='bilinear', supersample=1, fill_mode='transparent', fill_color='#000000', edge_mode='transparent', invert_mask=False, video=None, **kwargs):
         source = _select_media_tensor(image, video, working_set=5).float()
+        fps, audio, sample_rate = extract_video_fps_audio(image)
         batch = int(source.shape[0])
         height = int(source.shape[1])
         width = int(source.shape[2])
@@ -160,13 +162,13 @@ class ImageOpsCornerPin(io.ComfyNode):
         resolved_fill_mode = _normalize_fill_mode(fill_mode, edge_mode)
         progress = start_progress(total=max(1, batch))
         supersample_val = max(1, min(_CORNER_PIN_SUPERSAMPLE_MAX, _scalar(supersample, int)))
-        check_budget(batch, height * supersample_val, width * supersample_val, channels, multiplier=4.0, label='ImageOps CornerPin')
+        check_budget(batch, height * supersample_val, width * supersample_val, channels, multiplier=4.0, label='ImageOps CornerPin', device=source.device)
         if _scalar(bypass, bool):
             mask = torch.ones((batch, height, width), device=source.device, dtype=source.dtype)
             invert = _param_tensor(invert_mask, batch, source.device, source.dtype).view(batch, 1, 1)
             mask = torch.where(invert >= 0.5, 1.0 - mask, mask)
             progress.finish()
-            return build_node_preview_result(source, (source, mask), prefix='imageops_cornerpin')
+            return build_node_preview_result(source, (source, mask, media_to_video(source, fps, audio, sample_rate)), prefix='imageops_cornerpin')
         src_points = torch.tensor([[0.0, 0.0], [float(width - 1), 0.0], [0.0, float(height - 1)], [float(width - 1), float(height - 1)]], device=source.device, dtype=source.dtype)
         dst_points = _corner_pin_dst_points(batch, height, width, source.device, source.dtype, tl_x, tl_y, tr_x, tr_y, bl_x, bl_y, br_x, br_y)
         H, valid_h = _solve_homography_batch(src_points, dst_points)
@@ -196,4 +198,4 @@ class ImageOpsCornerPin(io.ComfyNode):
         invert = _param_tensor(invert_mask, batch, source.device, source.dtype).view(batch, 1, 1)
         mask = torch.where(invert >= 0.5, 1.0 - mask, mask)
         progress.finish()
-        return build_node_preview_result(result, (result, mask), prefix='imageops_cornerpin')
+        return build_node_preview_result(result, (result, mask, media_to_video(result, fps, audio, sample_rate)), prefix='imageops_cornerpin')

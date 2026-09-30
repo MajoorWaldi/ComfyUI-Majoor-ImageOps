@@ -126,6 +126,11 @@ function syncCropWidgets(node, changedName, notify = true) {
   let height = Math.max(1, Math.round(widgetNumber(node, "height", 1024)));
   const preset = widgetString(node, "aspect_ratio", "custom");
   let sync = widgetBoolean(node, "sync_dimensions", true);
+  if (changedName === void 0) {
+    st.cropAspectRatio = preset === "custom" ? Math.max(1, width) / Math.max(1, height) : resolveCropAspectRatioValue(node, width, height);
+    markCanvasDirty();
+    return;
+  }
   if (changedName === "aspect_ratio" && preset === "custom" && sync) {
     setWidgetBooleanValue(findWidget(node, "sync_dimensions"), false);
     sync = false;

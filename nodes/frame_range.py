@@ -41,6 +41,28 @@ def _repeat_indices(indices: list[int], output_count: int, repeat_mode: str) -> 
     pattern_count = len(pattern)
     return [pattern[i % pattern_count] for i in range(output_count)]
 
+def _try_native_trim(image, trim_start: int, trim_end: int):
+    """Decode-free trim for a VIDEO input with lazy frame-count/rate metadata (e.g.
+    VideoFromFile reads container metadata instead of decoding). Returns
+    (tensor, video_out, source_count) or None when the input doesn't support it —
+    callers fall back to the full decode-then-slice tensor path."""
+    if isinstance(image, ImageOpsMedia):
+        return None
+    get_components = getattr(image, "get_components", None)
+    as_trimmed = getattr(image, "as_trimmed", None)
+    if not callable(get_components) or not callable(as_trimmed):
+        return None
+    source_count = int(image.get_frame_count())
+    fps = float(image.get_frame_rate())
+    if source_count <= 0 or fps <= 0:
+        return None
+    indices = _timeline_indices(source_count, trim_start, trim_end, label='ImageOps Frame Range')
+    trimmed = as_trimmed(indices[0] / fps, len(indices) / fps)
+    if trimmed is None:
+        return None
+    return trimmed.get_components().images, trimmed, source_count
+
+
 def _slice_audio_for_indices(audio: torch.Tensor, indices: list[int], fps: float, sample_rate: int) -> torch.Tensor:
     if len(indices) == 0 or fps <= 0:
         return torch.zeros((audio.shape[0], 0), device=audio.device, dtype=audio.dtype)
@@ -83,6 +105,20 @@ class ImageOpsFrameRange(io.ComfyNode):
 
     @classmethod
     def execute(cls, image, bypass=False, trim_start=0, trim_end=-1, frame_hold=False, hold_frame=0, repeat=False, repeat_mode='loop', custom_frame_count=24, **kwargs):
+        is_pure_trim = (
+            not _scalar(bypass, bool)
+            and not _scalar(frame_hold, bool)
+            and not _scalar(repeat, bool)
+            and not isinstance(trim_start, (list, tuple))
+            and not isinstance(trim_end, (list, tuple))
+        )
+        if is_pure_trim:
+            native = _try_native_trim(image, int(trim_start), int(trim_end))
+            if native is not None:
+                out_tensor, video_out, native_source_count = native
+                progress = start_progress()
+                progress.finish()
+                return build_node_preview_result(out_tensor, (out_tensor, int(out_tensor.shape[0]), video_out), metadata={'imageops_frame_range_source_count': [native_source_count]})
         video_media = extract_video_media(image)
         if isinstance(image, ImageOpsMedia):
             media_obj = image
@@ -98,7 +134,7 @@ class ImageOpsFrameRange(io.ComfyNode):
         if _scalar(bypass, bool):
             progress.finish()
             video_out = media_to_video(tensor, media_obj.fps if is_media else 24.0, media_obj.audio if is_media else None, getattr(media_obj, 'sample_rate', 44100) if is_media else 44100)
-            return build_node_preview_result(image, (image, source_count, video_out), metadata={'imageops_frame_range_source_count': [source_count]})
+            return build_node_preview_result(tensor, (tensor, source_count, video_out), metadata={'imageops_frame_range_source_count': [source_count]})
         indices = _timeline_indices(source_count, _scalar(trim_start, int), _scalar(trim_end, int), label='ImageOps Frame Range')
         repeat_mode_text = str(repeat_mode or 'loop').strip().lower()
         repeat_uses_hold = repeat_mode_text in {'input_duration', 'custom_count', 'freeze'}
@@ -112,7 +148,7 @@ class ImageOpsFrameRange(io.ComfyNode):
         if repeat_enabled:
             output_count = _repeat_count(True, str(repeat_mode or 'loop'), _scalar(custom_frame_count, int), source_count)
             indices = _repeat_indices(indices, output_count, str(repeat_mode or 'loop'))
-        check_budget(len(indices), int(tensor.shape[1]), int(tensor.shape[2]), int(tensor.shape[3]), multiplier=2.0, label='ImageOps Frame Range')
+        check_budget(len(indices), int(tensor.shape[1]), int(tensor.shape[2]), int(tensor.shape[3]), multiplier=2.0, label='ImageOps Frame Range', device=tensor.device)
         idx_tensor = torch.tensor(indices, device=tensor.device, dtype=torch.long)
         out_tensor = tensor[idx_tensor]
         if media_obj and media_obj.audio is not None and media_obj.fps > 0:

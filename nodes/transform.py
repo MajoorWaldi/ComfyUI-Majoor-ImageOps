@@ -6,6 +6,7 @@ from ._helpers import EPSILON, _hex_to_rgb01, _prepare_effect_mask, _resolve_mas
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 from .core.memory import check_budget
+from .core.video_io import extract_video_fps_audio, media_to_video
 
 def _filter_to_grid_sample_mode(filter_mode: str | list, index: int=0) -> str:
     """Map an ImageOps filter name to a torch.nn.functional.grid_sample mode."""
@@ -188,12 +189,13 @@ class ImageOpsTransform(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsTransform', display_name='〽️ Image Ops Transform', category='image/imageops', essentials_category='Image Tools', search_aliases=['transform', 'move', 'translate', 'rotate', 'scale', 'position'], inputs=[io.Boolean.Input('bypass', default=False), io.Int.Input('translate_x', default=0, min=-4096, max=4096, step=1), io.Int.Input('translate_y', default=0, min=-4096, max=4096, step=1), io.Float.Input('rotate_deg', default=0.0, min=-180.0, max=180.0, step=0.1, round=0.001), io.Float.Input('scale', default=1.0, min=0.01, max=8.0, step=0.01, round=0.001), io.Combo.Input('flip', options=['none', 'horizontal', 'vertical', 'both'], default='none'), io.Combo.Input('filter', options=['nearest', 'bilinear', 'bicubic']), io.Boolean.Input('expand', default=False, tooltip='Reserved. Currently inactive — the GPU affine path uses a fixed-size canvas. Kept for workflow compatibility.'), io.Combo.Input('fill_mode', options=['transparent', 'mirror', 'stretch', 'expand', 'color'], default='transparent', tooltip='How to fill uncovered areas when scale, rotate, or translate leaves holes.'), io.Color.Input('fill_color', default='#000000'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')])
+        return io.Schema(node_id='ImageOpsTransform', display_name='〽️ Image Ops Transform', category='image/imageops', essentials_category='Image Tools', search_aliases=['transform', 'move', 'translate', 'rotate', 'scale', 'position'], inputs=[io.Boolean.Input('bypass', default=False), io.Int.Input('translate_x', default=0, min=-4096, max=4096, step=1), io.Int.Input('translate_y', default=0, min=-4096, max=4096, step=1), io.Float.Input('rotate_deg', default=0.0, min=-180.0, max=180.0, step=0.1, round=0.001), io.Float.Input('scale', default=1.0, min=0.01, max=8.0, step=0.01, round=0.001), io.Combo.Input('flip', options=['none', 'horizontal', 'vertical', 'both'], default='none'), io.Combo.Input('filter', options=['nearest', 'bilinear', 'bicubic']), io.Boolean.Input('expand', default=False, tooltip='Reserved. Currently inactive — the GPU affine path uses a fixed-size canvas. Kept for workflow compatibility.'), io.Combo.Input('fill_mode', options=['transparent', 'mirror', 'stretch', 'expand', 'color'], default='transparent', tooltip='How to fill uncovered areas when scale, rotate, or translate leaves holes.'), io.Color.Input('fill_color', default='#000000'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Video.Output('video', display_name='video', tooltip='Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected.')])
 
     @classmethod
     def execute(cls, image=None, bypass=False, translate_x=0, translate_y=0, rotate_deg=0.0, scale=1.0, flip='none', filter='bilinear', expand=False, fill_mode='transparent', fill_color='#000000', invert_mask=False, video=None, mask=None, **kwargs):
         del expand
         source = _select_media_tensor(image, video, working_set=5)
+        fps, audio, sample_rate = extract_video_fps_audio(image)
         input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         safe_fill_mode = _normalize_fill_mode(fill_mode)
@@ -201,13 +203,13 @@ class ImageOpsTransform(io.ComfyNode):
         sample_padding = _padding_mode_from_fill(safe_fill_mode)
         progress = start_progress()
         if source is not None:
-            check_budget(int(source.shape[0]), int(source.shape[1]), int(source.shape[2]), int(source.shape[3]), multiplier=2.0, label='ImageOps Transform')
+            check_budget(int(source.shape[0]), int(source.shape[1]), int(source.shape[2]), int(source.shape[3]), multiplier=2.0, label='ImageOps Transform', device=source.device)
         if isinstance(bypass, bool) and bypass:
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_transform')
+            return build_node_preview_result(source, (source, output_mask_source, media_to_video(source, fps, audio, sample_rate)), prefix='imageops_transform')
         if isinstance(bypass, (list, tuple)) and all(bypass):
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_transform')
+            return build_node_preview_result(source, (source, output_mask_source, media_to_video(source, fps, audio, sample_rate)), prefix='imageops_transform')
 
         def _is_noop_param(value, kind='float'):
             if isinstance(value, (list, tuple)):
@@ -234,7 +236,7 @@ class ImageOpsTransform(io.ComfyNode):
         no_flip = safe_flip_mode == 'none' if not isinstance(flip, (list, tuple)) else all((_normalize_flip_mode(flip, index=i) == 'none' for i in range(len(flip))))
         if no_translate and no_rotate and unit_scale and no_flip:
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_transform')
+            return build_node_preview_result(source, (source, output_mask_source, media_to_video(source, fps, audio, sample_rate)), prefix='imageops_transform')
         if not no_flip:
             source = _flip_tensor_spatial(source, flip)
             output_mask_source = _flip_tensor_spatial(output_mask_source, flip)
@@ -244,7 +246,7 @@ class ImageOpsTransform(io.ComfyNode):
             result, output_mask = _transform_masked_source(source, input_mask, filter, translate_x, translate_y, rotate_deg, scale, progress=progress, padding_mode=sample_padding)
             result = _composite_fill(result, output_mask, _make_fill_background(source, safe_fill_mode, fill_color))
             progress.finish()
-            return build_node_preview_result(result, (result, output_mask), prefix='imageops_transform')
+            return build_node_preview_result(result, (result, output_mask, media_to_video(result, fps, audio, sample_rate)), prefix='imageops_transform')
         progress.update_absolute(0, total=2)
         result = _transform_batch_affine(source, filter, translate_x, translate_y, rotate_deg, scale, padding_mode=sample_padding)
         output_mask = _transform_mask_affine(output_mask_source, filter, translate_x, translate_y, rotate_deg, scale, source.device, source.dtype, padding_mode='zeros')
@@ -253,4 +255,4 @@ class ImageOpsTransform(io.ComfyNode):
             output_mask = result[..., 3].clamp(0.0, 1.0) if result.shape[-1] >= 4 else torch.ones_like(output_mask)
         result = apply_per_frame_bypass(source, result, bypass)
         progress.finish()
-        return build_node_preview_result(result, (result, output_mask), prefix='imageops_transform')
+        return build_node_preview_result(result, (result, output_mask, media_to_video(result, fps, audio, sample_rate)), prefix='imageops_transform')

@@ -5,6 +5,7 @@ from ._helpers import _alpha_mask_from_image, _coerce_media_to_tensor, _prepare_
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 from .core.batch import match_batch
+from .core.video_io import extract_video_fps_audio, media_to_video
 
 def _parse_bbox_frames(crop_bbox):
     if crop_bbox is None:
@@ -109,17 +110,18 @@ class ImageOpsCropStitch(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsCropStitch', display_name='〽️ Image Ops Crop Stitch', category='image/imageops', essentials_category='Image Tools', search_aliases=['crop stitch', 'stitch', 'restitch', 'reassemble', 'recoller', 'paste crop'], inputs=[io.MultiType.Input('original', types=[io.Image, io.Video], tooltip='Original image/video before Resize/Crop.', display_name='Original'), io.MultiType.Input('crop', types=[io.Image, io.Video], tooltip='Edited cropped image/video to stitch back.', display_name='Edited Crop'), io.Boolean.Input('bypass', default=False), io.Int.Input('feather', default=0, min=0, max=128, step=1, tooltip='Softens the crop mask edge before compositing.'), io.Int.Input('edge_grow', default=0, min=-64, max=64, step=1, tooltip='Grow (positive) or shrink (negative) the stitched patch edge before feathering. Applied before feather.'), io.Float.Input('edge_color_match', default=0.0, min=0.0, max=1.0, step=0.01, tooltip="Bias the patch's color so its border ring matches the surrounding original, hiding small color mismatches at the seam. 0 = off."), io.Mask.Input('crop_mask', tooltip='Source-space mask from ImageOps Resize/Crop.', display_name='Crop Mask', optional=True), io.Custom('IMAGEOPS_BBOX').Input('crop_bbox', optional=True, display_name='Crop Bbox', tooltip='Optional bbox from ImageOps Crop. When connected, it places the patch precisely; Crop Mask still controls the blend edge. Without it, placement is estimated from Crop Mask alone.'), io.BoundingBox.Input('bounding_box', optional=True, socketless=False, force_input=True, display_name='Bounding Box', tooltip="Optional ComfyUI BOUNDING_BOX in original pixels (for example from another crop node). Used when Crop Bbox is not connected.")], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')])
+        return io.Schema(node_id='ImageOpsCropStitch', display_name='〽️ Image Ops Crop Stitch', category='image/imageops', essentials_category='Image Tools', search_aliases=['crop stitch', 'stitch', 'restitch', 'reassemble', 'recoller', 'paste crop'], inputs=[io.MultiType.Input('original', types=[io.Image, io.Video], tooltip='Original image/video before Resize/Crop.', display_name='Original'), io.MultiType.Input('crop', types=[io.Image, io.Video], tooltip='Edited cropped image/video to stitch back.', display_name='Edited Crop'), io.Boolean.Input('bypass', default=False), io.Int.Input('feather', default=0, min=0, max=128, step=1, tooltip='Softens the crop mask edge before compositing.'), io.Int.Input('edge_grow', default=0, min=-64, max=64, step=1, tooltip='Grow (positive) or shrink (negative) the stitched patch edge before feathering. Applied before feather.'), io.Float.Input('edge_color_match', default=0.0, min=0.0, max=1.0, step=0.01, tooltip="Bias the patch's color so its border ring matches the surrounding original, hiding small color mismatches at the seam. 0 = off."), io.Mask.Input('crop_mask', tooltip='Source-space mask from ImageOps Resize/Crop.', display_name='Crop Mask', optional=True), io.Custom('IMAGEOPS_BBOX').Input('crop_bbox', optional=True, display_name='Crop Bbox', tooltip='Optional bbox from ImageOps Crop. When connected, it places the patch precisely; Crop Mask still controls the blend edge. Without it, placement is estimated from Crop Mask alone.'), io.BoundingBox.Input('bounding_box', optional=True, socketless=False, force_input=True, display_name='Bounding Box', tooltip="Optional ComfyUI BOUNDING_BOX in original pixels (for example from another crop node). Used when Crop Bbox is not connected.")], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Video.Output('video', display_name='video', tooltip='Native VIDEO output. Carries the real audio/fps when Original (not a plain IMAGE batch) was connected.')])
 
     @classmethod
     def execute(cls, original, crop, bypass=False, feather=0, edge_grow=0, edge_color_match=0.0, crop_mask=None, crop_bbox=None, bounding_box=None, **kwargs):
+        fps, audio, sample_rate = extract_video_fps_audio(original)
         original = _coerce_media_to_tensor(original, 'original').float()
         crop = _coerce_media_to_tensor(crop, 'crop').float()
         progress = start_progress()
         if _scalar(bypass, bool):
             output_mask = _alpha_mask_from_image(original)
             progress.finish()
-            return build_node_preview_result(original, (original, output_mask), prefix='imageops_crop_stitch')
+            return build_node_preview_result(original, (original, output_mask, media_to_video(original, fps, audio, sample_rate)), prefix='imageops_crop_stitch')
         original, crop = match_batch(original, crop, name_a='original', name_b='crop', policy='hold_last')
         batch = int(original.shape[0])
         source_h = int(original.shape[1])
@@ -161,4 +163,4 @@ class ImageOpsCropStitch(io.ComfyNode):
             blend = stitch_mask.unsqueeze(-1)
             out = original * (1.0 - blend) + out * blend
         progress.finish()
-        return build_node_preview_result(out, (out, stitch_mask.clamp(0.0, 1.0)), prefix='imageops_crop_stitch')
+        return build_node_preview_result(out, (out, stitch_mask.clamp(0.0, 1.0), media_to_video(out, fps, audio, sample_rate)), prefix='imageops_crop_stitch')

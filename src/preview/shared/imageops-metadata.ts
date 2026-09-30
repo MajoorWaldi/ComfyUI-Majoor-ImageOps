@@ -136,10 +136,6 @@ export const IMAGEOPS_NODE_METADATA: readonly ImageOpsNodeMeta[] = [
     "ui": "native"
   },
   {
-    "className": "ImageOpsLensArtifacts",
-    "ui": "native"
-  },
-  {
     "className": "ImageOpsDefocus",
     "ui": "native"
   },

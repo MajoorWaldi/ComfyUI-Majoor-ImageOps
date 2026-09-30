@@ -32,7 +32,7 @@
 3. **Hard refresh** the browser: `Ctrl+F5` (or `Cmd+Shift+R` on macOS)
 
 ### Example workflow
-`example/All Nodes MIO.json` uses all 32 nodes, each wired to an input: `Load Image` (`example.png`, shipped with ComfyUI) plus the Constant, Ramp and Noise generators feed the rest, and Crop feeds Crop Stitch. Drag the file onto the canvas to open it.
+`example/All Nodes MIO.json` uses all 31 nodes, each wired to an input: `Load Image` (`example.png`, shipped with ComfyUI) plus the Constant, Ramp and Noise generators feed the rest, and Crop feeds Crop Stitch. Drag the file onto the canvas to open it.
 
 The file is generated from the node schemas. After changing a node, run this in a ComfyUI Python environment (a test fails while the file is stale):
 ```bash
@@ -75,7 +75,6 @@ python scripts/generate_example_workflow.py
 | **ImageOps Vignette** | `ImageOpsVignette` | Radial darken-to-color falloff from a configurable center, size, and softness |
 | **ImageOps Chromatic Aberration** | `ImageOpsChromaticAberration` | Radial red/blue channel shift simulating lens color fringing |
 | **ImageOps Bloom** | `ImageOpsBloom` | Threshold + blur + additive glow on highlights, HDR-safe |
-| **ImageOps Lens Artifacts** | `ImageOpsLensArtifacts` | Dirt/smudge texture compositing plus procedural static dust specks |
 | **ImageOps Defocus** | `ImageOpsDefocus` | Depth-driven defocus/bokeh with shaped aperture kernels (circle/hexagon/octagon/custom) and highlight bloom |
 | **ImageOps Roto** | `ImageOpsRoto` | Nuke-style vector roto: editable bezier, ellipse, rectangle and freehand shapes with feather, add/subtract/intersect, keyframe animation and live preview |
 
@@ -511,29 +510,6 @@ The glow is added, not screened, so highlights above 1.0 on HDR sources stay cor
 
 ---
 
-### 🧴 ImageOps Lens Artifacts
-
-Dirt/smudge texture compositing plus procedural static dust specks, in one node.
-
-**Inputs:**
-- `image` (IMAGE/VIDEO): Source media
-- `dirt` (IMAGE/VIDEO, optional): Dirt/smudge texture plate (e.g. a stock lens-dirt asset); its luma attenuates the image multiplicatively
-- `mask` (MASK, optional): Effect mask
-
-**Parameters:**
-- `dirt_amount` (0.0 to 1.0): Opacity of the connected dirt texture
-- `dust_amount` (0.0 to 1.0): Procedural dust speck density and brightness
-- `dust_size` (0.5 to 20.0): Speck size in pixels
-- `seed`: Dust is a static lens artifact — the same seed always produces the same specks (doesn't drift frame to frame)
-- `invert_mask`: Invert mask effect
-- `bypass`: Skip processing
-
-Dirt darkens multiplicatively (HDR-safe); dust specks add light additively, like real dust catching a highlight.
-
-**Outputs:** `IMAGE`, `MASK`
-
----
-
 ### 🔵 ImageOps Defocus
 
 Depth-driven defocus/bokeh with shaped aperture kernels.
@@ -809,13 +785,15 @@ All nodes process batches natively:
 
 **Author**: Majoor  
 **Category**: `image/imageops`  
-**Version**: 0.1.7
+**Version**: 0.6.0
 
 ---
 
 ## 📋 Changelog
 
 ### Recent changes
+- **ImageOps Lens Artifacts** — removed
+- **ImageOps Append (Autogrow)** — removed (the `ImageOpsAppendV2` node added, then removed, this release)
 - **ImageOps Vignette, Chromatic Aberration, Bloom, Lens Artifacts** — new nodes for common lens/compositing effects: radial darken falloff, red/blue channel fringing, HDR-safe additive glow, and dirt/dust compositing
 - **ImageOps Defocus** — new depth-driven defocus/bokeh node with shaped aperture kernels (circle, hexagon, octagon, or a custom shape texture) and highlight bloom
 - **ImageOps Color Correct** — added `input_space` (`srgb`/`linear`) so scene-linear/HDR sources aren't gamma-encoded twice

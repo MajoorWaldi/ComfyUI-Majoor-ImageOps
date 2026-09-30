@@ -1,5 +1,5 @@
 import { colorWheelPointToValues } from "../color.js";
-import { colorWidgetNameForZone, isNode, syncColorCorrectWidgets } from "../nodes/color-correct.js";
+import { attachCurveCollapseToggle, colorWidgetNameForZone, isNode, syncColorCorrectWidgets } from "../nodes/color-correct.js";
 import { getCanvasPointer } from "../shared/geometry.js";
 import { findWidget, resetNodeWidgetsToDefaults, setWidgetValue } from "../shared/widgets.js";
 function markDirty(node, ctx) {
@@ -90,6 +90,7 @@ function bindZoneTab(node, ctx, btn, zone) {
 }
 function attachInteractions(node, ctx) {
   if (!isNode(node)) return;
+  attachCurveCollapseToggle(node);
   const st = node.__imageops_state ?? null;
   if (!st || st.colorInteractiveHooked) return;
   st.colorInteractiveHooked = true;

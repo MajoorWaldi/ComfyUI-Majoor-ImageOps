@@ -1095,7 +1095,18 @@ export function registerImageOpsLivePreview(): void {
         const effectiveFps = videoFps > 0 ? videoFps : 24;
         tick = Math.floor(((performance.now() - startedAt) * effectiveFps) / 1000);
       } else {
-        tick++;
+        // Any other node fed by a real VIDEO must also advance at that video's
+        // own fps, not at the RAF rate (up to 60/sec) — otherwise playback runs
+        // at 60/videoFps times real speed and the preview overlay (e.g. Crop's
+        // drag handles) appears to reset/flicker as frames blast past. Falls
+        // back to the previous tick++ behavior for plain IMAGE batches, which
+        // have no inherent fps of their own.
+        const videoFps = getUpstreamVideoFps(node, 0);
+        if (videoFps > 0) {
+          tick = Math.floor(((performance.now() - startedAt) * videoFps) / 1000);
+        } else {
+          tick++;
+        }
       }
       if (tick !== lastLoopTick) {
         lastLoopTick = tick;

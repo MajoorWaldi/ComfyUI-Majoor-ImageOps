@@ -78,6 +78,53 @@ class TestCheckBudget:
         result = check_budget(1, 64, 64, 3, budget_mb=100.0, label="test")
         assert result > 0
 
+    def test_device_param_checks_free_memory_for_that_device_not_compute_device(self, monkeypatch):
+        # Regression: check_budget used to always ask for the compute device's
+        # (GPU) free memory even when the allocation was actually going to land on
+        # CPU, so a CPU-bound run could be rejected/accepted based on GPU headroom.
+        mm = types.ModuleType("comfy.model_management")
+        seen_devices = []
+
+        def _get_free_memory(device):
+            seen_devices.append(device)
+            return 100 if device == torch.device("cpu") else 10 ** 12
+
+        mm.get_torch_device = lambda: torch.device("cuda")
+        mm.get_free_memory = _get_free_memory
+        comfy = types.ModuleType("comfy")
+        comfy.model_management = mm
+        monkeypatch.setitem(sys.modules, "comfy", comfy)
+        monkeypatch.setitem(sys.modules, "comfy.model_management", mm)
+
+        # 1 frame, 64x64, 3ch, float32 fits easily under the GPU's fake 10^12 bytes free...
+        check_budget(1, 64, 64, 3, label="test", device=torch.device("cuda"))
+        # ...but the CPU device is deliberately starved to ~100 bytes free, so passing
+        # it explicitly must make the same allocation fail against CPU headroom instead.
+        with pytest.raises(MemoryBudgetError):
+            check_budget(1, 64, 64, 3, label="test", device=torch.device("cpu"))
+
+        assert torch.device("cpu") in seen_devices
+        assert torch.device("cuda") in seen_devices
+
+    def test_device_param_omitted_preserves_default_behavior(self, monkeypatch):
+        mm = types.ModuleType("comfy.model_management")
+        seen_devices = []
+
+        def _get_free_memory(device):
+            seen_devices.append(device)
+            return 10 ** 12
+
+        mm.get_torch_device = lambda: torch.device("cuda")
+        mm.get_free_memory = _get_free_memory
+        comfy = types.ModuleType("comfy")
+        comfy.model_management = mm
+        monkeypatch.setitem(sys.modules, "comfy", comfy)
+        monkeypatch.setitem(sys.modules, "comfy.model_management", mm)
+
+        check_budget(1, 64, 64, 3, label="test")
+
+        assert seen_devices == [torch.device("cuda")]
+
 
 class TestComputeDevice:
     @pytest.fixture

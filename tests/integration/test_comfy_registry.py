@@ -55,9 +55,9 @@ def _load_entrypoint(monkeypatch):
     return module
 
 
-def test_all_32_nodes_publish_object_info(monkeypatch):
+def test_all_nodes_publish_object_info(monkeypatch):
     module = _load_entrypoint(monkeypatch)
-    assert len(module.NODES) == 32
+    assert len(module.NODES) == 31
 
     for node_class in module.NODES:
         node_id = node_class.GET_SCHEMA().node_id

@@ -6,7 +6,7 @@ All notable changes to ComfyUI-Majoor-ImageOps are documented here.
 
 ### Added
 - **`ImageOpsRoto`**: Nuke-style vector roto node with bezier, ellipse, rectangle and freehand tools, add/subtract/intersect, feather/expand, keyframe animation, undo/redo and a live-preview editor. Backed by the new `nodes/core/roto.py`.
-- **Lens / compositing effect nodes**: `ImageOpsVignette`, `ImageOpsChromaticAberration`, `ImageOpsBloom` (HDR-safe), `ImageOpsLensArtifacts` (dirt/smudge texture plus procedural dust).
+- **Lens / compositing effect nodes**: `ImageOpsVignette`, `ImageOpsChromaticAberration`, `ImageOpsBloom` (HDR-safe).
 - **`ImageOpsDefocus`**: depth-driven defocus/bokeh with shaped aperture kernels (circle, hexagon, octagon, custom) and highlight bloom.
 - **A/B compare on `ImageOpsPreview`**: optional second input to compare against the main image.
 - **`ImageOpsFrameRange`**: trim, hold and repeat (loop / bounce / reverse) a frame range, backed by the new `nodes/core/timeline.py`.
@@ -15,7 +15,7 @@ All notable changes to ComfyUI-Majoor-ImageOps are documented here.
 - `ImageOpsCrop` outputs a core `BOUNDING_BOX` (`bounding_box`, appended after `bbox`); `ImageOpsCropStitch` accepts one.
 - `ImageOpsComp` outputs its layers as a core `LAYERS` document on ComfyUI 0.31+.
 - All nodes set `essentials_category` (Image Tools, or Video Tools for Append and Frame Range).
-- **Example workflow regenerated**: `example/All Nodes MIO.json` holds all 32 nodes wired to inputs (39 links) and runs end to end in ComfyUI. `scripts/generate_example_workflow.py` builds it from the node schemas, and an integration test fails when it goes stale.
+- **Example workflow regenerated**: `example/All Nodes MIO.json` holds all nodes wired to inputs and runs end to end in ComfyUI. `scripts/generate_example_workflow.py` builds it from the node schemas, and an integration test fails when it goes stale.
 - ImageOps settings (preview sizes, refresh delay, graph limit) and an "ImageOps: Refresh all live previews" command.
 
 ### Changed
@@ -29,6 +29,7 @@ All notable changes to ComfyUI-Majoor-ImageOps are documented here.
 - Live preview renders at higher resolution (idle 1024 px, playback 640 px, interaction 448 px) with high-quality image smoothing.
 
 ### Fixed
+- `ImageOpsCrop` lost its saved output size after a workflow reload: `syncCropWidgets` recomputed `height` from `width` and a preset aspect ratio on every resync (including the one `onConfigure` runs on load), overwriting the restored value whenever `sync_dimensions` was on. It now only refreshes internal aspect-ratio bookkeeping on a resync and leaves the widget values alone.
 - `ImageOpsComp` raised `NameError: to_display_range` for any layer with a rotation, and image previews saved by `ImageOpsPreview` hit the same error. `to_display_range` is defined again (clamps to 0-1 for 8-bit previews only).
 - `/imageops/viewmedia` and node replacements were never registered because ComfyUI skipped `comfy_entrypoint`; animated previews now load. `server.py` is now `routes.py` so it no longer shadows ComfyUI's `server` module.
 - Masked Transform and Camera Shake with `mirror` or `expand` fill sampled the matte with different padding than the color, producing RGB values in the thousands at the edges.

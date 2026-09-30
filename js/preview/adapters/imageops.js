@@ -125,7 +125,6 @@ const HANDLED_CLASSES = /* @__PURE__ */ new Set([
   "ImageOpsVignette",
   "ImageOpsChromaticAberration",
   "ImageOpsBloom",
-  "ImageOpsLensArtifacts",
   "ImageOpsDefocus",
   "ImageOpsRoto"
 ]);
@@ -155,10 +154,6 @@ function imageOpsAdapter() {
         return 1 + Number(displacementConnected) + Number(effectMaskConnected);
       }
       if (cls === "ImageOpsMerge") return bypass ? 1 : maskConnected ? 3 : 2;
-      if (cls === "ImageOpsLensArtifacts") {
-        const dirtConnected = connectedInput(node, "dirt");
-        return 1 + Number(dirtConnected) + Number(maskConnected);
-      }
       if (cls === "ImageOpsDefocus") {
         const depthConnected = connectedInput(node, "depth");
         const shapeConnected = connectedInput(node, "shape_texture");
@@ -191,9 +186,6 @@ function imageOpsAdapter() {
       }
       if (cls === "ImageOpsDistort") {
         return namedInputIndexes(node, ["image", "displacement", "mask"]);
-      }
-      if (cls === "ImageOpsLensArtifacts") {
-        return namedInputIndexes(node, ["image", "dirt", "mask"]);
       }
       if (cls === "ImageOpsDefocus") {
         return namedInputIndexes(node, ["image", "depth", "shape_texture", "mask"]);
@@ -276,8 +268,6 @@ function imageOpsAdapter() {
         return ops.chromaticAberration(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsBloom") {
         return ops.bloom(ctx, canvasSize, node, inputs, tick ?? 0);
-      } else if (cls === "ImageOpsLensArtifacts") {
-        return ops.lensArtifacts(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsDefocus") {
         return ops.defocus(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsAppend") {

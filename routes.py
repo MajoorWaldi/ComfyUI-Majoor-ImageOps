@@ -24,6 +24,7 @@ TIME_BASE = Fraction(1, 1000)
 
 _transcode_slots = asyncio.Semaphore(MAX_CONCURRENT_TRANSCODES)
 _transcode_locks: dict[str, asyncio.Lock] = {}
+_routes_registered = False
 
 
 def _base_dir(kind: str) -> str:
@@ -154,4 +155,8 @@ async def imageops_viewmedia(request):
 
 
 def register_imageops_routes():
+    global _routes_registered
+    if _routes_registered:
+        return
     server.PromptServer.instance.routes.get("/imageops/viewmedia")(imageops_viewmedia)
+    _routes_registered = True

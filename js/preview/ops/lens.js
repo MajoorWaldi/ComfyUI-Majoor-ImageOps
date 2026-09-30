@@ -1,7 +1,6 @@
 import { makeCanvas } from "../draw.js";
 import { boolAny, numAny, strAny } from "../graph.js";
-import { clamp01, hexToRgb01 } from "./color.js";
-import { grainRandom01 } from "./procedural.js";
+import { hexToRgb01 } from "./color.js";
 import { resolvePreviewMaskCanvas } from "./masks.js";
 function smoothstep01(t) {
   const c = Math.max(0, Math.min(1, t));
@@ -150,53 +149,6 @@ function renderBloomCanvas(node, source, rawMask, frameIndex) {
   octx.putImageData(img, 0, 0);
   return output;
 }
-function renderLensArtifactsCanvas(node, source, dirt, rawMask, frameIndex) {
-  const width = source.width || 1;
-  const height = source.height || 1;
-  const output = makeCanvas(width, height);
-  const octx = output.getContext("2d", { willReadFrequently: true });
-  octx.drawImage(source, 0, 0, width, height);
-  const dirtAmount = Math.max(0, Math.min(1, numAny(node, ["dirt_amount"], 0, frameIndex)));
-  const dustAmount = Math.max(0, Math.min(1, numAny(node, ["dust_amount"], 0, frameIndex)));
-  if (dirtAmount <= 0 && dustAmount <= 0) return output;
-  const dustSize = Math.max(0.5, numAny(node, ["dust_size"], 2, frameIndex));
-  const seed = Math.max(0, Math.round(numAny(node, ["seed"], 12345, frameIndex)));
-  const img = octx.getImageData(0, 0, width, height);
-  const data = img.data;
-  let dirtData = null;
-  if (dirt && dirtAmount > 0) {
-    const dctx = makeCanvas(width, height).getContext("2d", { willReadFrequently: true });
-    dctx.drawImage(dirt, 0, 0, width, height);
-    dirtData = dctx.getImageData(0, 0, width, height).data;
-  }
-  const mask = resolvePreviewMaskCanvas(node, source, rawMask, frameIndex);
-  const maskData = mask?.getContext("2d", { willReadFrequently: true })?.getImageData(0, 0, width, height).data ?? null;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const i = (y * width + x) * 4;
-      const weight = maskData ? maskData[i + 3] / 255 : 1;
-      if (weight <= 0) continue;
-      for (let c = 0; c < 3; c++) {
-        let value = data[i + c] / 255;
-        if (dirtData) {
-          const luma = (dirtData[i] + dirtData[i + 1] + dirtData[i + 2]) / (3 * 255);
-          const attenuation = 1 - (1 - luma) * dirtAmount * weight;
-          value = value * attenuation;
-        }
-        if (dustAmount > 0) {
-          const gx = Math.floor(x / dustSize);
-          const gy = Math.floor(y / dustSize);
-          const threshold = 1 - dustAmount * 0.12;
-          const speck = grainRandom01(seed, gx, gy, 0, 0) > threshold ? 1 : 0;
-          value = value + speck * dustAmount * weight;
-        }
-        data[i + c] = Math.round(clamp01(value) * 255);
-      }
-    }
-  }
-  octx.putImageData(img, 0, 0);
-  return output;
-}
 function vignette(ctx, W, node, inputs = [], frameIndex = 0) {
   const source = inputs[0] ?? ctx.canvas;
   return renderVignetteCanvas(node, source, inputs[1] ?? null, frameIndex);
@@ -270,26 +222,15 @@ function defocus(ctx, W, node, inputs = [], frameIndex = 0) {
   const mask = maskConnected ? inputs[cursor] ?? null : null;
   return renderDefocusCanvas(node, source, depth, mask, frameIndex);
 }
-function lensArtifacts(ctx, W, node, inputs = [], frameIndex = 0) {
-  const source = inputs[0] ?? ctx.canvas;
-  const dirtConnected = (node.inputs?.[1]?.link ?? null) != null;
-  const maskConnected = (node.inputs?.[2]?.link ?? null) != null;
-  let cursor = 1;
-  const dirt = dirtConnected ? inputs[cursor++] ?? null : null;
-  const mask = maskConnected ? inputs[cursor] ?? null : null;
-  return renderLensArtifactsCanvas(node, source, dirt, mask, frameIndex);
-}
-const lensOps = { vignette, chromaticAberration, bloom, lensArtifacts, defocus };
+const lensOps = { vignette, chromaticAberration, bloom, defocus };
 export {
   bloom,
   chromaticAberration,
   defocus,
-  lensArtifacts,
   lensOps,
   renderBloomCanvas,
   renderChromaticAberrationCanvas,
   renderDefocusCanvas,
-  renderLensArtifactsCanvas,
   renderVignetteCanvas,
   vignette
 };

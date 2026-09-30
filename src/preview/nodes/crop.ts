@@ -162,6 +162,17 @@ export function syncCropWidgets(node: ComfyNode, changedName?: string, notify: b
   const preset = widgetString(node, "aspect_ratio", "custom");
   let sync = widgetBoolean(node, "sync_dimensions", true);
 
+  // A resync call (no changedName, e.g. from onConfigure after a workflow reload,
+  // or right after setCropOutputDimensions already set an exact value) must only
+  // refresh the remembered aspect ratio, not recompute width/height — otherwise a
+  // preset aspect ratio with sync_dimensions on would silently overwrite the
+  // restored/just-set dimension on every call.
+  if (changedName === undefined) {
+    st.cropAspectRatio = preset === "custom" ? Math.max(1, width) / Math.max(1, height) : resolveCropAspectRatioValue(node, width, height);
+    markCanvasDirty();
+    return;
+  }
+
   // Switching to "custom" aspect ratio implicitly switches sync_dimensions to Free.
   if (changedName === "aspect_ratio" && preset === "custom" && sync) {
     setWidgetBooleanValue(findWidget(node, "sync_dimensions"), false);

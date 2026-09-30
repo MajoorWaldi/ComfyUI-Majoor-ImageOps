@@ -114,6 +114,7 @@ function createInitialState(node: ComfyNode): NodeState {
     colorZoneTabHighlights: null,
     colorActiveZone: "global",
     colorInteractiveHooked: false,
+    colorCurveToggleAdded: false,
     compLayers: [],
     compOutputWidth: 1,
     compOutputHeight: 1,

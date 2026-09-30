@@ -20,6 +20,7 @@ from comfy_api.latest import io
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 from .core.memory import check_budget
+from .core.video_io import extract_video_fps_audio, media_to_video
 from ._helpers import apply_per_frame_bypass
 
 _BOKEH_SHAPES = ["circle", "hexagon", "octagon", "custom"]
@@ -129,6 +130,7 @@ class ImageOpsDefocus(io.ComfyNode):
             outputs=[
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
+                io.Video.Output("video", display_name="video", tooltip="Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected."),
             ],
         )
 
@@ -153,21 +155,22 @@ class ImageOpsDefocus(io.ComfyNode):
         **kwargs,
     ):
         source = _select_media_tensor(image, video)
+        fps, audio, sample_rate = extract_video_fps_audio(image)
         effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         progress = start_progress()
         if isinstance(bypass, bool) and bypass:
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask), prefix="imageops_defocus")
+            return build_node_preview_result(source, (source, output_mask, media_to_video(source, fps, audio, sample_rate)), prefix="imageops_defocus")
         if isinstance(bypass, (list, tuple)) and all(bypass):
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask), prefix="imageops_defocus")
+            return build_node_preview_result(source, (source, output_mask, media_to_video(source, fps, audio, sample_rate)), prefix="imageops_defocus")
 
         depth_tensor = _coerce_media_to_tensor(depth, "depth") if depth is not None else None
         depth_mask = _coerce_mask_tensor(depth_tensor, device=source.device, dtype=source.dtype) if depth_tensor is not None else None
         if depth_mask is None or _scalar(max_blur_radius, int) <= 0:
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask), prefix="imageops_defocus")
+            return build_node_preview_result(source, (source, output_mask, media_to_video(source, fps, audio, sample_rate)), prefix="imageops_defocus")
         if _scalar(invert_depth, bool):
             depth_mask = 1.0 - depth_mask
 
@@ -177,7 +180,7 @@ class ImageOpsDefocus(io.ComfyNode):
             shape_mask = _coerce_mask_tensor(shape_tensor, device=source.device, dtype=source.dtype)
             custom_luma = shape_mask[0] if shape_mask is not None else None
 
-        check_budget(int(source.shape[0]), int(source.shape[1]), int(source.shape[2]), int(source.shape[3]), multiplier=float(_scalar(num_layers, int)), label="ImageOps Defocus")
+        check_budget(int(source.shape[0]), int(source.shape[1]), int(source.shape[2]), int(source.shape[3]), multiplier=float(_scalar(num_layers, int)), label="ImageOps Defocus", device=source.device)
 
         result = _apply_defocus(
             source,
@@ -194,4 +197,4 @@ class ImageOpsDefocus(io.ComfyNode):
         result = _apply_mask_to_image(source, result, effect_mask) if effect_mask is not None else result
         result = apply_per_frame_bypass(source, result, bypass)
         progress.finish()
-        return build_node_preview_result(result, (result, output_mask), prefix="imageops_defocus")
+        return build_node_preview_result(result, (result, output_mask, media_to_video(result, fps, audio, sample_rate)), prefix="imageops_defocus")

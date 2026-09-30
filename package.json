@@ -1,6 +1,6 @@
 {
   "name": "comfyui-majoor-imageops",
-  "version": "0.1.5",
+  "version": "0.6.3",
   "description": "WORK IN PROGRESS",
   "scripts": {
     "generate:metadata": "node scripts/generate-imageops-metadata.mjs",
@@ -9,7 +9,7 @@
     "check": "npm run check:metadata && tsc --noEmit",
     "dev": "node esbuild.mjs --watch",
     "test:py": "python -m pytest tests/unit -v",
-    "test:js": "node --test tests/frontend/*.test.cjs",
+    "test:js": "node --import ./tests/frontend/_register-stub-loader.mjs --test tests/frontend/*.test.cjs",
     "test:ts": "tsc --noEmit -p tsconfig.frontend-tests.json",
     "test": "npm run test:py && npm run test:js && npm run test:ts"
   },
@@ -26,6 +26,7 @@
   },
   "homepage": "https://github.com/MajoorWaldi/ComfyUI-Majoor-ImageOps#readme",
   "devDependencies": {
+    "@napi-rs/canvas": "^1.0.9",
     "esbuild": "^0.27.4",
     "typescript": "^5.9.3"
   },

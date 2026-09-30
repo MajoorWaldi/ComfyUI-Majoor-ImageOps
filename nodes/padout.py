@@ -5,6 +5,7 @@ from ._helpers import _apply_blur, _hex_to_rgb01, _resize, _scalar, _select_medi
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 from .core.memory import check_budget
+from .core.video_io import extract_video_fps_audio, media_to_video
 _PADOUT_FILL_MODES = ['constant', 'edge_extend', 'reflect', 'blurry']
 _PADOUT_TARGET_FORMATS = ['custom', '1:1', '16:9', '9:16', '4:3', '3:4']
 _TARGET_RATIOS = {'1:1': (1, 1), 'square': (1, 1), 'nearest_square': (1, 1), '16:9': (16, 9), '9:16': (9, 16), '4:3': (4, 3), '3:4': (3, 4)}
@@ -81,11 +82,12 @@ class ImageOpsPadOut(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsPadOut', display_name='〽️ Image Ops Pad Out', category='image/imageops', essentials_category='Image Tools', has_intermediate_output=True, search_aliases=['pad', 'pad out', 'padding', 'border', 'expand canvas', 'outpaint'], inputs=[io.Boolean.Input('bypass', default=False), io.Int.Input('pad_left', default=128, min=0, max=4096, step=1), io.Int.Input('pad_top', default=128, min=0, max=4096, step=1), io.Int.Input('pad_right', default=128, min=0, max=4096, step=1), io.Int.Input('pad_bottom', default=128, min=0, max=4096, step=1), io.Combo.Input('target_format', options=['custom', '1:1', '3:4', '4:3', '16:9', '9:16'], default='custom', tooltip='Add extra padding to hit a target aspect ratio without scaling the image.'), io.Combo.Input('fill_mode', options=['constant', 'edge_extend', 'reflect', 'blurry'], default='constant'), io.Color.Input('fill_color', default='#000000'), io.Int.Input('blur_radius', default=32, min=0, max=512, step=1, tooltip='Used by blurry padding.'), io.Boolean.Input('invert_mask', default=False, tooltip='By default the output mask marks the *padded* area as 1 and the original source as 0. Toggle to invert (source=1, padding=0).'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True})], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height')])
+        return io.Schema(node_id='ImageOpsPadOut', display_name='〽️ Image Ops Pad Out', category='image/imageops', essentials_category='Image Tools', has_intermediate_output=True, search_aliases=['pad', 'pad out', 'padding', 'border', 'expand canvas', 'outpaint'], inputs=[io.Boolean.Input('bypass', default=False), io.Int.Input('pad_left', default=128, min=0, max=4096, step=1), io.Int.Input('pad_top', default=128, min=0, max=4096, step=1), io.Int.Input('pad_right', default=128, min=0, max=4096, step=1), io.Int.Input('pad_bottom', default=128, min=0, max=4096, step=1), io.Combo.Input('target_format', options=['custom', '1:1', '3:4', '4:3', '16:9', '9:16'], default='custom', tooltip='Add extra padding to hit a target aspect ratio without scaling the image.'), io.Combo.Input('fill_mode', options=['constant', 'edge_extend', 'reflect', 'blurry'], default='constant'), io.Color.Input('fill_color', default='#000000'), io.Int.Input('blur_radius', default=32, min=0, max=512, step=1, tooltip='Used by blurry padding.'), io.Boolean.Input('invert_mask', default=False, tooltip='By default the output mask marks the *padded* area as 1 and the original source as 0. Toggle to invert (source=1, padding=0).'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True})], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Int.Output('width', display_name='width'), io.Int.Output('height', display_name='height'), io.Video.Output('video', display_name='video', tooltip='Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected.')])
 
     @classmethod
     def execute(cls, image=None, bypass=False, pad_left=128, pad_top=128, pad_right=128, pad_bottom=128, target_format='custom', fill_mode='constant', fill_color='#000000', blur_radius=32, invert_mask=False, video=None, **kwargs):
         source = _select_media_tensor(image, video).float()
+        fps, audio, sample_rate = extract_video_fps_audio(image)
         progress = start_progress()
         batch = int(source.shape[0])
         source_h = int(source.shape[1])
@@ -96,7 +98,7 @@ class ImageOpsPadOut(io.ComfyNode):
                 mask = 1.0 - mask
             progress.finish()
             meta = {'imageops_padout_source': {'source_w': source_w, 'source_h': source_h, 'pad_left': 0, 'pad_top': 0}}
-            return build_node_preview_result(source, (source, mask, source_w, source_h), prefix='imageops_padout', metadata=meta)
+            return build_node_preview_result(source, (source, mask, source_w, source_h, media_to_video(source, fps, audio, sample_rate)), prefix='imageops_padout', metadata=meta)
         left = max(0, _scalar(pad_left, int))
         top = max(0, _scalar(pad_top, int))
         right = max(0, _scalar(pad_right, int))
@@ -104,7 +106,7 @@ class ImageOpsPadOut(io.ComfyNode):
         left, top, right, bottom = _resolve_target_padding(source_w, source_h, left, top, right, bottom, _scalar(target_format, str))
         out_w = source_w + left + right
         out_h = source_h + top + bottom
-        check_budget(batch, out_h, out_w, int(source.shape[-1]), multiplier=2.0, label='ImageOps PadOut')
+        check_budget(batch, out_h, out_w, int(source.shape[-1]), multiplier=2.0, label='ImageOps PadOut', device=source.device)
         mode = _normalize_fill_mode(_scalar(fill_mode, str))
         if mode in ('edge_extend', 'reflect'):
             out = _make_edge_pad(source, left, top, right, bottom, mode)
@@ -120,4 +122,4 @@ class ImageOpsPadOut(io.ComfyNode):
             mask = 1.0 - mask
         progress.finish()
         meta = {'imageops_padout_source': {'source_w': source_w, 'source_h': source_h, 'pad_left': left, 'pad_top': top}}
-        return build_node_preview_result(out, (out, mask.clamp(0.0, 1.0), out_w, out_h), prefix='imageops_padout', metadata=meta)
+        return build_node_preview_result(out, (out, mask.clamp(0.0, 1.0), out_w, out_h, media_to_video(out, fps, audio, sample_rate)), prefix='imageops_padout', metadata=meta)

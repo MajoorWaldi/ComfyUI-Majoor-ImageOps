@@ -18,6 +18,7 @@ from comfy_api.latest import io
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 from ._helpers import apply_per_frame_bypass
+from .core.video_io import extract_video_fps_audio, media_to_video
 
 
 def _radial_sample(channel: torch.Tensor, grid_x_px: torch.Tensor, grid_y_px: torch.Tensor, cx_px: torch.Tensor, cy_px: torch.Tensor, k: torch.Tensor, w: int, h: int) -> torch.Tensor:
@@ -80,6 +81,7 @@ class ImageOpsChromaticAberration(io.ComfyNode):
             outputs=[
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
+                io.Video.Output("video", display_name="video", tooltip="Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected."),
             ],
         )
 
@@ -97,21 +99,22 @@ class ImageOpsChromaticAberration(io.ComfyNode):
         **kwargs,
     ):
         source = _select_media_tensor(image, video, working_set=5)
+        fps, audio, sample_rate = extract_video_fps_audio(image)
         effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         progress = start_progress()
         if isinstance(bypass, bool) and bypass:
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask), prefix="imageops_chromatic_aberration")
+            return build_node_preview_result(source, (source, output_mask, media_to_video(source, fps, audio, sample_rate)), prefix="imageops_chromatic_aberration")
         if isinstance(bypass, (list, tuple)) and all(bypass):
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask), prefix="imageops_chromatic_aberration")
+            return build_node_preview_result(source, (source, output_mask, media_to_video(source, fps, audio, sample_rate)), prefix="imageops_chromatic_aberration")
         if _scalar(amount) == 0.0 and not isinstance(amount, (list, tuple)):
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask), prefix="imageops_chromatic_aberration")
+            return build_node_preview_result(source, (source, output_mask, media_to_video(source, fps, audio, sample_rate)), prefix="imageops_chromatic_aberration")
 
         result = _apply_chromatic_aberration(source, amount, center_x, center_y)
         result = _apply_mask_to_image(source, result, effect_mask) if effect_mask is not None else result
         result = apply_per_frame_bypass(source, result, bypass)
         progress.finish()
-        return build_node_preview_result(result, (result, output_mask), prefix="imageops_chromatic_aberration")
+        return build_node_preview_result(result, (result, output_mask, media_to_video(result, fps, audio, sample_rate)), prefix="imageops_chromatic_aberration")

@@ -13,9 +13,17 @@ from comfy_api.latest import io
 from ._preview import build_node_preview_result
 from ._progress import start_progress
 from .core.memory import check_budget
+from .core.media import ImageOpsMedia
+from .core.video_io import extract_video_fps_audio, extract_video_media, media_to_video
 from ._helpers import apply_per_frame_bypass
 
 _BLEND_MODES = ["add", "overlay", "soft_light"]
+
+
+def _grain_generator_device(source: torch.Tensor) -> torch.device:
+    """torch.Generator supports CUDA/MPS directly; other backends (DirectML, XPU,
+    NPU) don't, so those still generate on CPU and rely on the final .to() below."""
+    return source.device if source.device.type in ("cuda", "mps") else torch.device("cpu")
 
 
 def _grain_noise_like(source: torch.Tensor, seed: int, monochrome: bool, animated: bool, size: float = 1.0) -> torch.Tensor:
@@ -24,20 +32,21 @@ def _grain_noise_like(source: torch.Tensor, seed: int, monochrome: bool, animate
     grain_size = max(1.0, float(size))
     gen_h = max(1, int(round(height / grain_size)))
     gen_w = max(1, int(round(width / grain_size)))
+    gen_device = _grain_generator_device(source)
     if monochrome:
         frames = []
         for index in range(batch):
             frame_seed = int(seed) + (index if animated else 0)
-            generator = torch.Generator(device="cpu").manual_seed(frame_seed)
-            noise = torch.rand((1, gen_h, gen_w, 1), generator=generator, dtype=torch.float32) - 0.5
+            generator = torch.Generator(device=gen_device).manual_seed(frame_seed)
+            noise = torch.rand((1, gen_h, gen_w, 1), generator=generator, dtype=torch.float32, device=gen_device) - 0.5
             frames.append(noise.expand(1, gen_h, gen_w, rgb_channels))
         grain = torch.cat(frames, dim=0)
     else:
         frames = []
         for index in range(batch):
             frame_seed = int(seed) + (index if animated else 0)
-            generator = torch.Generator(device="cpu").manual_seed(frame_seed)
-            frames.append(torch.rand((1, gen_h, gen_w, rgb_channels), generator=generator, dtype=torch.float32) - 0.5)
+            generator = torch.Generator(device=gen_device).manual_seed(frame_seed)
+            frames.append(torch.rand((1, gen_h, gen_w, rgb_channels), generator=generator, dtype=torch.float32, device=gen_device) - 0.5)
         grain = torch.cat(frames, dim=0)
     if gen_h != height or gen_w != width:
         grain = torch.nn.functional.interpolate(
@@ -131,6 +140,7 @@ class ImageOpsGrain(io.ComfyNode):
             outputs=[
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
+                io.Video.Output("video", display_name="video", tooltip="Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected; otherwise uses the fps widget."),
             ],
         )
 
@@ -154,20 +164,25 @@ class ImageOpsGrain(io.ComfyNode):
     ):
         source = _select_media_tensor(image, video, working_set=4)
         preview_fps = max(1.0, _scalar(fps, float))
+        is_real_video = isinstance(image, ImageOpsMedia) or extract_video_media(image) is not None
+        if is_real_video:
+            video_fps, video_audio, video_sample_rate = extract_video_fps_audio(image)
+        else:
+            video_fps, video_audio, video_sample_rate = preview_fps, None, 44100
         progress = start_progress()
 
         if isinstance(bypass, bool) and bypass:
             progress.finish()
             output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-            return build_node_preview_result(source, (source, output_mask), prefix="imageops_grain", fps=preview_fps)
+            return build_node_preview_result(source, (source, output_mask, media_to_video(source, video_fps, video_audio, video_sample_rate)), prefix="imageops_grain", fps=preview_fps)
         if isinstance(bypass, (list, tuple)) and all(bypass):
             progress.finish()
             output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-            return build_node_preview_result(source, (source, output_mask), prefix="imageops_grain", fps=preview_fps)
+            return build_node_preview_result(source, (source, output_mask, media_to_video(source, video_fps, video_audio, video_sample_rate)), prefix="imageops_grain", fps=preview_fps)
         if float(max(0.0, _scalar(amount))) <= 0.0:
             progress.finish()
             output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-            return build_node_preview_result(source, (source, output_mask), prefix="imageops_grain", fps=preview_fps)
+            return build_node_preview_result(source, (source, output_mask, media_to_video(source, video_fps, video_audio, video_sample_rate)), prefix="imageops_grain", fps=preview_fps)
 
         frame_count = max(1, _scalar(frame_length, int))
         if _scalar(animated, bool) and frame_count > int(source.shape[0]):
@@ -175,7 +190,7 @@ class ImageOpsGrain(io.ComfyNode):
             source = source.repeat((repeats, 1, 1, 1))[:frame_count]
             
         if source is not None:
-            check_budget(int(source.shape[0]), int(source.shape[1]), int(source.shape[2]), int(source.shape[3]), multiplier=2.0, label='ImageOps Grain')
+            check_budget(int(source.shape[0]), int(source.shape[1]), int(source.shape[2]), int(source.shape[3]), multiplier=2.0, label='ImageOps Grain', device=source.device)
             
         effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
@@ -192,4 +207,4 @@ class ImageOpsGrain(io.ComfyNode):
         result = _apply_mask_to_image(source, processed, effect_mask) if effect_mask is not None else processed
         result = apply_per_frame_bypass(source, result, bypass)
         progress.finish()
-        return build_node_preview_result(result, (result, output_mask), prefix="imageops_grain", fps=preview_fps)
+        return build_node_preview_result(result, (result, output_mask, media_to_video(result, video_fps, video_audio, video_sample_rate)), prefix="imageops_grain", fps=preview_fps)

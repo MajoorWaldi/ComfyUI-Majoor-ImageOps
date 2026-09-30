@@ -7,6 +7,7 @@ from ._helpers import _prepare_effect_mask, _resize, _scalar, _select_media_tens
 from ._progress import start_progress
 from ._preview import build_node_preview_result
 from .core.memory import check_budget
+from .core.video_io import extract_video_fps_audio, media_to_video
 _SPHERIZE_MODES = ['spherize', 'fisheye', 'defisheye', 'latlong', 'unlatlong']
 _SPHERIZE_EDGE_MODES = ['border', 'reflection', 'zeros']
 _SPHERIZE_FILTER_MODES = ['bilinear', 'bicubic', 'nearest']
@@ -132,21 +133,22 @@ class ImageOpsSpherize(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsSpherize', display_name='〽️ Image Ops Spherize', category='image/imageops', essentials_category='Image Tools', search_aliases=['spherize', 'sphere', 'fisheye', 'defisheye', 'latlong', 'lens'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('mode', options=['spherize', 'fisheye', 'defisheye', 'latlong', 'unlatlong'], default='spherize'), io.Float.Input('strength', default=1.0, min=0.0, max=2.0, step=0.01, round=0.001, tooltip='Effect intensity. 1.0 = full projection. Values > 1 push beyond the normal range.'), io.Boolean.Input('invert', default=False, tooltip='Invert the mapping direction (e.g. barrel ↔ pincushion, latlong ↔ unlatlong).'), io.Combo.Input('filter', options=['nearest', 'bilinear', 'bicubic'], default='bilinear'), io.Combo.Input('edge_mode', options=['border', 'reflection', 'zeros'], default='border'), io.Combo.Input('size_mode', options=['from_input', 'custom'], default='from_input', tooltip='from_input: use input image dimensions. custom: resize to width × height before applying spherize.'), io.Int.Input('width', default=512, min=64, max=8192, step=8), io.Int.Input('height', default=512, min=64, max=8192, step=8), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')])
+        return io.Schema(node_id='ImageOpsSpherize', display_name='〽️ Image Ops Spherize', category='image/imageops', essentials_category='Image Tools', search_aliases=['spherize', 'sphere', 'fisheye', 'defisheye', 'latlong', 'lens'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('mode', options=['spherize', 'fisheye', 'defisheye', 'latlong', 'unlatlong'], default='spherize'), io.Float.Input('strength', default=1.0, min=0.0, max=2.0, step=0.01, round=0.001, tooltip='Effect intensity. 1.0 = full projection. Values > 1 push beyond the normal range.'), io.Boolean.Input('invert', default=False, tooltip='Invert the mapping direction (e.g. barrel ↔ pincushion, latlong ↔ unlatlong).'), io.Combo.Input('filter', options=['nearest', 'bilinear', 'bicubic'], default='bilinear'), io.Combo.Input('edge_mode', options=['border', 'reflection', 'zeros'], default='border'), io.Combo.Input('size_mode', options=['from_input', 'custom'], default='from_input', tooltip='from_input: use input image dimensions. custom: resize to width × height before applying spherize.'), io.Int.Input('width', default=512, min=64, max=8192, step=8), io.Int.Input('height', default=512, min=64, max=8192, step=8), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Video.Output('video', display_name='video', tooltip='Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected.')])
 
     @classmethod
     def execute(cls, bypass=False, mode='spherize', strength=1.0, invert=False, filter='bilinear', edge_mode='border', size_mode='from_input', width=512, height=512, image=None, video=None, mask=None, **kwargs):
         src = _select_media_tensor(image, video, working_set=5)
+        fps, audio, sample_rate = extract_video_fps_audio(image)
         progress = start_progress(total=src.shape[0] if src is not None else 1)
         if src is None:
             out_mask = torch.ones(1, 64, 64, dtype=torch.float32)
             progress.finish()
-            return build_node_preview_result(src, (src, out_mask), prefix='imageops_spherize')
+            return build_node_preview_result(src, (src, out_mask, media_to_video(src, fps, audio, sample_rate)), prefix='imageops_spherize')
         if isinstance(bypass, bool) and bypass:
             prepared_mask = _prepare_effect_mask(mask, src) if mask is not None else None
             out_mask = prepared_mask if prepared_mask is not None else torch.ones(src.shape[0], src.shape[1], src.shape[2], device=src.device, dtype=src.dtype)
             progress.finish()
-            return build_node_preview_result(src, (src, out_mask), prefix='imageops_spherize')
+            return build_node_preview_result(src, (src, out_mask, media_to_video(src, fps, audio, sample_rate)), prefix='imageops_spherize')
         if isinstance(bypass, (list, tuple)) and all(bypass):
             if src is not None:
                 prepared_mask = _prepare_effect_mask(mask, src) if mask is not None else None
@@ -154,7 +156,7 @@ class ImageOpsSpherize(io.ComfyNode):
             else:
                 out_mask = torch.ones(1, 64, 64, dtype=torch.float32)
             progress.finish()
-            return build_node_preview_result(src, (src, out_mask), prefix='imageops_spherize')
+            return build_node_preview_result(src, (src, out_mask, media_to_video(src, fps, audio, sample_rate)), prefix='imageops_spherize')
         use_custom = str(_scalar(size_mode, str)).strip().lower() == 'custom'
         tgt_w = max(64, int(_scalar(width, int)))
         tgt_h = max(64, int(_scalar(height, int)))
@@ -162,7 +164,7 @@ class ImageOpsSpherize(io.ComfyNode):
             src = _resize(src, tgt_w, tgt_h, mode='bilinear', antialias=True)
         prepared_mask = _prepare_effect_mask(mask, src) if mask is not None and src is not None else None
         if src is not None:
-            check_budget(int(src.shape[0]), int(src.shape[1]), int(src.shape[2]), int(src.shape[3]), multiplier=3.0, label='ImageOps Spherize')
+            check_budget(int(src.shape[0]), int(src.shape[1]), int(src.shape[2]), int(src.shape[3]), multiplier=3.0, label='ImageOps Spherize', device=src.device)
         frames = []
         warped_masks = [] if prepared_mask is not None else None
         for fi in range(src.shape[0]):
@@ -196,4 +198,4 @@ class ImageOpsSpherize(io.ComfyNode):
             out_mask = circle_mask_b
         out = apply_per_frame_bypass(src, out, bypass)
         progress.finish()
-        return build_node_preview_result(out, (out, out_mask), prefix='imageops_spherize')
+        return build_node_preview_result(out, (out, out_mask, media_to_video(out, fps, audio, sample_rate)), prefix='imageops_spherize')

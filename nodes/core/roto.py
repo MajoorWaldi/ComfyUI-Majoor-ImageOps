@@ -19,20 +19,29 @@ _OPS = ("add", "subtract", "intersect")
 _SUPERSAMPLE_MAX = 4
 _SUPERSAMPLE_PIXEL_BUDGET = 3.2e7
 
+# Reject an oversized/absurd roto payload before JSON-parsing it, and cap how many
+# shapes/keyframes/points get decoded regardless of how many the JSON claims — mirrors
+# the guards in nodes/draw.py for the same reason (untrusted widget/live-editor JSON).
+_MAX_JSON_CHARS = 16_000_000
+_MAX_SHAPES = 256
+_MAX_KEYFRAMES_PER_SHAPE = 512
+_MAX_POINTS_PER_SHAPE = 2048
+
 
 def parse_shapes(text) -> list[dict]:
     """Decode the widget JSON into shape dicts with sorted, validated keyframes."""
-    if not text:
+    if not text or len(text) > _MAX_JSON_CHARS:
         return []
     try:
         data = json.loads(text)
     except (TypeError, ValueError):
         return []
     shapes = []
-    for raw in data.get("shapes", []) if isinstance(data, dict) else []:
+    raw_shapes = data.get("shapes", []) if isinstance(data, dict) else []
+    for raw in raw_shapes[:_MAX_SHAPES]:
         keys = []
-        for key in raw.get("keys", []):
-            pts = [tuple(float(v) for v in p[:6]) for p in key.get("pts", []) if len(p) >= 6]
+        for key in raw.get("keys", [])[:_MAX_KEYFRAMES_PER_SHAPE]:
+            pts = [tuple(float(v) for v in p[:6]) for p in key.get("pts", [])[:_MAX_POINTS_PER_SHAPE] if len(p) >= 6]
             if pts:
                 keys.append((float(key.get("f", 0.0)), np.asarray(pts, dtype=np.float64)))
         if not keys:

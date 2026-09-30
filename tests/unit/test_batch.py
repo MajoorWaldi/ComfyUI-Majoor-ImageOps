@@ -25,6 +25,7 @@ spec.loader.exec_module(batch_module)
 match_batch = batch_module.match_batch
 match_mask_batch = batch_module.match_mask_batch
 BatchMismatchError = batch_module.BatchMismatchError
+cycle_to_length = batch_module.cycle_to_length
 
 
 def test_equal_batches_unchanged():
@@ -105,3 +106,27 @@ def test_mask_mismatch_raises():
             mask,
             target_batch=7,
         )
+
+
+def test_cycle_to_length_exact_multiple():
+    t = torch.arange(3).view(3, 1)
+
+    out = cycle_to_length(t, 9)
+
+    assert out[:, 0].tolist() == [0, 1, 2] * 3
+
+
+def test_cycle_to_length_truncates_final_repeat():
+    t = torch.arange(3).view(3, 1)
+
+    out = cycle_to_length(t, 7)
+
+    assert out[:, 0].tolist() == [0, 1, 2, 0, 1, 2, 0]
+
+
+def test_cycle_to_length_noop_when_already_target():
+    t = torch.arange(4).view(4, 1)
+
+    out = cycle_to_length(t, 4)
+
+    assert out is t

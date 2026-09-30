@@ -28,7 +28,6 @@ from .append import ImageOpsAppend
 from .vignette import ImageOpsVignette
 from .chromatic_aberration import ImageOpsChromaticAberration
 from .bloom import ImageOpsBloom
-from .lens_artifacts import ImageOpsLensArtifacts
 from .defocus import ImageOpsDefocus
 from .roto import ImageOpsRoto
 
@@ -62,7 +61,6 @@ NODES = [
     ImageOpsVignette,
     ImageOpsChromaticAberration,
     ImageOpsBloom,
-    ImageOpsLensArtifacts,
     ImageOpsDefocus,
     ImageOpsRoto,
 ]

@@ -13,6 +13,7 @@ from fractions import Fraction
 import torch
 from comfy_api.latest import VideoComponents, VideoFromComponents
 
+from .media import ImageOpsMedia
 
 
 def extract_video_media(media) -> tuple[torch.Tensor, float, torch.Tensor | None, int] | None:
@@ -33,6 +34,20 @@ def extract_video_media(media) -> tuple[torch.Tensor, float, torch.Tensor | None
         # ComfyUI AUDIO is [B, C, T]; this pack's ImageOpsMedia.audio is [C, T].
         audio = waveform[0] if waveform.dim() == 3 else waveform
     return images, fps, audio, sample_rate
+
+
+def extract_video_fps_audio(media) -> tuple[float, torch.Tensor | None, int]:
+    """fps/audio/sample_rate for a MultiType(Image, Video) input, defaulting to
+    24fps/no-audio when the input isn't a VIDEO. For effect nodes whose output has
+    the same frame count as their input, pair this with media_to_video(result, ...)
+    so a connected VIDEO's fps/audio survive the effect instead of being dropped."""
+    if isinstance(media, ImageOpsMedia):
+        return media.fps, media.audio, getattr(media, "sample_rate", 44100)
+    video_media = extract_video_media(media)
+    if video_media is None:
+        return 24.0, None, 44100
+    _, fps, audio, sample_rate = video_media
+    return fps, audio, sample_rate
 
 
 def media_to_video(frames: torch.Tensor, fps: float, audio: torch.Tensor | None, sample_rate: int):

@@ -1,13 +1,60 @@
-import type { ComfyNode } from "../../types.js";
+import type { ComfyNode, ComfyWidget } from "../../types.js";
 import { drawColorWheel, getColorWheelSwatchCss } from "../color.js";
 import { clampDrawOpacity } from "../draw.js";
 import { styleSoftButton, styleSoftRange } from "../shared/dom-styles.js";
+import { markCanvasDirty } from "../shared/canvas.js";
+import { getUiState, setUiState } from "../shared/ui-persist.js";
 import { findWidget, hideWidgetForGood, widgetNumber } from "../shared/widgets.js";
 
 export const NODE_CLASS = "ImageOpsColorAjust";
 
 export function isNode(node: ComfyNode): boolean {
   return String(node?.comfyClass ?? "") === NODE_CLASS;
+}
+
+const CURVE_COLLAPSED_KEY = "curveCollapsed";
+
+function applyCurveCollapsed(curveWidget: ComfyWidget, collapsed: boolean): void {
+  curveWidget.origComputeSize ??= curveWidget.computeSize as (() => [number, number]) | undefined;
+  curveWidget.computeSize = collapsed ? (() => [0, -4]) : curveWidget.origComputeSize;
+  if (curveWidget.element) curveWidget.element.style.display = collapsed ? "none" : "";
+  markCanvasDirty();
+}
+
+// The CURVE widget is a native ComfyUI widget (comfy_api's io.Curve.Input, not
+// something this pack builds) that renders as a square editor — its height
+// scales with the node's own width, so on ImageOps' wide nodes it dwarfs the
+// rest of the controls. There's no way to change its aspect ratio from here,
+// so instead it's collapsed by default behind a small toggle button, matching
+// how the rest of this node hides raw widgets behind a custom UI.
+export function attachCurveCollapseToggle(node: ComfyNode): void {
+  if (!isNode(node)) return;
+  const st = node.__imageops_state;
+  if (!st || st.colorCurveToggleAdded) return;
+  const curveWidget = findWidget(node, "curve");
+  if (!curveWidget) return;
+  st.colorCurveToggleAdded = true;
+
+  let collapsed = getUiState<boolean>(NODE_CLASS, CURVE_COLLAPSED_KEY, true);
+  applyCurveCollapsed(curveWidget, collapsed);
+
+  const label = (value: boolean): string => value ? "▸ Curve (click to show)" : "▾ Curve (click to hide)";
+  const toggleWidget = node.addWidget?.("button", label(collapsed), null, () => {
+    collapsed = !collapsed;
+    setUiState(NODE_CLASS, CURVE_COLLAPSED_KEY, collapsed);
+    toggleWidget!.name = label(collapsed);
+    applyCurveCollapsed(curveWidget, collapsed);
+  });
+  if (!toggleWidget || !node.widgets) return;
+
+  // addWidget() appends at the end; move the toggle to sit right above the
+  // curve widget so it reads as that section's header.
+  const curveIndex = node.widgets.indexOf(curveWidget);
+  const toggleIndex = node.widgets.indexOf(toggleWidget);
+  if (curveIndex >= 0 && toggleIndex >= 0 && toggleIndex !== curveIndex) {
+    node.widgets.splice(toggleIndex, 1);
+    node.widgets.splice(curveIndex, 0, toggleWidget);
+  }
 }
 
 export type ColorCorrectControlsUi = {

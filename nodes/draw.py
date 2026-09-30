@@ -15,6 +15,7 @@ from ._progress import start_progress
 from ._preview import build_node_preview_result
 from .core.batch import match_batch
 from .core.memory import check_budget
+from .core.video_io import extract_video_fps_audio, media_to_video
 
 # Reject an oversized paint overlay payload before base64-decoding it, rather than
 # decoding first and risking a large allocation or a PIL decompression bomb.
@@ -246,6 +247,7 @@ class ImageOpsDraw(io.ComfyNode):
                 io.Image.Output("image", display_name="image"),
                 io.Image.Output("source_image", display_name="source_image"),
                 io.Mask.Output("mask", display_name="mask"),
+                io.Video.Output("video", display_name="video", tooltip="Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected as the paint background."),
             ],
         )
 
@@ -281,8 +283,10 @@ class ImageOpsDraw(io.ComfyNode):
         source = None
         if image is not None or video is not None:
             source = _select_media_tensor(image, video).float()
+            fps, audio, sample_rate = extract_video_fps_audio(image if image is not None else video)
         else:
             source = _blank_draw_base(width, height, bg_color)
+            fps, audio, sample_rate = 24.0, None, 44100
 
         batch = int(source.shape[0])
         target_h = int(source.shape[1])
@@ -293,10 +297,10 @@ class ImageOpsDraw(io.ComfyNode):
             if _scalar(invert_mask, bool):
                 mask = 1.0 - mask
             progress.finish()
-            return build_node_preview_result(source, (source, source, mask), prefix="imageops_draw")
+            return build_node_preview_result(source, (source, source, mask, media_to_video(source, fps, audio, sample_rate)), prefix="imageops_draw")
 
         # multiplier=2.0 covers source + overlay RGBA workspace
-        check_budget(batch, target_h, target_w, 4, multiplier=2.0, label="ImageOps Draw")
+        check_budget(batch, target_h, target_w, 4, multiplier=2.0, label="ImageOps Draw", device=source.device)
 
         overlay = _decode_overlay_rgba(
             overlay_data,
@@ -312,4 +316,4 @@ class ImageOpsDraw(io.ComfyNode):
         if _scalar(invert_mask, bool):
             mask = 1.0 - mask
         progress.finish()
-        return build_node_preview_result(result, (result, source, mask.clamp(0.0, 1.0)), prefix="imageops_draw")
+        return build_node_preview_result(result, (result, source, mask.clamp(0.0, 1.0), media_to_video(result, fps, audio, sample_rate)), prefix="imageops_draw")

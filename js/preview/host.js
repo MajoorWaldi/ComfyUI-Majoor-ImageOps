@@ -968,7 +968,12 @@ function registerImageOpsLivePreview() {
         const effectiveFps = videoFps > 0 ? videoFps : 24;
         tick = Math.floor((performance.now() - startedAt) * effectiveFps / 1e3);
       } else {
-        tick++;
+        const videoFps = getUpstreamVideoFps(node, 0);
+        if (videoFps > 0) {
+          tick = Math.floor((performance.now() - startedAt) * videoFps / 1e3);
+        } else {
+          tick++;
+        }
       }
       if (tick !== lastLoopTick) {
         lastLoopTick = tick;

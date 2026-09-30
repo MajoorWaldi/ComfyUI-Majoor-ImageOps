@@ -1,6 +1,6 @@
 import type { ComfyNode, NodeInteractionContext } from "../../types.js";
 import { colorWheelPointToValues } from "../color.js";
-import { colorWidgetNameForZone, isNode, syncColorCorrectWidgets } from "../nodes/color-correct.js";
+import { attachCurveCollapseToggle, colorWidgetNameForZone, isNode, syncColorCorrectWidgets } from "../nodes/color-correct.js";
 import { getCanvasPointer } from "../shared/geometry.js";
 import { findWidget, resetNodeWidgetsToDefaults, setWidgetValue } from "../shared/widgets.js";
 
@@ -124,6 +124,7 @@ function bindZoneTab(
 
 export function attachInteractions(node: ComfyNode, ctx: NodeInteractionContext): void {
   if (!isNode(node)) return;
+  attachCurveCollapseToggle(node);
   const st = node.__imageops_state ?? null;
   if (!st || st.colorInteractiveHooked) return;
   st.colorInteractiveHooked = true;

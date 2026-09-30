@@ -8,6 +8,7 @@ from ._progress import start_progress
 from ._preview import build_node_preview_result
 from .core.memory import check_budget
 from .core.roto import is_animated, parse_shapes, render_matte
+from .core.video_io import extract_video_fps_audio, media_to_video
 
 
 class ImageOpsRoto(io.ComfyNode):
@@ -34,6 +35,7 @@ class ImageOpsRoto(io.ComfyNode):
             outputs=[
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
+                io.Video.Output("video", display_name="video", tooltip="Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected."),
             ],
         )
 
@@ -57,16 +59,18 @@ class ImageOpsRoto(io.ComfyNode):
         progress = start_progress()
         if image is not None or video is not None:
             source = _select_media_tensor(image, video)
+            fps, audio, sample_rate = extract_video_fps_audio(image if image is not None else video)
         else:
             source = torch.zeros((1, _scalar(height, int), _scalar(width, int), 3), dtype=torch.float32)
+            fps, audio, sample_rate = 24.0, None, 44100
         batch, target_h, target_w = int(source.shape[0]), int(source.shape[1]), int(source.shape[2])
 
         if _scalar(bypass, bool):
             progress.finish()
             mask = torch.zeros((batch, target_h, target_w), device=source.device, dtype=source.dtype)
-            return build_node_preview_result(source, (source, mask), prefix="imageops_roto")
+            return build_node_preview_result(source, (source, mask, media_to_video(source, fps, audio, sample_rate)), prefix="imageops_roto")
 
-        check_budget(batch, target_h, target_w, 4, multiplier=2.0, label="ImageOps Roto")
+        check_budget(batch, target_h, target_w, 4, multiplier=2.0, label="ImageOps Roto", device=source.device)
 
         parsed = parse_shapes(shapes)
         options = dict(
@@ -90,4 +94,4 @@ class ImageOpsRoto(io.ComfyNode):
                 alpha = alpha * source[..., 3:4]
             result = torch.cat([source[..., :3], alpha], dim=-1)
         progress.finish()
-        return build_node_preview_result(result, (result, matte), prefix="imageops_roto")
+        return build_node_preview_result(result, (result, matte, media_to_video(result, fps, audio, sample_rate)), prefix="imageops_roto")

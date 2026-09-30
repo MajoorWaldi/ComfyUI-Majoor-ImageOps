@@ -19,6 +19,7 @@ from ._helpers import (
 from comfy_api.latest import io
 from ._preview import build_node_preview_result
 from ._progress import start_progress
+from .core.video_io import extract_video_fps_audio, media_to_video
 
 _ALIGN = ["left", "center", "right"]
 
@@ -177,6 +178,7 @@ class ImageOpsText(io.ComfyNode):
             outputs=[
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
+                io.Video.Output("video", display_name="video", tooltip="Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected."),
             ],
         )
 
@@ -202,12 +204,13 @@ class ImageOpsText(io.ComfyNode):
         font_path: str = "",
     ):
         source = _select_media_tensor(image, video).float()
+        fps, audio, sample_rate = extract_video_fps_audio(image)
         effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         progress = start_progress()
         if _scalar(bypass, bool) or not str(text or "") or float(_scalar(opacity)) <= 0.0:
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask), prefix="imageops_text")
+            return build_node_preview_result(source, (source, output_mask, media_to_video(source, fps, audio, sample_rate)), prefix="imageops_text")
         processed = _draw_text_overlay(
             source,
             str(text),
@@ -225,4 +228,4 @@ class ImageOpsText(io.ComfyNode):
         )
         result = _apply_mask_to_image(source, processed, effect_mask) if effect_mask is not None else processed
         progress.finish()
-        return build_node_preview_result(result, (result, output_mask), prefix="imageops_text")
+        return build_node_preview_result(result, (result, output_mask, media_to_video(result, fps, audio, sample_rate)), prefix="imageops_text")

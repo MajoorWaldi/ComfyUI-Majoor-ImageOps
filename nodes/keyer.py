@@ -13,6 +13,7 @@ from ._helpers import (
 from comfy_api.latest import io
 from ._preview import build_node_preview_result
 from ._progress import start_progress
+from .core.video_io import extract_video_fps_audio, media_to_video
 
 
 def _hex_to_rgb(value: str) -> tuple[float, float, float]:
@@ -167,6 +168,7 @@ class ImageOpsKeyer(io.ComfyNode):
             outputs=[
                 io.Image.Output("image", display_name="image"),
                 io.Mask.Output("mask", display_name="mask"),
+                io.Video.Output("video", display_name="video", tooltip="Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected."),
             ],
         )
 
@@ -190,12 +192,13 @@ class ImageOpsKeyer(io.ComfyNode):
         **_legacy
     ):
         source = _select_media_tensor(image, video)
+        fps, audio, sample_rate = extract_video_fps_audio(image)
         progress = start_progress()
         effect_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         if _scalar(bypass, bool):
             alpha = source[..., 3] if source.shape[-1] >= 4 else torch.ones(source.shape[:3], device=source.device, dtype=source.dtype)
             progress.finish()
-            return build_node_preview_result(source, (source, alpha), prefix="imageops_keyer")
+            return build_node_preview_result(source, (source, alpha, media_to_video(source, fps, audio, sample_rate)), prefix="imageops_keyer")
         result, matte = _apply_keyer(source, mode, key_color, key_colors, tolerance, softness, gain, blur, invert, despill, effect_mask)
         progress.finish()
-        return build_node_preview_result(result, (result, matte), prefix="imageops_keyer")
+        return build_node_preview_result(result, (result, matte, media_to_video(result, fps, audio, sample_rate)), prefix="imageops_keyer")

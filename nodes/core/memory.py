@@ -70,8 +70,14 @@ def check_budget(
     multiplier: float = 2.0,
     label: str = "ImageOps allocation",
     budget_mb: float | None = None,
+    device: torch.device | None = None,
 ) -> int:
     """Check whether a planned allocation fits within the memory budget.
+
+    `device` is the device the allocation will actually happen on. When omitted,
+    checks against ComfyUI's compute device (its historical default), which can
+    under- or over-estimate headroom for allocations that end up on a different
+    device (e.g. CPU fallback under low VRAM).
 
     Returns the estimated byte count if within budget.
     Raises MemoryBudgetError with a helpful message if not.
@@ -81,7 +87,7 @@ def check_budget(
 
     mm = _model_management()
     if mm is not None:
-        free_bytes = mm.get_free_memory(mm.get_torch_device())
+        free_bytes = mm.get_free_memory(device if device is not None else mm.get_torch_device())
         if free_bytes > 0:
             # Cap the limit to 90% of free memory to leave a safety margin
             limit_mb = min(limit_mb, free_bytes / (1024 * 1024) * 0.9)

@@ -8,6 +8,8 @@ from ._preview import build_node_preview_result
 from ._progress import start_progress
 from .transform import _composite_fill, _make_fill_background, _normalize_fill_mode, _padding_mode_from_fill, _transform_batch_affine, _transform_mask_affine, _transform_masked_source
 from .core.memory import check_budget
+from .core.media import ImageOpsMedia
+from .core.video_io import extract_video_fps_audio, extract_video_media, media_to_video
 _FILL_MODES = ['transparent', 'mirror', 'stretch', 'expand', 'color']
 
 def _smooth_random_series(count: int, amount: float, seed: int, smoothing: float) -> list[float]:
@@ -56,32 +58,37 @@ class ImageOpsCameraShake(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsCameraShake', display_name='〽️ Image Ops Camera Shake', category='image/imageops', essentials_category='Image Tools', search_aliases=['camera shake', 'shake', 'jitter', 'handheld', 'camera'], inputs=[io.Boolean.Input('bypass', default=False), io.Float.Input('translate_px', default=12.0, min=0.0, max=512.0, step=0.1), io.Float.Input('rotate_deg', default=1.5, min=0.0, max=45.0, step=0.01), io.Float.Input('zoom', default=0.03, min=0.0, max=1.0, step=0.001), io.Float.Input('smoothing', default=0.65, min=0.0, max=0.98, step=0.01), io.Float.Input('shake_frequency', default=1.0, min=0.05, max=8.0, step=0.05, round=0.001, tooltip='How quickly the camera shake target changes. 1 = one target per frame; lower is slower, higher is more nervous.'), io.Int.Input('frame_length', default=24, min=1, max=4096, step=1, tooltip='Number of output frames when shaking a still image.'), io.Float.Input('fps', default=12.0, min=1.0, max=120.0, step=0.1, round=0.001), io.Int.Input('seed', default=12345, min=0, max=18446744073709551615), io.Combo.Input('filter', options=['nearest', 'bilinear', 'bicubic'], default='bilinear'), io.Combo.Input('fill_mode', options=['transparent', 'mirror', 'stretch', 'expand', 'color'], default='mirror'), io.Color.Input('fill_color', default='#000000'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')])
+        return io.Schema(node_id='ImageOpsCameraShake', display_name='〽️ Image Ops Camera Shake', category='image/imageops', essentials_category='Image Tools', search_aliases=['camera shake', 'shake', 'jitter', 'handheld', 'camera'], inputs=[io.Boolean.Input('bypass', default=False), io.Float.Input('translate_px', default=12.0, min=0.0, max=512.0, step=0.1), io.Float.Input('rotate_deg', default=1.5, min=0.0, max=45.0, step=0.01), io.Float.Input('zoom', default=0.03, min=0.0, max=1.0, step=0.001), io.Float.Input('smoothing', default=0.65, min=0.0, max=0.98, step=0.01), io.Float.Input('shake_frequency', default=1.0, min=0.05, max=8.0, step=0.05, round=0.001, tooltip='How quickly the camera shake target changes. 1 = one target per frame; lower is slower, higher is more nervous.'), io.Int.Input('frame_length', default=24, min=1, max=4096, step=1, tooltip='Number of output frames when shaking a still image.'), io.Float.Input('fps', default=12.0, min=1.0, max=120.0, step=0.1, round=0.001), io.Int.Input('seed', default=12345, min=0, max=18446744073709551615), io.Combo.Input('filter', options=['nearest', 'bilinear', 'bicubic'], default='bilinear'), io.Combo.Input('fill_mode', options=['transparent', 'mirror', 'stretch', 'expand', 'color'], default='mirror'), io.Color.Input('fill_color', default='#000000'), io.Boolean.Input('invert_mask', default=False), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True)], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Video.Output('video', display_name='video', tooltip='Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected; otherwise uses the fps widget.')])
 
     @classmethod
     def execute(cls, image=None, bypass=False, translate_px=12.0, rotate_deg=1.5, zoom=0.03, smoothing=0.65, shake_frequency=1.0, frame_length=24, fps=12.0, seed=12345, filter='bilinear', fill_mode='mirror', fill_color='#000000', invert_mask=False, video=None, mask=None, **kwargs):
         source = _select_media_tensor(image, video, working_set=5).float()
         preview_fps = max(1.0, _scalar(fps, float))
+        is_real_video = isinstance(image, ImageOpsMedia) or extract_video_media(image) is not None
+        if is_real_video:
+            video_fps, video_audio, video_sample_rate = extract_video_fps_audio(image)
+        else:
+            video_fps, video_audio, video_sample_rate = preview_fps, None, 44100
         progress = start_progress()
         if isinstance(bypass, bool) and bypass:
             progress.finish()
             output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-            return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_camerashake', fps=preview_fps)
+            return build_node_preview_result(source, (source, output_mask_source, media_to_video(source, video_fps, video_audio, video_sample_rate)), prefix='imageops_camerashake', fps=preview_fps)
         if isinstance(bypass, (list, tuple)) and all(bypass):
             progress.finish()
             output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-            return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_camerashake', fps=preview_fps)
+            return build_node_preview_result(source, (source, output_mask_source, media_to_video(source, video_fps, video_audio, video_sample_rate)), prefix='imageops_camerashake', fps=preview_fps)
         if _all_near_zero(translate_px, rotate_deg, zoom):
             progress.finish()
             output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
-            return build_node_preview_result(source, (source, output_mask_source), prefix='imageops_camerashake', fps=preview_fps)
+            return build_node_preview_result(source, (source, output_mask_source, media_to_video(source, video_fps, video_audio, video_sample_rate)), prefix='imageops_camerashake', fps=preview_fps)
         frame_count = max(1, _scalar(frame_length, int))
         if frame_count > int(source.shape[0]):
             repeats = (frame_count + int(source.shape[0]) - 1) // max(1, int(source.shape[0]))
             source = source.repeat((repeats, 1, 1, 1))[:frame_count]
             
         if source is not None:
-            check_budget(int(source.shape[0]), int(source.shape[1]), int(source.shape[2]), int(source.shape[3]), multiplier=4.0, label='ImageOps CameraShake')
+            check_budget(int(source.shape[0]), int(source.shape[1]), int(source.shape[2]), int(source.shape[3]), multiplier=4.0, label='ImageOps CameraShake', device=source.device)
         input_mask = _prepare_effect_mask(mask, source, invert_mask=invert_mask)
         output_mask_source = _resolve_mask_output_source(mask, source, invert_mask=invert_mask)
         frames = int(source.shape[0])
@@ -100,4 +107,4 @@ class ImageOpsCameraShake(io.ComfyNode):
                 output_mask = result[..., 3].clamp(0.0, 1.0) if result.shape[-1] >= 4 else torch.ones_like(output_mask)
         result = apply_per_frame_bypass(source, result, bypass)
         progress.finish()
-        return build_node_preview_result(result, (result, output_mask.clamp(0.0, 1.0)), prefix='imageops_camerashake', fps=preview_fps)
+        return build_node_preview_result(result, (result, output_mask.clamp(0.0, 1.0), media_to_video(result, video_fps, video_audio, video_sample_rate)), prefix='imageops_camerashake', fps=preview_fps)

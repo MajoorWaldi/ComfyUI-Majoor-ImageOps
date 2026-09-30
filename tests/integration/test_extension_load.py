@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 
-EXPECTED_NODE_COUNT = 32
+EXPECTED_NODE_COUNT = 31
 
 
 def test_imageops_extension_loads(imageops_extension):
@@ -12,7 +12,7 @@ def test_imageops_extension_loads(imageops_extension):
     assert imageops_extension is not None
 
 
-def test_all_32_nodes_are_registered(imageops_extension):
+def test_all_nodes_are_registered(imageops_extension):
     """The extension must expose all expected ImageOps nodes."""
 
     assert hasattr(imageops_extension, "NODES")

@@ -128,10 +128,6 @@ const IMAGEOPS_NODE_METADATA = [
     "ui": "native"
   },
   {
-    "className": "ImageOpsLensArtifacts",
-    "ui": "native"
-  },
-  {
     "className": "ImageOpsDefocus",
     "ui": "native"
   },

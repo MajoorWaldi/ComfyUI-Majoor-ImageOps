@@ -104,7 +104,7 @@ class TestRampOutputTypes:
 
 
 # ---------------------------------------------------------------------------
-# ImageOpsPadOut — RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT")
+# ImageOpsPadOut — RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT", "VIDEO")
 # ---------------------------------------------------------------------------
 
 class TestPadOutOutputTypes:
@@ -126,7 +126,7 @@ class TestPadOutOutputTypes:
             invert_mask=False,
         )
         outputs = result["result"] if isinstance(result, dict) else result
-        _, _, width, height = outputs
+        _, _, width, height, _ = outputs
         assert isinstance(width, int), f"width should be int, got {type(width)}"
         assert isinstance(height, int), f"height should be int, got {type(height)}"
         assert width == 48

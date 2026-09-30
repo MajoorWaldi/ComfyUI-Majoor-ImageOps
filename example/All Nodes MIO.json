@@ -1,8 +1,8 @@
 {
   "id": "5b0c2f5e-6f0a-4c52-9a7e-1d1f6f0a1e01",
   "revision": 0,
-  "last_node_id": 33,
-  "last_link_id": 39,
+  "last_node_id": 32,
+  "last_link_id": 37,
   "nodes": [
     {
       "id": 1,
@@ -46,12 +46,11 @@
             24,
             25,
             27,
+            28,
             29,
-            30,
             31,
-            33,
-            36,
-            37
+            34,
+            35
           ],
           "slot_index": 0
         },
@@ -63,7 +62,7 @@
       ],
       "properties": {
         "cnr_id": "comfy-core",
-        "ver": "0.37.4",
+        "ver": "0.38.0",
         "Node name for S&R": "LoadImage"
       },
       "widgets_values": [
@@ -91,7 +90,7 @@
           "name": "image",
           "type": "IMAGE",
           "links": [
-            34
+            32
           ],
           "slot_index": 0
         },
@@ -118,7 +117,7 @@
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsConstant"
       },
       "widgets_values": [
@@ -155,8 +154,8 @@
           "name": "image",
           "type": "IMAGE",
           "links": [
-            28,
-            32
+            26,
+            30
           ],
           "slot_index": 0
         },
@@ -183,7 +182,7 @@
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsRamp"
       },
       "widgets_values": [
@@ -223,8 +222,7 @@
           "type": "IMAGE",
           "links": [
             16,
-            26,
-            38
+            36
           ],
           "slot_index": 0
         },
@@ -236,7 +234,7 @@
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsNoise"
       },
       "widgets_values": [
@@ -298,11 +296,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsChannel"
       },
       "widgets_values": [
@@ -354,11 +357,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsMaskConvert"
       },
       "widgets_values": [
@@ -408,11 +416,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsKeyer"
       },
       "widgets_values": [
@@ -462,11 +475,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsRoto"
       },
       "widgets_values": [
@@ -521,11 +539,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsClamp"
       },
       "widgets_values": [
@@ -574,11 +597,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsInvert"
       },
       "widgets_values": [
@@ -646,11 +674,16 @@
           "name": "bounding_box",
           "type": "BOUNDING_BOX",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsCrop"
       },
       "widgets_values": [
@@ -676,7 +709,7 @@
         960
       ],
       "flags": {},
-      "order": 30,
+      "order": 29,
       "mode": 0,
       "inputs": [
         {
@@ -723,11 +756,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsCropStitch"
       },
       "widgets_values": [
@@ -776,11 +814,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsTransform"
       },
       "widgets_values": [
@@ -830,11 +873,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsCornerPin"
       },
       "widgets_values": [
@@ -897,11 +945,16 @@
           "name": "height",
           "type": "INT",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsPadOut"
       },
       "widgets_values": [
@@ -963,11 +1016,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsDistort"
       },
       "widgets_values": [
@@ -1024,11 +1082,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsSpherize"
       },
       "widgets_values": [
@@ -1082,11 +1145,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsCameraShake"
       },
       "widgets_values": [
@@ -1144,11 +1212,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsBlur"
       },
       "widgets_values": [
@@ -1198,11 +1271,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsColorAjust"
       },
       "widgets_values": [
@@ -1298,11 +1376,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsGrain"
       },
       "widgets_values": [
@@ -1358,11 +1441,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsVignette"
       },
       "widgets_values": [
@@ -1415,11 +1503,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsChromaticAberration"
       },
       "widgets_values": [
@@ -1469,11 +1562,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsBloom"
       },
       "widgets_values": [
@@ -1486,7 +1584,7 @@
     },
     {
       "id": 25,
-      "type": "ImageOpsLensArtifacts",
+      "type": "ImageOpsDefocus",
       "pos": [
         3180,
         3720
@@ -1507,72 +1605,10 @@
           "link": 25
         },
         {
-          "label": "Dirt Texture",
-          "name": "dirt",
-          "type": "IMAGE,VIDEO",
-          "shape": 7,
-          "link": 26
-        },
-        {
-          "name": "mask",
-          "type": "MASK",
-          "shape": 7,
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "image",
-          "type": "IMAGE",
-          "links": null
-        },
-        {
-          "name": "mask",
-          "type": "MASK",
-          "links": null
-        }
-      ],
-      "properties": {
-        "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
-        "Node name for S&R": "ImageOpsLensArtifacts"
-      },
-      "widgets_values": [
-        false,
-        0.0,
-        0.0,
-        2.0,
-        12345,
-        false
-      ]
-    },
-    {
-      "id": 26,
-      "type": "ImageOpsDefocus",
-      "pos": [
-        3700,
-        3720
-      ],
-      "size": [
-        470,
-        960
-      ],
-      "flags": {},
-      "order": 24,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "Images/Video",
-          "name": "image",
-          "type": "IMAGE,VIDEO",
-          "shape": 7,
-          "link": 27
-        },
-        {
           "name": "depth",
           "type": "IMAGE,VIDEO",
           "shape": 7,
-          "link": 28
+          "link": 26
         },
         {
           "label": "Shape Texture",
@@ -1598,11 +1634,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsDefocus"
       },
       "widgets_values": [
@@ -1619,7 +1660,7 @@
       ]
     },
     {
-      "id": 27,
+      "id": 26,
       "type": "ImageOpsText",
       "pos": [
         60,
@@ -1630,7 +1671,7 @@
         960
       ],
       "flags": {},
-      "order": 25,
+      "order": 24,
       "mode": 0,
       "inputs": [
         {
@@ -1638,7 +1679,7 @@
           "name": "image",
           "type": "IMAGE,VIDEO",
           "shape": 7,
-          "link": 29
+          "link": 27
         },
         {
           "name": "mask",
@@ -1657,11 +1698,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsText"
       },
       "widgets_values": [
@@ -1682,7 +1728,7 @@
       ]
     },
     {
-      "id": 28,
+      "id": 27,
       "type": "ImageOpsDraw",
       "pos": [
         580,
@@ -1693,7 +1739,7 @@
         960
       ],
       "flags": {},
-      "order": 26,
+      "order": 25,
       "mode": 0,
       "inputs": [
         {
@@ -1701,7 +1747,7 @@
           "name": "image",
           "type": "IMAGE,VIDEO",
           "shape": 7,
-          "link": 30
+          "link": 28
         }
       ],
       "outputs": [
@@ -1719,11 +1765,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsDraw"
       },
       "widgets_values": [
@@ -1748,7 +1799,7 @@
       ]
     },
     {
-      "id": 29,
+      "id": 28,
       "type": "ImageOpsMerge",
       "pos": [
         60,
@@ -1759,20 +1810,20 @@
         960
       ],
       "flags": {},
-      "order": 27,
+      "order": 26,
       "mode": 0,
       "inputs": [
         {
           "label": "Background",
           "name": "A",
           "type": "IMAGE,VIDEO",
-          "link": 31
+          "link": 29
         },
         {
           "label": "Foreground",
           "name": "B",
           "type": "IMAGE,VIDEO",
-          "link": 32
+          "link": 30
         },
         {
           "label": "Mask",
@@ -1787,7 +1838,7 @@
           "name": "image",
           "type": "IMAGE",
           "links": [
-            35
+            33
           ],
           "slot_index": 0
         },
@@ -1795,11 +1846,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsMerge"
       },
       "widgets_values": [
@@ -1812,7 +1868,7 @@
       ]
     },
     {
-      "id": 30,
+      "id": 29,
       "type": "ImageOpsComp",
       "pos": [
         580,
@@ -1823,7 +1879,7 @@
         960
       ],
       "flags": {},
-      "order": 28,
+      "order": 27,
       "mode": 0,
       "inputs": [
         {
@@ -1831,7 +1887,7 @@
           "name": "image_1",
           "type": "IMAGE,VIDEO",
           "shape": 7,
-          "link": 33
+          "link": 31
         },
         {
           "name": "mask_1",
@@ -1844,7 +1900,7 @@
           "name": "image_2",
           "type": "IMAGE,VIDEO",
           "shape": 7,
-          "link": 34
+          "link": 32
         },
         {
           "name": "mask_2",
@@ -1872,7 +1928,7 @@
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsComp"
       },
       "widgets_values": [
@@ -1887,7 +1943,7 @@
       ]
     },
     {
-      "id": 31,
+      "id": 30,
       "type": "ImageOpsPreview",
       "pos": [
         1100,
@@ -1898,7 +1954,7 @@
         960
       ],
       "flags": {},
-      "order": 31,
+      "order": 30,
       "mode": 0,
       "inputs": [
         {
@@ -1906,14 +1962,14 @@
           "name": "image",
           "type": "IMAGE,VIDEO",
           "shape": 7,
-          "link": 35
+          "link": 33
         },
         {
           "label": "Images/Video B",
           "name": "image_b",
           "type": "IMAGE,VIDEO",
           "shape": 7,
-          "link": 36
+          "link": 34
         },
         {
           "name": "mask",
@@ -1932,11 +1988,16 @@
           "name": "mask",
           "type": "MASK",
           "links": null
+        },
+        {
+          "name": "video",
+          "type": "VIDEO",
+          "links": null
         }
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsPreview"
       },
       "widgets_values": [
@@ -1947,7 +2008,7 @@
       ]
     },
     {
-      "id": 32,
+      "id": 31,
       "type": "ImageOpsAppend",
       "pos": [
         60,
@@ -1958,7 +2019,7 @@
         960
       ],
       "flags": {},
-      "order": 29,
+      "order": 28,
       "mode": 0,
       "inputs": [
         {
@@ -1966,14 +2027,14 @@
           "name": "image_1",
           "type": "IMAGE,VIDEO",
           "shape": 7,
-          "link": 37
+          "link": 35
         },
         {
           "label": "Images/Video 2",
           "name": "image_2",
           "type": "IMAGE,VIDEO",
           "shape": 7,
-          "link": 38
+          "link": 36
         }
       ],
       "outputs": [
@@ -1981,7 +2042,7 @@
           "name": "image",
           "type": "IMAGE",
           "links": [
-            39
+            37
           ],
           "slot_index": 0
         },
@@ -2008,7 +2069,7 @@
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsAppend"
       },
       "widgets_values": [
@@ -2020,7 +2081,7 @@
       ]
     },
     {
-      "id": 33,
+      "id": 32,
       "type": "ImageOpsFrameRange",
       "pos": [
         580,
@@ -2031,14 +2092,14 @@
         960
       ],
       "flags": {},
-      "order": 32,
+      "order": 31,
       "mode": 0,
       "inputs": [
         {
           "label": "Image/Video",
           "name": "image",
           "type": "IMAGE,VIDEO",
-          "link": 39
+          "link": 37
         }
       ],
       "outputs": [
@@ -2060,7 +2121,7 @@
       ],
       "properties": {
         "cnr_id": "majoor-imageops",
-        "ver": "0.1.7",
+        "ver": "0.6.3",
         "Node name for S&R": "ImageOpsFrameRange"
       },
       "widgets_values": [
@@ -2278,7 +2339,7 @@
     ],
     [
       26,
-      4,
+      3,
       0,
       25,
       1,
@@ -2294,14 +2355,6 @@
     ],
     [
       28,
-      3,
-      0,
-      26,
-      1,
-      "IMAGE"
-    ],
-    [
-      29,
       1,
       0,
       27,
@@ -2309,7 +2362,7 @@
       "IMAGE"
     ],
     [
-      30,
+      29,
       1,
       0,
       28,
@@ -2317,6 +2370,14 @@
       "IMAGE"
     ],
     [
+      30,
+      3,
+      0,
+      28,
+      1,
+      "IMAGE"
+    ],
+    [
       31,
       1,
       0,
@@ -2326,15 +2387,15 @@
     ],
     [
       32,
-      3,
+      2,
       0,
       29,
-      1,
+      2,
       "IMAGE"
     ],
     [
       33,
-      1,
+      28,
       0,
       30,
       0,
@@ -2342,15 +2403,15 @@
     ],
     [
       34,
-      2,
+      1,
       0,
       30,
-      2,
+      1,
       "IMAGE"
     ],
     [
       35,
-      29,
+      1,
       0,
       31,
       0,
@@ -2358,7 +2419,7 @@
     ],
     [
       36,
-      1,
+      4,
       0,
       31,
       1,
@@ -2366,25 +2427,9 @@
     ],
     [
       37,
-      1,
+      31,
       0,
       32,
-      0,
-      "IMAGE"
-    ],
-    [
-      38,
-      4,
-      0,
-      32,
-      1,
-      "IMAGE"
-    ],
-    [
-      39,
-      32,
-      0,
-      33,
       0,
       "IMAGE"
     ]
@@ -2435,7 +2480,7 @@
       "bounding": [
         0,
         3630,
-        4230,
+        3710,
         1110
       ],
       "color": "#3f789e",
@@ -2491,7 +2536,7 @@
         200
       ]
     },
-    "frontendVersion": "1.52.7"
+    "frontendVersion": "1.53.6"
   },
   "version": 0.4
 }

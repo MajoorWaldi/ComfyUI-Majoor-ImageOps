@@ -259,7 +259,7 @@ class ImageOpsComp(io.ComfyNode):
         device = tensors[0][1].device
         dtype = tensors[0][1].dtype
         # multiplier=2.0 covers canvas + per-layer accumulation during compositing
-        check_budget(batch, out_h, out_w, 4, multiplier=2.0, label="ImageOps Comp")
+        check_budget(batch, out_h, out_w, 4, multiplier=2.0, label="ImageOps Comp", device=device)
         enabled_layers = [(layer, image_tensor, mask_value) for layer, image_tensor, mask_value in tensors if bool(layer.get("enabled", True))]
 
         if _scalar(bypass, bool):

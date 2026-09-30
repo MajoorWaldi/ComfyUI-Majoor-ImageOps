@@ -3,6 +3,7 @@ import torch
 from ._helpers import CHANNEL_OPTIONS, LUMA_WEIGHTS, _alpha_mask_from_image, _channel_mask_to_image, _extract_channel_mask, _prepare_mask_tensor, _scalar, _select_media_tensor
 from ._progress import start_progress
 from ._preview import build_node_preview_result
+from .core.video_io import extract_video_fps_audio, media_to_video
 
 _SHUFFLE_SOURCES = ['R', 'G', 'B', 'A', 'Luma', 'Zero', 'One', 'Mask']
 
@@ -48,21 +49,22 @@ class ImageOpsChannel(io.ComfyNode):
 
     @classmethod
     def define_schema(cls) -> io.Schema:
-        return io.Schema(node_id='ImageOpsChannel', display_name='〽️ Image Ops Channel', category='image/imageops', essentials_category='Image Tools', search_aliases=['channel', 'channels', 'rgb', 'alpha', 'red', 'green', 'blue', 'shuffle'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('mode', options=['extract', 'shuffle'], default='extract', tooltip='extract: read one channel out as an image/mask (legacy behavior). shuffle: rebuild an RGBA image by routing each output channel from any source.'), io.Combo.Input('channel', options=['Red', 'Green', 'Blue', 'Alpha'], default='Red', tooltip='Used in extract mode.'), io.Combo.Input('out_r', options=_SHUFFLE_SOURCES, default='R', tooltip='Used in shuffle mode.'), io.Combo.Input('out_g', options=_SHUFFLE_SOURCES, default='G', tooltip='Used in shuffle mode.'), io.Combo.Input('out_b', options=_SHUFFLE_SOURCES, default='B', tooltip='Used in shuffle mode.'), io.Combo.Input('out_a', options=_SHUFFLE_SOURCES, default='A', tooltip='Used in shuffle mode.'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True, tooltip='Available as a "Mask" source in shuffle mode.')], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask')])
+        return io.Schema(node_id='ImageOpsChannel', display_name='〽️ Image Ops Channel', category='image/imageops', essentials_category='Image Tools', search_aliases=['channel', 'channels', 'rgb', 'alpha', 'red', 'green', 'blue', 'shuffle'], inputs=[io.Boolean.Input('bypass', default=False), io.Combo.Input('mode', options=['extract', 'shuffle'], default='extract', tooltip='extract: read one channel out as an image/mask (legacy behavior). shuffle: rebuild an RGBA image by routing each output channel from any source.'), io.Combo.Input('channel', options=['Red', 'Green', 'Blue', 'Alpha'], default='Red', tooltip='Used in extract mode.'), io.Combo.Input('out_r', options=_SHUFFLE_SOURCES, default='R', tooltip='Used in shuffle mode.'), io.Combo.Input('out_g', options=_SHUFFLE_SOURCES, default='G', tooltip='Used in shuffle mode.'), io.Combo.Input('out_b', options=_SHUFFLE_SOURCES, default='B', tooltip='Used in shuffle mode.'), io.Combo.Input('out_a', options=_SHUFFLE_SOURCES, default='A', tooltip='Used in shuffle mode.'), io.MultiType.Input('image', types=[io.Image, io.Video], tooltip='Images/Video input. Accepts IMAGE batches and VIDEO frame sources.', display_name='Images/Video', optional=True, extra_dict={'forceInput': True}), io.Mask.Input('mask', optional=True, tooltip='Available as a "Mask" source in shuffle mode.')], outputs=[io.Image.Output('image', display_name='image'), io.Mask.Output('mask', display_name='mask'), io.Video.Output('video', display_name='video', tooltip='Native VIDEO output. Carries the real audio/fps when a VIDEO (not a plain IMAGE batch) was connected.')])
 
     @classmethod
     def execute(cls, image=None, bypass=False, mode='extract', channel='Red', out_r='R', out_g='G', out_b='B', out_a='A', video=None, mask=None, **kwargs):
         source = _select_media_tensor(image, video)
+        fps, audio, sample_rate = extract_video_fps_audio(image)
         progress = start_progress()
         if _scalar(bypass, bool):
             output_mask = _alpha_mask_from_image(source)
             progress.finish()
-            return build_node_preview_result(source, (source, output_mask), prefix='imageops_channel')
+            return build_node_preview_result(source, (source, output_mask, media_to_video(source, fps, audio, sample_rate)), prefix='imageops_channel')
         if str(_scalar(mode, str)).strip().lower() == 'shuffle':
             result = _apply_shuffle(source.float(), out_r, out_g, out_b, out_a, mask)
             output_mask = result[..., 3]
             progress.finish()
-            return build_node_preview_result(result, (result, output_mask), prefix='imageops_channel')
+            return build_node_preview_result(result, (result, output_mask, media_to_video(result, fps, audio, sample_rate)), prefix='imageops_channel')
         extracted = _extract_channel_mask(source, channel)
         if str(_scalar(channel, str)).strip().lower() == 'alpha':
             result = source.clone()
@@ -74,4 +76,4 @@ class ImageOpsChannel(io.ComfyNode):
         else:
             result = _channel_mask_to_image(extracted, source)
         progress.finish()
-        return build_node_preview_result(result, (result, extracted), prefix='imageops_channel')
+        return build_node_preview_result(result, (result, extracted, media_to_video(result, fps, audio, sample_rate)), prefix='imageops_channel')

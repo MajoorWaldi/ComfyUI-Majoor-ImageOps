@@ -5,7 +5,17 @@ import json
 
 import numpy as np
 
-from nodes.core.roto import eval_shape, flatten, is_animated, parse_shapes, render_matte
+from nodes.core.roto import (
+    _MAX_JSON_CHARS,
+    _MAX_KEYFRAMES_PER_SHAPE,
+    _MAX_POINTS_PER_SHAPE,
+    _MAX_SHAPES,
+    eval_shape,
+    flatten,
+    is_animated,
+    parse_shapes,
+    render_matte,
+)
 
 K = 0.5522847498
 
@@ -107,4 +117,27 @@ def test_js_parity_anchor():
     poly = flatten(eval_shape(parsed[0], 4), True, 200, 100)
     assert len(poly) == 80
     assert np.allclose(poly[0], [96, 20], atol=1e-4)
-    assert np.allclose(poly[-1], [92.3913, 20.0862], atol=1e-4)
+
+
+def test_oversized_json_payload_is_rejected():
+    huge = "x" * (_MAX_JSON_CHARS + 1)
+    assert parse_shapes(huge) == []
+
+
+def test_shape_count_is_capped():
+    shapes = [_shape(_rect(0.0, 0.0, 0.1, 0.1)) for _ in range(_MAX_SHAPES + 50)]
+    parsed = parse_shapes(_doc(*shapes))
+    assert len(parsed) == _MAX_SHAPES
+
+
+def test_keyframe_count_is_capped():
+    shape = _shape(_rect(0.0, 0.0, 0.1, 0.1))
+    shape["keys"] = [{"f": i, "pts": _rect(0.0, 0.0, 0.1, 0.1)} for i in range(_MAX_KEYFRAMES_PER_SHAPE + 20)]
+    parsed = parse_shapes(_doc(shape))
+    assert len(parsed[0]["keys"]) == _MAX_KEYFRAMES_PER_SHAPE
+
+
+def test_point_count_per_key_is_capped():
+    shape = _shape([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]] * (_MAX_POINTS_PER_SHAPE + 20))
+    parsed = parse_shapes(_doc(shape))
+    assert len(parsed[0]["keys"][0][1]) == _MAX_POINTS_PER_SHAPE

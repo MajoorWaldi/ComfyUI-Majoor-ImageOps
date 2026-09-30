@@ -14,7 +14,7 @@ from ._ops_constants import EPSILON, GAMMA_MAX, GAMMA_SAFE_MIN, LUMA_WEIGHTS
 from .core.memory import to_compute_device
 from .core.blend import blend_rgb, normalize_blend_mode, soft_light_curve
 from .core.media import ImageOpsMedia
-from .core.batch import match_batch
+from .core.batch import match_batch, cycle_to_length
 
 # Type alias for parameters that can be a scalar or a per-frame list/tuple.
 ScalarOrList = Union[float, int, bool, list, tuple]
@@ -861,8 +861,7 @@ def _expand_mask_batch(mask: torch.Tensor, target_batch: int) -> torch.Tensor:
         int(mask.shape[0]),
         int(target_batch),
     )
-    reps = math.ceil(target_batch / mask.shape[0])
-    return mask.repeat(reps, 1, 1)[:target_batch]
+    return cycle_to_length(mask, target_batch)
 
 
 def _reduce_4d_to_3d(m: torch.Tensor) -> torch.Tensor:
@@ -1319,8 +1318,7 @@ def _apply_merge(a: torch.Tensor, b: torch.Tensor, mode: str, mix, foreground_fi
         if b.shape[0] == 1:
             b = b.expand(a.shape[0], -1, -1, -1)
         else:
-            reps = math.ceil(a.shape[0] / b.shape[0])
-            b = b.repeat(reps, 1, 1, 1)[:a.shape[0]]
+            b = cycle_to_length(b, a.shape[0])
     if _has_list_param(mode, mix, foreground_fit, blend_space):
         return torch.cat([
             _apply_merge(
@@ -1950,12 +1948,12 @@ def apply_per_frame_bypass(
     if isinstance(bypass, bool):
         return source if bypass else processed
         
-    if isinstance(bypass, list):
+    if isinstance(bypass, (list, tuple)):
         if not any(bypass):
             return processed
         if all(bypass):
             return source
-        
+
         # Mixed bypass list
         out = processed.clone()
         for i, bp in enumerate(bypass):

@@ -124,7 +124,7 @@ const HANDLED_CLASSES = new Set([
   "ImageOpsAppend", "ImageOpsComp", "ImageOpsDistort", "ImageOpsSpherize",
   "ImageOpsNoise", "ImageOpsConstant", "ImageOpsRamp", "ImageOpsFrameRange",
   "ImageOpsPreview", "ImageOpsVignette", "ImageOpsChromaticAberration",
-  "ImageOpsBloom", "ImageOpsLensArtifacts", "ImageOpsDefocus", "ImageOpsRoto",
+  "ImageOpsBloom", "ImageOpsDefocus", "ImageOpsRoto",
 ]);
 
 export function imageOpsAdapter(): Adapter {
@@ -153,10 +153,6 @@ export function imageOpsAdapter(): Adapter {
         return 1 + Number(displacementConnected) + Number(effectMaskConnected);
       }
       if (cls === "ImageOpsMerge") return bypass ? 1 : (maskConnected ? 3 : 2);
-      if (cls === "ImageOpsLensArtifacts") {
-        const dirtConnected = connectedInput(node, "dirt");
-        return 1 + Number(dirtConnected) + Number(maskConnected);
-      }
       if (cls === "ImageOpsDefocus") {
         const depthConnected = connectedInput(node, "depth");
         const shapeConnected = connectedInput(node, "shape_texture");
@@ -189,9 +185,6 @@ export function imageOpsAdapter(): Adapter {
       }
       if (cls === "ImageOpsDistort") {
         return namedInputIndexes(node, ["image", "displacement", "mask"]);
-      }
-      if (cls === "ImageOpsLensArtifacts") {
-        return namedInputIndexes(node, ["image", "dirt", "mask"]);
       }
       if (cls === "ImageOpsDefocus") {
         return namedInputIndexes(node, ["image", "depth", "shape_texture", "mask"]);
@@ -279,8 +272,6 @@ export function imageOpsAdapter(): Adapter {
         return ops.chromaticAberration(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsBloom") {
         return ops.bloom(ctx, canvasSize, node, inputs, tick ?? 0);
-      } else if (cls === "ImageOpsLensArtifacts") {
-        return ops.lensArtifacts(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsDefocus") {
         return ops.defocus(ctx, canvasSize, node, inputs, tick ?? 0);
       } else if (cls === "ImageOpsAppend") {

@@ -24,6 +24,16 @@ class BatchMismatchError(ValueError):
         self.count_b = count_b
 
 
+def cycle_to_length(tensor: torch.Tensor, target: int) -> torch.Tensor:
+    """Repeat tensor along dim 0 to reach exactly `target` frames, truncating the
+    final repeat. No-op if already at `target`."""
+    n = tensor.shape[0]
+    if n == target:
+        return tensor
+    reps = (target + n - 1) // n
+    return tensor.repeat(reps, *([1] * (tensor.dim() - 1)))[:target]
+
+
 def match_batch(
     a: torch.Tensor,
     b: torch.Tensor,
@@ -76,11 +86,9 @@ def match_batch(
 
     if policy == "loop":
         if ba < target:
-            reps = (target + ba - 1) // ba
-            a = a.repeat(reps, *([1] * (a.dim() - 1)))[:target]
+            a = cycle_to_length(a, target)
         if bb < target:
-            reps = (target + bb - 1) // bb
-            b = b.repeat(reps, *([1] * (b.dim() - 1)))[:target]
+            b = cycle_to_length(b, target)
         return a, b
 
     raise ValueError(f"Unknown batch policy: {policy!r}")

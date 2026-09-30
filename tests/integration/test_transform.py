@@ -1,6 +1,37 @@
+import json
+from pathlib import Path
+
 import torch
 import pytest
-from nodes.transform import ImageOpsTransform
+from nodes.transform import ImageOpsTransform, _transform_batch_affine, _padding_mode_from_fill
+
+
+def test_transform_batch_affine_matches_golden_fixture_used_for_frontend_parity():
+    """Regression guard for tests/golden/transform.json, which
+    tests/frontend/transform.test.cjs uses to check applyTransform for parity.
+    If this test needs updating, regenerate the golden and re-check the JS side."""
+    golden_path = Path(__file__).resolve().parents[1] / "golden" / "transform.json"
+    golden = json.loads(golden_path.read_text(encoding="utf-8"))
+    meta = golden["_meta"]
+    width, height = meta["width"], meta["height"]
+    params = golden["params"]
+
+    frame = torch.tensor(golden["input_rgba"], dtype=torch.float32).unsqueeze(0) / 255.0
+    padding_mode = _padding_mode_from_fill(params["fill_mode"])
+    out = _transform_batch_affine(
+        frame, params["filter_mode"], params["translate_x"], params["translate_y"],
+        params["rotate_deg"], params["scale"], padding_mode=padding_mode,
+    )
+    actual = (out[0] * 255.0).round().clamp(0, 255).byte()
+    expected = torch.tensor(golden["expected_rgba"], dtype=torch.uint8)
+
+    assert actual.shape == (height, width, 4)
+    max_diff = (actual.int() - expected.int()).abs().max().item()
+    # tolerance=1: the fixture round-trips through uint8 storage, so re-deriving
+    # the input tensor from it reintroduces ~1/255 of quantization noise versus
+    # the exact floats used when the golden was generated.
+    assert max_diff <= 1, f"_transform_batch_affine no longer matches its own golden fixture (max diff {max_diff})"
+
 
 def test_transform_expand():
     node = ImageOpsTransform()
@@ -16,7 +47,7 @@ def test_transform_expand():
     # Expand is currently disabled (fixed-size canvas).
     # W_out = 100, H_out = 100.
     # New image should be 100x100.
-    result, mask = node.execute(
+    result, mask, video = node.execute(
         image=image,
         translate_x=50.0,
         translate_y=0.0,
@@ -26,13 +57,13 @@ def test_transform_expand():
         fill_mode="transparent",
         filter="nearest"
     )
-    
+
     assert result.shape == (1, 100, 100, 3)
-    
+
     # Rotate by 90 degrees, W=100, H=200
     image2 = torch.ones((1, 200, 100, 3))
     # After 90 deg rotation, corners swap. W_out should be 200, H_out should be 100.
-    result2, mask2 = node.execute(
+    result2, mask2, video2 = node.execute(
         image=image2,
         translate_x=0.0,
         translate_y=0.0,
@@ -53,7 +84,7 @@ def test_masked_transform_keeps_color_bounded_at_edges(fill_mode):
     image = torch.rand((1, 96, 128, 4))
     mask = torch.rand((1, 96, 128))
 
-    result, _ = ImageOpsTransform().execute(
+    result, _, _ = ImageOpsTransform().execute(
         image=image,
         mask=mask,
         translate_x=7.0,

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from comfy_api.latest import io
+from comfy_api.latest import io, VideoFromList
 import json
 import re
 from typing import Any
@@ -81,7 +81,7 @@ def _coerce_channels(tensor: torch.Tensor, target_channels: int) -> torch.Tensor
     if target_channels == 3 and channels == 4:
         return tensor[..., :3]
     if channels < target_channels:
-        check_budget(batch, h, w, target_channels - channels, label='ImageOps Append (Coerce Channels)')
+        check_budget(batch, h, w, target_channels - channels, label='ImageOps Append (Coerce Channels)', device=tensor.device)
         padding = torch.zeros((batch, h, w, target_channels - channels), device=tensor.device, dtype=tensor.dtype)
         if target_channels >= 4 and channels <= 3:
             padding[..., -1] = 1.0
@@ -92,7 +92,7 @@ def _pad_to_size(source: torch.Tensor, target_w: int, target_h: int, pad_alpha: 
     batch, source_h, source_w, channels = source.shape
     if source_w == target_w and source_h == target_h:
         return source
-    check_budget(batch, target_h, target_w, channels, label='ImageOps Append (Pad to Size)')
+    check_budget(batch, target_h, target_w, channels, label='ImageOps Append (Pad to Size)', device=source.device)
     out = torch.zeros((batch, target_h, target_w, channels), device=source.device, dtype=source.dtype)
     if channels >= 4 and str(pad_alpha or 'opaque').strip().lower() != 'transparent':
         out[..., 3] = 1.0
@@ -137,7 +137,13 @@ class ImageOpsAppend(io.ComfyNode):
         sample_rate = 44100
         audio_list = []
         effective_fps: list[tuple[int, float]] = []
-
+        # Collect each clip's own trimmed VideoInput so the VIDEO output can be built
+        # via VideoFromList (which avoids a full re-encode when every clip is already
+        # a compatible VideoFromFile) instead of always re-encoding the concatenated
+        # tensor. Dropped to None the moment any clip can't participate; the IMAGE
+        # tensor output below is unaffected either way, since it always needs the
+        # decoded frames regardless of this.
+        native_video_sources: list | None = [] if str(fit_mode or 'strict').strip().lower() == 'strict' else None
 
         for clip_index, value in clips:
             video_media = extract_video_media(value)
@@ -158,6 +164,14 @@ class ImageOpsAppend(io.ComfyNode):
             trimmed = tensor[indices]
             tensors.append(trimmed)
             effective_fps.append((clip_index, clip_fps if is_media else float(image_fps)))
+
+            if native_video_sources is not None:
+                is_native_video = not isinstance(value, ImageOpsMedia) and video_media is not None and callable(getattr(value, 'as_trimmed', None))
+                native_trimmed = value.as_trimmed(indices[0] / clip_fps, len(indices) / clip_fps) if is_native_video and clip_fps > 0 else None
+                if native_trimmed is not None:
+                    native_video_sources.append(native_trimmed)
+                else:
+                    native_video_sources = None
 
             if is_media:
                 if not has_media:
@@ -228,10 +242,13 @@ class ImageOpsAppend(io.ComfyNode):
                 if chunks:
                     out_audio = torch.cat(chunks, dim=-1)
             out = ImageOpsMedia(frames=out_tensor, fps=fps, audio=out_audio, sample_rate=sample_rate)
-            video_out = media_to_video(out_tensor, fps, out_audio, sample_rate)
+            if native_video_sources is not None and len(native_video_sources) == len(clips):
+                video_out = VideoFromList(native_video_sources)
+            else:
+                video_out = media_to_video(out_tensor, fps, out_audio, sample_rate)
         else:
             out = out_tensor
-            video_out = media_to_video(out_tensor, 24.0, None, 44100)
+            video_out = media_to_video(out_tensor, float(image_fps), None, 44100)
         progress.finish()
         frame_count = int(out_tensor.shape[0])
         height = int(out_tensor.shape[1])
